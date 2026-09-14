@@ -96,6 +96,15 @@ func createSnapshotFromStore(ctx context.Context, store *Store, outputPath, gate
 	if err != nil {
 		return SnapshotManifest{}, fmt.Errorf("read data schema version: %w", err)
 	}
+	var storedCredentials int
+	if err := store.SystemDB().QueryRowContext(ctx, "SELECT COUNT(*) FROM provider_credentials WHERE ciphertext IS NOT NULL").Scan(&storedCredentials); err != nil && !strings.Contains(err.Error(), "no such table") {
+		return SnapshotManifest{}, fmt.Errorf("inspect provider credentials: %w", err)
+	}
+	if _, err := os.Lstat(filepath.Join(store.DataDir(), "master.key")); storedCredentials > 0 && errors.Is(err, os.ErrNotExist) {
+		return SnapshotManifest{}, errors.New("cannot snapshot stored provider credentials without master.key")
+	} else if err != nil && !errors.Is(err, os.ErrNotExist) {
+		return SnapshotManifest{}, fmt.Errorf("inspect master.key: %w", err)
+	}
 	if closeErr := errors.Join(store.closeDatabases()...); closeErr != nil {
 		return SnapshotManifest{}, closeErr
 	}
@@ -117,7 +126,13 @@ func createSnapshotFromStore(ctx context.Context, store *Store, outputPath, gate
 		CreatedAt:      time.Now().UTC().Format(time.RFC3339Nano),
 		SchemaVersions: map[string]int64{"system": systemVersion, "data": dataVersion},
 	}
-	for _, name := range []string{"system.db", "data.db"} {
+	names := []string{"system.db", "data.db"}
+	if _, err := os.Lstat(filepath.Join(store.DataDir(), "master.key")); err == nil {
+		names = append(names, "master.key")
+	} else if !errors.Is(err, os.ErrNotExist) {
+		return SnapshotManifest{}, fmt.Errorf("inspect master.key: %w", err)
+	}
+	for _, name := range names {
 		destination := filepath.Join(temporary, name)
 		if err := copyProtectedFile(filepath.Join(store.DataDir(), name), destination); err != nil {
 			return SnapshotManifest{}, err
@@ -178,7 +193,7 @@ func RestoreSnapshot(ctx context.Context, snapshotDir, dataDir string) error {
 		return fmt.Errorf("protect restore staging directory: %w", err)
 	}
 	for _, file := range manifest.Files {
-		if file.Name != "system.db" && file.Name != "data.db" {
+		if file.Name != "system.db" && file.Name != "data.db" && file.Name != "master.key" {
 			return fmt.Errorf("unexpected snapshot file %q", file.Name)
 		}
 		if err := copyProtectedFile(filepath.Join(snapshotPath, file.Name), filepath.Join(temporary, file.Name)); err != nil {
@@ -307,7 +322,7 @@ func readManifest(filename string) (SnapshotManifest, error) {
 	if manifest.FormatVersion != SnapshotFormatVersion {
 		return SnapshotManifest{}, fmt.Errorf("unsupported snapshot format %d", manifest.FormatVersion)
 	}
-	if manifest.Generation == "" || len(manifest.Files) != 2 || len(manifest.SchemaVersions) != 2 {
+	if manifest.Generation == "" || (len(manifest.Files) != 2 && len(manifest.Files) != 3) || len(manifest.SchemaVersions) != 2 {
 		return SnapshotManifest{}, errors.New("invalid paired snapshot manifest")
 	}
 	if _, ok := manifest.SchemaVersions["system"]; !ok {
@@ -322,7 +337,7 @@ func readManifest(filename string) (SnapshotManifest, error) {
 func validateSnapshotFiles(directory string, manifest SnapshotManifest) error {
 	seen := map[string]bool{}
 	for _, file := range manifest.Files {
-		if file.Name != "system.db" && file.Name != "data.db" {
+		if file.Name != "system.db" && file.Name != "data.db" && file.Name != "master.key" {
 			return fmt.Errorf("unexpected snapshot file %q", file.Name)
 		}
 		if seen[file.Name] {
@@ -339,6 +354,12 @@ func validateSnapshotFiles(directory string, manifest SnapshotManifest) error {
 	}
 	if !seen["system.db"] || !seen["data.db"] {
 		return errors.New("snapshot does not contain both databases")
+	}
+	if seen["master.key"] {
+		info, err := os.Stat(filepath.Join(directory, "master.key"))
+		if err != nil || info.Size() != 32 || info.Mode().Perm()&0o077 != 0 {
+			return errors.New("snapshot master.key is invalid")
+		}
 	}
 	return nil
 }

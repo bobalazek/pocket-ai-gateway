@@ -1,6 +1,6 @@
 # OpenAI-compatible feature
 
-Root: /api/openai/v1 · Backend owner: internal/features/openaicompat · Requirement: API-01/02/03
+Root: /api/openai/v1 · Backend owner: internal/features/gateway · Requirement: API-01/02/03
 
 Own routes, OpenAI wire types/errors, Chat and Responses event codecs, model-list schema, upstream encoding, and fixtures. No login/session management, independent retry loop, or independent quota logic here.
 
@@ -37,7 +37,7 @@ Errors preserve the OpenAI error envelope:
 
 Chat stream events contain chat.completion.chunk objects with choices/delta; function arguments may arrive as fragments. Responses has a different output-item and event lifecycle: response.created, output-item/content deltas, and terminal response status. Do not reuse Chat chunks as Responses events.
 
-Expose /responses, /embeddings, and /models under the same OpenAI namespace with their own schemas. Native and translated stateless Responses input/tools/output/events are phase 5 requirements. Stateful resource operations are tracked in phase 8, with key ownership and provider affinity.
+Native Chat, embeddings, and models are implemented. Native and translated stateless Responses input/tools/output/events are phase 5 requirements. Stateful resource operations are tracked in phase 8, with key ownership and provider affinity.
 
 An OpenAI-shaped client may target native OpenAI, Anthropic, Gemini, or a certified compatible endpoint. Return OpenAI-shaped output in every case. Preserve model aliases, tool correlation, usage provenance, and error class; reject unmappable semantics before dispatch.
 

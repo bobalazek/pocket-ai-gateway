@@ -1,0 +1,25 @@
+openapi: 3.1.0
+info: { title: Pocket AI Gateway OpenAI-Compatible API, version: 0.4.0 }
+servers: [{ url: /api/openai/v1 }]
+security: [{ bearerAuth: [] }]
+paths:
+  /models:
+    get: { operationId: listOpenAIModels, responses: { "200": { description: Authorized public models }, default: { description: OpenAI-compatible error } } }
+  /models/{id}:
+    get:
+      operationId: getOpenAIModel
+      parameters: [{ name: id, in: path, required: true, schema: { type: string } }]
+      responses: { "200": { description: Authorized public model }, "404": { description: Model unavailable }, default: { description: OpenAI-compatible error } }
+  /chat/completions:
+    post:
+      operationId: createChatCompletion
+      requestBody: { required: true, content: { application/json: { schema: { type: object, required: [model, messages], additionalProperties: true } } } }
+      responses: { "200": { description: Native JSON or text/event-stream response }, default: { description: OpenAI-compatible error } }
+  /embeddings:
+    post:
+      operationId: createEmbedding
+      requestBody: { required: true, content: { application/json: { schema: { type: object, required: [model, input], additionalProperties: true } } } }
+      responses: { "200": { description: Native embedding response }, default: { description: OpenAI-compatible error } }
+components:
+  securitySchemes:
+    bearerAuth: { type: http, scheme: bearer }

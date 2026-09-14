@@ -24,6 +24,10 @@ type AdmissionInput struct {
 	KeyID                 string
 	ConnectionID          string
 	ModelID               string
+	UpstreamModelRecordID string
+	UpstreamModelID       string
+	ConnectionRevision    int64
+	ModelRevision         int64
 	Operation             string
 	Scope                 string
 	Dialect               string
@@ -31,6 +35,8 @@ type AdmissionInput struct {
 	BatchItems            int64
 	EstimatedInputTokens  int64
 	EstimatedOutputTokens int64
+	EnforceOutputBound    bool
+	OutputBounded         bool
 }
 
 type Admission struct {
@@ -114,6 +120,13 @@ func (service *Service) Admit(ctx context.Context, input AdmissionInput) (Admiss
 	} else if !allowed {
 		return Admission{}, ErrDenied
 	}
+	if input.UpstreamModelRecordID != "" {
+		var current bool
+		err := tx.QueryRowContext(ctx, `SELECT EXISTS(SELECT 1 FROM public_models JOIN upstream_models ON upstream_models.id=public_models.target_model_id JOIN provider_connections ON provider_connections.id=public_models.target_connection_id WHERE public_models.id=? AND public_models.target_model_id=? AND public_models.target_connection_id=? AND public_models.revision=? AND upstream_models.upstream_id=? AND public_models.active=1 AND upstream_models.active=1 AND provider_connections.enabled=1 AND provider_connections.revision=?)`, input.ModelID, input.UpstreamModelRecordID, input.ConnectionID, input.ModelRevision, input.UpstreamModelID, input.ConnectionRevision).Scan(&current)
+		if err != nil || !current {
+			return Admission{}, ErrDenied
+		}
+	}
 	ordinal := int64(1)
 	if !firstAttempt {
 		var existingKey, existingOwner, model, operation, dialect, state string
@@ -136,6 +149,13 @@ func (service *Service) Admit(ctx context.Context, input AdmissionInput) (Admiss
 	policies, err := matchingPolicies(ctx, tx, ownerID, input.KeyID, input.ConnectionID)
 	if err != nil {
 		return Admission{}, err
+	}
+	if input.EnforceOutputBound && !input.OutputBounded {
+		for _, policy := range policies {
+			if policy.Metric == "tokens" || policy.Metric == "output_tokens" || policy.Metric == "spend" {
+				return Admission{}, &Denial{PolicyID: policy.ID, Metric: policy.Metric, Reason: "an explicit output token limit is required by the active policy"}
+			}
+		}
 	}
 	var estimatedCost *int64
 	priceVersionID := ""
@@ -176,8 +196,8 @@ func (service *Service) Admit(ctx context.Context, input AdmissionInput) (Admiss
 	} else if _, err := tx.ExecContext(ctx, "UPDATE requests SET state = 'reserved', finished_at = NULL WHERE id = ?", requestID); err != nil {
 		return Admission{}, err
 	}
-	_, err = tx.ExecContext(ctx, `INSERT INTO attempts (id, request_id, ordinal, connection_id, model_id, price_version_id, state, estimated_tokens, estimated_cost_nanos, started_at)
-		VALUES (?, ?, ?, ?, ?, NULLIF(?, ''), 'reserved', ?, ?, ?)`, attemptID, requestID, ordinal, input.ConnectionID, input.ModelID, priceVersionID, estimatedTokens, estimatedCost, effective)
+	_, err = tx.ExecContext(ctx, `INSERT INTO attempts (id, request_id, ordinal, connection_id, model_id, upstream_model_record_id, upstream_model_id, connection_revision, price_version_id, state, estimated_tokens, estimated_cost_nanos, started_at)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, NULLIF(?, ''), 'reserved', ?, ?, ?)`, attemptID, requestID, ordinal, input.ConnectionID, input.ModelID, input.UpstreamModelRecordID, input.UpstreamModelID, input.ConnectionRevision, priceVersionID, estimatedTokens, estimatedCost, effective)
 	if err != nil {
 		return Admission{}, err
 	}

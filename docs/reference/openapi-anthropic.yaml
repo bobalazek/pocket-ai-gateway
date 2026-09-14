@@ -1,0 +1,29 @@
+openapi: 3.1.0
+info: { title: Pocket AI Gateway Anthropic-Compatible API, version: 0.4.0 }
+servers: [{ url: /api/anthropic/v1 }]
+security: [{ apiKey: [] }]
+paths:
+  /models:
+    get: { operationId: listAnthropicModels, parameters: [{ $ref: "#/components/parameters/Version" }], responses: { "200": { description: Authorized public models }, default: { description: Anthropic-compatible error } } }
+  /models/{id}:
+    get:
+      operationId: getAnthropicModel
+      parameters: [{ name: id, in: path, required: true, schema: { type: string } }, { $ref: "#/components/parameters/Version" }]
+      responses: { "200": { description: Authorized public model }, "404": { description: Model unavailable }, default: { description: Anthropic-compatible error } }
+  /messages:
+    post:
+      operationId: createMessage
+      parameters: [{ $ref: "#/components/parameters/Version" }]
+      requestBody: { required: true, content: { application/json: { schema: { type: object, required: [model, messages, max_tokens], additionalProperties: true } } } }
+      responses: { "200": { description: Native JSON or text/event-stream response }, default: { description: Anthropic-compatible error } }
+  /messages/count_tokens:
+    post:
+      operationId: countMessageTokens
+      parameters: [{ $ref: "#/components/parameters/Version" }]
+      requestBody: { required: true, content: { application/json: { schema: { type: object, required: [model, messages], additionalProperties: true } } } }
+      responses: { "200": { description: Native token count }, default: { description: Anthropic-compatible error } }
+components:
+  securitySchemes:
+    apiKey: { type: apiKey, in: header, name: x-api-key }
+  parameters:
+    Version: { name: anthropic-version, in: header, required: true, schema: { type: string, const: "2023-06-01" } }

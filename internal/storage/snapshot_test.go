@@ -61,6 +61,33 @@ func TestPairedSnapshotRestoresBothStores(t *testing.T) {
 	}
 }
 
+func TestSnapshotPreservesProviderMasterKey(t *testing.T) {
+	ctx := context.Background()
+	root, source := t.TempDir(), ""
+	source = filepath.Join(root, "source")
+	store, err := Open(ctx, source)
+	if err != nil {
+		t.Fatal(err)
+	}
+	store.Close()
+	key := []byte("01234567890123456789012345678901")
+	if err := os.WriteFile(filepath.Join(source, "master.key"), key, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	snapshot := filepath.Join(root, "snapshot")
+	if _, err := CreateSnapshot(ctx, source, snapshot, "test"); err != nil {
+		t.Fatal(err)
+	}
+	restored := filepath.Join(root, "restored")
+	if err := RestoreSnapshot(ctx, snapshot, restored); err != nil {
+		t.Fatal(err)
+	}
+	got, err := os.ReadFile(filepath.Join(restored, "master.key"))
+	if err != nil || string(got) != string(key) {
+		t.Fatalf("restored master key mismatch: %v", err)
+	}
+}
+
 func TestRestoreFailureLeavesSourceUntouchedAndRejectsFutureSchema(t *testing.T) {
 	ctx := context.Background()
 	root := t.TempDir()

@@ -1,6 +1,6 @@
 # Phase 4 — First native gateway
 
-Status: planned; no implementation evidence yet. [Plan index](README.md)
+Status: implementation complete; verification evidence recorded below. [Plan index](README.md)
 
 Depends on phases 2–3. Implement the real path end to end through shared admission.
 
@@ -16,3 +16,9 @@ Depends on phases 2–3. Implement the real path end to end through shared admis
 Optional live smoke uses configured credentials and an explicit small spending ceiling. Passing a mock is not described as real-provider certification.
 
 **Blast radius:** external network/credential boundary, stream delivery, and accounting. This remains an internal development milestone until phase 5 acceptance.
+
+## Verification evidence
+
+- Native mock-upstream integration covers OpenAI, Anthropic, Gemini, headers, paths, model rewriting, SSE framing, and usage settlement.
+- Provider tests cover protected master-key persistence, encryption binding, private-network policy, secret non-disclosure, catalog lifecycle, and restart persistence.
+- The repository verification gate covers formatting, static analysis, generated queries, unit/race/frontend tests, supported builds, and copied-binary smoke behavior.

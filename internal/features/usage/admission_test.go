@@ -320,6 +320,29 @@ func TestFullOutboxStopsAdmissionBeforeAccounting(t *testing.T) {
 	}
 }
 
+func TestCancelBeforeDispatchReleasesReservations(t *testing.T) {
+	ctx, service, owner, keyID, store := testService(t)
+	defer store.Close()
+	createPolicy(t, ctx, service, owner, PolicyInput{ScopeKind: "key", ScopeID: keyID, Metric: "requests", Algorithm: "quota", Period: "day", LimitUnits: 1})
+	admission, err := service.Admit(ctx, AdmissionInput{KeyID: keyID, ConnectionID: "conn_test", ModelID: "model_test", Operation: "chat", Scope: "chat:generate", Dialect: "openai"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := service.CancelBeforeDispatch(ctx, admission.AttemptID); err != nil {
+		t.Fatal(err)
+	}
+	var state string
+	var active, reserved int
+	if err := store.SystemDB().QueryRowContext(ctx, "SELECT state FROM attempts WHERE id=?", admission.AttemptID).Scan(&state); err != nil {
+		t.Fatal(err)
+	}
+	_ = store.SystemDB().QueryRowContext(ctx, "SELECT COUNT(*) FROM reservations WHERE attempt_id=? AND state='active'", admission.AttemptID).Scan(&active)
+	_ = store.SystemDB().QueryRowContext(ctx, "SELECT COALESCE(SUM(reserved_units),0) FROM quota_periods").Scan(&reserved)
+	if state != "cancelled_before_dispatch" || active != 0 || reserved != 0 {
+		t.Fatalf("cancel state=%s active=%d reserved=%d", state, active, reserved)
+	}
+}
+
 func TestRecoveryReleasesUndispatchedAndPreservesUnknownReservations(t *testing.T) {
 	ctx, service, owner, keyID, store := testService(t)
 	defer store.Close()

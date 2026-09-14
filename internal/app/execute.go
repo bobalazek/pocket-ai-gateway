@@ -18,6 +18,7 @@ import (
 
 	"github.com/bobalazek/pocket-ai-gateway/internal/credentials"
 	"github.com/bobalazek/pocket-ai-gateway/internal/features/auth"
+	"github.com/bobalazek/pocket-ai-gateway/internal/features/providers"
 	"github.com/bobalazek/pocket-ai-gateway/internal/features/usage"
 	"github.com/bobalazek/pocket-ai-gateway/internal/server"
 	"github.com/bobalazek/pocket-ai-gateway/internal/storage"
@@ -134,6 +135,15 @@ func serve(ctx context.Context, version string, cfg Config, logOutput io.Writer)
 	}
 	authService := auth.New(stores.SystemDB())
 	usageService := usage.New(stores.SystemDB())
+	var storedCredentials int
+	if err := stores.SystemDB().QueryRowContext(ctx, "SELECT COUNT(*) FROM provider_credentials WHERE ciphertext IS NOT NULL").Scan(&storedCredentials); err != nil {
+		return fmt.Errorf("inspect provider credentials: %w", err)
+	}
+	masterKey, err := providers.LoadOrCreateMasterKey(stores.DataDir(), storedCredentials > 0)
+	if err != nil {
+		return fmt.Errorf("load provider credential key: %w", err)
+	}
+	providerService := providers.New(stores.SystemDB(), masterKey)
 	if err := usageService.Recover(ctx); err != nil {
 		return fmt.Errorf("recover usage accounting: %w", err)
 	}
@@ -158,7 +168,7 @@ func serve(ctx context.Context, version string, cfg Config, logOutput io.Writer)
 	go projectUsage(workerContext, stores.SystemDB(), stores.DataDB(), logger, workerDone)
 	defer func() { stopWorker(); <-workerDone }()
 	httpServer := &http.Server{
-		Handler:           server.NewWithUsage(stores.SystemDB(), publicOrigin, usageService),
+		Handler:           server.NewWithServices(stores.SystemDB(), publicOrigin, usageService, providerService),
 		ReadHeaderTimeout: 5 * time.Second,
 		IdleTimeout:       60 * time.Second,
 	}

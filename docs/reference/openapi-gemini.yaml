@@ -1,0 +1,23 @@
+openapi: 3.1.0
+info: { title: Pocket AI Gateway Gemini-Compatible API, version: 0.4.0 }
+servers: [{ url: /api/gemini/v1beta }]
+security: [{ apiKey: [] }]
+paths:
+  /models:
+    get: { operationId: listGeminiModels, responses: { "200": { description: Authorized public models }, default: { description: Gemini-compatible error } } }
+  /models/{model}:
+    get:
+      operationId: getGeminiModel
+      parameters: [{ name: model, in: path, required: true, schema: { type: string } }]
+      responses: { "200": { description: Authorized public model }, "404": { description: Model unavailable }, default: { description: Gemini-compatible error } }
+  /models/{model}:{action}:
+    post:
+      operationId: runGeminiModelAction
+      parameters:
+        - { name: model, in: path, required: true, schema: { type: string } }
+        - { name: action, in: path, required: true, schema: { type: string, enum: [generateContent, streamGenerateContent, countTokens, embedContent, batchEmbedContents] } }
+      requestBody: { required: true, content: { application/json: { schema: { type: object, additionalProperties: true } } } }
+      responses: { "200": { description: Native JSON or text/event-stream response }, default: { description: Gemini-compatible error } }
+components:
+  securitySchemes:
+    apiKey: { type: apiKey, in: header, name: x-goog-api-key }

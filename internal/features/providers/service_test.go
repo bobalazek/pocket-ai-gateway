@@ -1,0 +1,106 @@
+package providers
+
+import (
+	"context"
+	"os"
+	"path/filepath"
+	"testing"
+	"time"
+
+	"github.com/bobalazek/pocket-ai-gateway/internal/features/auth"
+	"github.com/bobalazek/pocket-ai-gateway/internal/storage"
+)
+
+func TestMasterKeyAndStoredCredentialRoundTrip(t *testing.T) {
+	directory := t.TempDir()
+	first, err := LoadOrCreateMasterKey(directory)
+	if err != nil {
+		t.Fatal(err)
+	}
+	second, err := LoadOrCreateMasterKey(directory)
+	if err != nil || string(first) != string(second) {
+		t.Fatalf("master key did not persist: %v", err)
+	}
+	info, err := os.Stat(filepath.Join(directory, "master.key"))
+	if err != nil || info.Mode().Perm() != 0o600 {
+		t.Fatalf("master key mode = %v, %v", info.Mode().Perm(), err)
+	}
+	ciphertext, nonce, err := seal(first, "con_a", "secret")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := openSecret(first, "con_b", ciphertext, nonce); err == nil {
+		t.Fatal("credential opened with wrong connection AAD")
+	}
+}
+
+func TestConnectionModelAndCredentialLifecycle(t *testing.T) {
+	ctx := context.Background()
+	store, err := storage.Open(ctx, filepath.Join(t.TempDir(), "data"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+	owner := auth.User{ID: "usr_owner", Role: "owner", Status: "active"}
+	now := time.Now().UnixMilli()
+	if _, err := store.SystemDB().ExecContext(ctx, "INSERT INTO users (id,email,display_name,password_hash,role,status,inference_unrestricted,created_at,updated_at) VALUES (?,?,?,'hash','owner','active',1,?,?)", owner.ID, "owner@example.test", "Owner", now, now); err != nil {
+		t.Fatal(err)
+	}
+	service := New(store.SystemDB(), make([]byte, 32))
+	if _, err := service.CreateConnection(ctx, owner, ConnectionInput{Name: "blocked", Adapter: "openai", BaseURL: "http://127.0.0.1:9000", Enabled: true}); err == nil {
+		t.Fatal("private HTTP connection was accepted")
+	}
+	connection, err := service.CreateConnection(ctx, owner, ConnectionInput{Name: "Local mock", Adapter: "openai", BaseURL: "http://127.0.0.1:9000/v1", Enabled: true, AllowPrivateNetwork: true, TimeoutMS: 5000})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := service.PutCredential(ctx, owner, connection.ID, "provider-secret", ""); err != nil {
+		t.Fatal(err)
+	}
+	upstream, err := service.CreateUpstreamModel(ctx, owner, connection.ID, "gpt-test", []string{"chat", "embeddings", "chat"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	model, err := service.CreatePublicModel(ctx, owner, "assistant", "Assistant", "", upstream.ID, []string{"chat", "embeddings"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	target, err := service.Target(ctx, model.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if target.Credential != "provider-secret" || target.UpstreamID != "gpt-test" || target.BaseURL != "http://127.0.0.1:9000/v1" {
+		t.Fatalf("target = %#v", target)
+	}
+	connections, err := service.ListConnections(ctx, owner)
+	if err != nil || len(connections) != 1 || connections[0].CredentialState != "stored" {
+		t.Fatalf("connections = %#v, %v", connections, err)
+	}
+	if connections[0].Name == "provider-secret" {
+		t.Fatal("credential leaked through connection")
+	}
+	member := auth.User{ID: "usr_member", Role: "member", Status: "active"}
+	if _, err := store.SystemDB().ExecContext(ctx, `INSERT INTO users (id,email,display_name,password_hash,role,status,scopes_json,model_patterns_json,connection_ids_json,created_at,updated_at) VALUES (?,?,?,'hash','member','active','[]','["assistant"]',?, ?, ?)`, member.ID, "member@example.test", "Member", `["`+connection.ID+`"]`, now, now); err != nil {
+		t.Fatal(err)
+	}
+	visible, err := service.ListVisibleModels(ctx, member)
+	if err != nil || len(visible) != 1 || visible[0].ID != "assistant" {
+		t.Fatalf("visible models = %#v, %v", visible, err)
+	}
+	var audits int
+	if err := store.SystemDB().QueryRowContext(ctx, "SELECT COUNT(*) FROM audit_events WHERE actor_user_id=? AND resource_type IN ('provider_connection','upstream_model','public_model')", owner.ID).Scan(&audits); err != nil || audits != 4 {
+		t.Fatalf("provider audits = %d, %v", audits, err)
+	}
+	if _, err := service.CreatePublicModel(ctx, owner, "bad/id", "Bad", "", upstream.ID, []string{"chat"}); err == nil {
+		t.Fatal("unsafe public model id was accepted")
+	}
+	if err := service.PutCredential(ctx, owner, connection.ID, "", "env:BAD-NAME"); err == nil {
+		t.Fatal("unsafe environment reference was accepted")
+	}
+	if _, err := service.UpdateConnection(ctx, owner, connection.ID, connection.Revision, ConnectionInput{Name: connection.Name, Adapter: connection.Adapter, BaseURL: connection.BaseURL, Enabled: false, AllowPrivateNetwork: true, TimeoutMS: connection.TimeoutMS}); err != nil {
+		t.Fatal(err)
+	}
+	if service.TargetIsCurrent(ctx, target) {
+		t.Fatal("stale target remained current after connection disable")
+	}
+}

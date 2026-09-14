@@ -135,7 +135,7 @@ func TestOpenCreatesVerifiedPreMigrationSnapshot(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := database.ExecContext(ctx, "DROP TABLE event_outbox; DROP TABLE pricing_jobs; DROP TABLE cost_assessments; DROP TABLE usage_ledger; DROP TABLE concurrency_leases; DROP TABLE reservations; DROP TABLE attempts; DROP TABLE price_versions; DROP TABLE requests; DROP TABLE admission_clock; DROP TABLE quota_periods; DROP TABLE bucket_state; DROP TABLE limit_policies; DROP TABLE audit_events; DROP TABLE api_key_secrets; DROP TABLE api_keys; DROP TABLE login_throttles; DROP TABLE activation_tokens; DROP TABLE user_sessions; DROP TABLE setup_tokens; DROP TABLE users; DELETE FROM schema_migrations WHERE version >= 2"); err != nil {
+	if _, err := database.ExecContext(ctx, "DROP TABLE public_models; DROP TABLE upstream_models; DROP TABLE provider_credentials; DROP TABLE provider_connections; DROP TABLE event_outbox; DROP TABLE pricing_jobs; DROP TABLE cost_assessments; DROP TABLE usage_ledger; DROP TABLE concurrency_leases; DROP TABLE reservations; DROP TABLE attempts; DROP TABLE price_versions; DROP TABLE requests; DROP TABLE admission_clock; DROP TABLE quota_periods; DROP TABLE bucket_state; DROP TABLE limit_policies; DROP TABLE audit_events; DROP TABLE api_key_secrets; DROP TABLE api_keys; DROP TABLE login_throttles; DROP TABLE activation_tokens; DROP TABLE user_sessions; DROP TABLE setup_tokens; DROP TABLE users; DELETE FROM schema_migrations WHERE version >= 2"); err != nil {
 		t.Fatal(err)
 	}
 	migrations, err := loadMigrations("system")

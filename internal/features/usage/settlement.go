@@ -30,6 +30,33 @@ type ReconciliationInput struct {
 	IdempotencyKey string `json:"idempotency_key"`
 }
 
+func (service *Service) CancelBeforeDispatch(ctx context.Context, attemptID string) error {
+	tx, err := service.database.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	var requestID, ownerID, keyID, modelID, connectionID string
+	var startedAt int64
+	if err := tx.QueryRowContext(ctx, `SELECT attempts.request_id,requests.owner_user_id,requests.key_id,attempts.model_id,attempts.connection_id,attempts.started_at FROM attempts JOIN requests ON requests.id=attempts.request_id WHERE attempts.id=? AND attempts.state='reserved'`, attemptID).Scan(&requestID, &ownerID, &keyID, &modelID, &connectionID, &startedAt); err != nil {
+		return err
+	}
+	now := service.now().UnixMilli()
+	if err := service.releaseReservations(ctx, tx, attemptID, now); err != nil {
+		return err
+	}
+	if _, err := tx.ExecContext(ctx, "UPDATE attempts SET state='cancelled_before_dispatch',usage_status='estimated',finished_at=? WHERE id=?", now, attemptID); err != nil {
+		return err
+	}
+	if _, err := tx.ExecContext(ctx, "UPDATE requests SET state='cancelled',finished_at=? WHERE id=?", now, requestID); err != nil {
+		return err
+	}
+	if err := appendOutbox(ctx, tx, "request.cancelled_before_dispatch", requestID, attemptID, map[string]any{"owner_user_id": ownerID, "key_id": keyID, "model_id": modelID, "connection_id": connectionID, "started_at": startedAt}, now); err != nil {
+		return err
+	}
+	return tx.Commit()
+}
+
 func (service *Service) Settle(ctx context.Context, attemptID string, input SettlementInput) error {
 	if input.IdempotencyKey == "" || !contains([]string{"succeeded", "failed", "cancelled", "interrupted_unknown"}, input.State) || !contains([]string{"provider_reported", "estimated", "unknown"}, input.UsageStatus) {
 		return errors.New("invalid settlement")

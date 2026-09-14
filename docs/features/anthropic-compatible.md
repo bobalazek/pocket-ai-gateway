@@ -1,6 +1,6 @@
 # Anthropic-compatible feature
 
-Root: /api/anthropic/v1 · SDK base root: /api/anthropic · Backend owner: internal/features/anthropiccompat
+Root: /api/anthropic/v1 · SDK base root: /api/anthropic · Backend owner: internal/features/gateway
 
 Own Messages/count_tokens/models, Anthropic headers/types/errors, content blocks, tool mappings, SSE events, upstream encoding, and fixtures. Authentication validates an inference key; it does not create a browser session.
 

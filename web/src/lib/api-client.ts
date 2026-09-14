@@ -28,6 +28,11 @@ export type PriceVersion = { id: string; connection_id: string; model_id: string
 export type OutboxStatus = { pending_events: number; reserved_events: number; pending_bytes: number; oldest_event_at: string | null; full: boolean };
 export type EffectiveLimit = { policy_id: string; scope_kind: string; metric: string; algorithm: string; period: string; limit_units: number; limit_usd?: string; consumed_units: number; consumed_usd?: string; reserved_units: number; reserved_usd?: string; remaining_units: number; remaining_usd?: string; resets_at: string | null };
 export type UsageFilters = { from?: string; to?: string; user_id?: string; key_id?: string; model_id?: string; connection_id?: string };
+export type ProviderConnection = { id: string; name: string; adapter: "openai" | "anthropic" | "gemini" | "openai_compatible"; base_url: string; enabled: boolean; allow_private_network: boolean; timeout_ms: number; credential_state: "missing" | "stored" | "external"; revision: number; created_at: string; updated_at: string };
+export type UpstreamModel = { id: string; connection_id: string; upstream_id: string; capabilities: string[]; active: boolean };
+export type PublicModel = { id: string; label: string; description: string; target_connection_id: string; target_model_id: string; upstream_id: string; adapter: string; capabilities: string[]; active: boolean; revision: number };
+export type CatalogModel = Pick<PublicModel, "id" | "label" | "description" | "adapter" | "capabilities">;
+export type GatewayRequest = { id: string; owner_user_id: string; key_id: string; operation: string; dialect: string; model_id: string; state: string; started_at: string; finished_at: string | null; attempts: { id: string; ordinal: number; connection_id: string; model_id: string; upstream_model_id: string; state: string; usage_status: string; input_tokens: number; output_tokens: number; cost_usd: string | null; started_at: string }[] };
 
 export function effectiveKeyState(key: GatewayKey, now = Date.now()) {
   return key.state !== "revoked" && key.expires_at && Date.parse(key.expires_at) <= now ? "expired" : key.state;
@@ -53,6 +58,8 @@ type RequestOptions = {
   body?: unknown;
   csrfToken?: string;
   authorization?: string;
+  anthropicKey?: string;
+  geminiKey?: string;
   revision?: number;
   signal?: AbortSignal;
 	redirectOnUnauthorized?: boolean;
@@ -120,6 +127,43 @@ export class GatewayAPIClient {
   adjustUsage(input: { attempt_id: string; delta_usd: string; reason: string; idempotency_key: string }) { return this.request<{ restated_cost_usd: string }>("/api/v1/admin/usage/adjustments", { method: "POST", body: input }); }
 	reconcileUsage(input: { attempt_id: string; input_tokens: number; output_tokens: number; cost_usd?: string; usage_status: "provider_reported" | "estimated"; reason: string; idempotency_key: string }) { return this.request<{ reconciled: boolean }>("/api/v1/admin/usage/reconciliations", { method: "POST", body: input }); }
 
+  providerTypes() { return this.request<{ data: { id: ProviderConnection["adapter"]; capabilities: string[] }[] }>("/api/v1/providers"); }
+  connections() { return this.request<{ data: ProviderConnection[] }>("/api/v1/connections"); }
+  createConnection(input: { name: string; adapter: ProviderConnection["adapter"]; base_url: string; enabled: boolean; allow_private_network: boolean; timeout_ms: number }) { return this.request<{ connection: ProviderConnection }>("/api/v1/connections", { method: "POST", body: input }); }
+  updateConnection(connection: ProviderConnection, input: { name: string; adapter: ProviderConnection["adapter"]; base_url: string; enabled: boolean; allow_private_network: boolean; timeout_ms: number }) { return this.request<{ connection: ProviderConnection }>(`/api/v1/connections/${encodeURIComponent(connection.id)}`, { method: "PATCH", revision: connection.revision, body: input }); }
+  putProviderCredential(id: string, input: { credential?: string; external_ref?: string }) { return this.request<void>(`/api/v1/connections/${encodeURIComponent(id)}/credential`, { method: "PUT", body: input }); }
+  upstreamModels(connectionID: string) { return this.request<{ data: UpstreamModel[] }>(`/api/v1/connections/${encodeURIComponent(connectionID)}/models`); }
+  createUpstreamModel(connectionID: string, input: { upstream_id: string; capabilities: string[] }) { return this.request<{ model: UpstreamModel }>(`/api/v1/connections/${encodeURIComponent(connectionID)}/models`, { method: "POST", body: input }); }
+  publicModels() { return this.request<{ data: CatalogModel[] }>("/api/v1/models"); }
+  createPublicModel(input: { id: string; label: string; description: string; target_model_id: string; capabilities: string[] }) { return this.request<{ model: PublicModel }>("/api/v1/models", { method: "POST", body: input }); }
+  requests(filters: { user_id?: string; key_id?: string; model_id?: string; dialect?: string; cursor?: string } = {}, signal?: AbortSignal) { const query = new URLSearchParams(); for (const [key,value] of Object.entries(filters)) if (value) query.set(key,value); return this.request<{ data: GatewayRequest[]; next_cursor: string; has_more: boolean }>(`/api/v1/requests${query.size ? `?${query}` : ""}`, { signal }); }
+  generate(protocol: "openai" | "anthropic" | "gemini", key: string, model: string, prompt: string, signal?: AbortSignal) {
+    if (protocol === "openai") return this.request<unknown>("/api/openai/v1/chat/completions", { method: "POST", authorization: `Bearer ${key}`, redirectOnUnauthorized: false, signal, body: { model, messages: [{ role: "user", content: prompt }] } });
+    if (protocol === "anthropic") return this.request<unknown>("/api/anthropic/v1/messages", { method: "POST", anthropicKey: key, redirectOnUnauthorized: false, signal, body: { model, max_tokens: 256, messages: [{ role: "user", content: prompt }] } });
+    return this.request<unknown>(`/api/gemini/v1beta/models/${encodeURIComponent(model)}:generateContent`, { method: "POST", geminiKey: key, redirectOnUnauthorized: false, signal, body: { contents: [{ role: "user", parts: [{ text: prompt }] }] } });
+  }
+
+  async streamGenerate(protocol: "openai" | "anthropic" | "gemini", key: string, model: string, prompt: string, onChunk: (chunk: string) => void, signal: AbortSignal) {
+    const path = protocol === "openai" ? "/api/openai/v1/chat/completions" : protocol === "anthropic" ? "/api/anthropic/v1/messages" : `/api/gemini/v1beta/models/${encodeURIComponent(model)}:streamGenerateContent`;
+    assertSameOriginGatewayPath(path);
+    const headers = new Headers({ Accept: "text/event-stream", "Content-Type": "application/json" });
+    if (protocol === "openai") headers.set("Authorization", `Bearer ${key}`);
+    if (protocol === "anthropic") { headers.set("x-api-key", key); headers.set("anthropic-version", "2023-06-01"); }
+    if (protocol === "gemini") headers.set("x-goog-api-key", key);
+    const body = protocol === "openai" ? { model, stream: true, messages: [{ role: "user", content: prompt }] } : protocol === "anthropic" ? { model, stream: true, max_tokens: 256, messages: [{ role: "user", content: prompt }] } : { contents: [{ role: "user", parts: [{ text: prompt }] }] };
+    const response = await this.fetcher(path, { method: "POST", headers, body: JSON.stringify(body), credentials: "same-origin", cache: "no-store", redirect: "error", signal });
+    if (!response.ok) throw await gatewayError(response, path, false);
+    if (!response.body) return;
+    const reader = response.body.getReader();
+    const decoder = new TextDecoder();
+    for (;;) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      onChunk(decoder.decode(value, { stream: true }));
+    }
+    onChunk(decoder.decode());
+  }
+
   async request<T>(path: string, options: RequestOptions = {}): Promise<T> {
     assertSameOriginGatewayPath(path);
     const method = options.method ?? "GET";
@@ -128,6 +172,11 @@ export class GatewayAPIClient {
     const csrfToken = options.csrfToken ?? (method === "GET" ? "" : readCookie("pocket_ai_gateway_csrf"));
     if (csrfToken) headers.set("X-CSRF-Token", csrfToken);
     if (options.authorization) headers.set("Authorization", options.authorization);
+    if (options.anthropicKey) {
+      headers.set("x-api-key", options.anthropicKey);
+      headers.set("anthropic-version", "2023-06-01");
+    }
+    if (options.geminiKey) headers.set("x-goog-api-key", options.geminiKey);
     if (options.revision) headers.set("If-Match", `"${options.revision}"`);
 
     const response = await this.fetcher(path, {

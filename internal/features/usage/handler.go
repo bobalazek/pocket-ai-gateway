@@ -26,6 +26,7 @@ func (handler *Handler) Register(mux *http.ServeMux) {
 	mux.HandleFunc("GET /api/v1/keys/{id}/effective-limits", handler.effectiveLimits)
 	mux.HandleFunc("GET /api/v1/usage", handler.summary)
 	mux.HandleFunc("GET /api/v1/usage/unresolved", handler.unresolved)
+	mux.HandleFunc("GET /api/v1/requests", handler.requests)
 	mux.HandleFunc("GET /api/v1/admin/usage/outbox", handler.outbox)
 	mux.HandleFunc("GET /api/v1/admin/prices", handler.listPrices)
 	mux.HandleFunc("POST /api/v1/admin/prices", handler.createPrice)
@@ -33,6 +34,20 @@ func (handler *Handler) Register(mux *http.ServeMux) {
 	mux.HandleFunc("POST /api/v1/admin/usage/reprice", handler.applyReprice)
 	mux.HandleFunc("POST /api/v1/admin/usage/adjustments", handler.adjust)
 	mux.HandleFunc("POST /api/v1/admin/usage/reconciliations", handler.reconcile)
+}
+
+func (handler *Handler) requests(response http.ResponseWriter, request *http.Request) {
+	current, _, ok := handler.auth.Authorize(response, request)
+	if !ok {
+		return
+	}
+	query := request.URL.Query()
+	items, next, err := handler.service.ListRequests(request.Context(), current.User, UsageQuery{UserID: query.Get("user_id"), KeyID: query.Get("key_id"), ModelID: query.Get("model_id"), Dialect: query.Get("dialect"), Cursor: query.Get("cursor")})
+	if err != nil {
+		handler.writeError(response, err)
+		return
+	}
+	auth.WriteJSON(response, http.StatusOK, map[string]any{"data": items, "next_cursor": next, "has_more": next != ""})
 }
 
 func (handler *Handler) reconcile(response http.ResponseWriter, request *http.Request) {

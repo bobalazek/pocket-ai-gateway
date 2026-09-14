@@ -1,8 +1,8 @@
 openapi: 3.1.0
 info:
   title: Pocket AI Gateway Management API
-  version: 0.3.0
-  description: Implemented identity, limits, usage accounting, and pricing management surface. Compatible inference APIs are specified separately when implemented.
+  version: 0.4.0
+  description: Implemented identity, limits, usage, pricing, provider, model, and request-history management surface. Compatible inference APIs have separate protocol specifications.
 servers:
   - url: /api/v1
 security:

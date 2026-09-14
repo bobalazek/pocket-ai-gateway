@@ -4,7 +4,7 @@ An open-source, local-first foundation for an AI gateway: one executable, an emb
 
 The dashboard foundation uses Next.js, Tailwind CSS, and source-owned shadcn components. See [DESIGN.md](DESIGN.md) for its interface rules, [llms.txt](llms.txt) for concise agent-readable help, and the [operator skill](skills/pocket-ai-gateway-ops/SKILL.md) for agent-assisted health and usage checks.
 
-**Status: Phase 3 complete. The local runtime includes onboarding, users, scoped keys, atomic limits, durable usage accounting, effective-dated pricing, and a Usage dashboard. Provider traffic and inference remain planned. There is no published release yet.**
+**Status: Phase 4 complete. The local runtime includes onboarding, users, scoped keys, limits/accounting, provider and model management, native OpenAI/Anthropic/Gemini forwarding, request history, and a scoped playground. Cross-protocol translation remains planned. There is no published release yet.**
 
 Start with the [product requirements](docs/project/prd.md) and [implementation phases](docs/plan/README.md). The [documentation index](docs/README.md) links the architecture, API boundaries, data model, dashboard, and recovery design.
 
@@ -19,7 +19,7 @@ Prerequisites: Go 1.27.1, Node.js 22 or newer, pnpm 10.30.3, and `curl` for the 
 ./dist/pocket-ai-gateway serve
 ~~~
 
-The server listens on `127.0.0.1:8080`, writes `system.db` and `data.db` under `./pocket_gateway_data`, and serves the dashboard at `http://127.0.0.1:8080/_/`. Flags override `POCKET_AI_GATEWAY_LISTEN` and `POCKET_AI_GATEWAY_DATA_DIR`. A network-facing bind also requires `--public-url https://gateway.example.com`; this pins host/origin checks and secure cookies without trusting forwarded headers.
+The server listens on `127.0.0.1:8080`, writes `system.db`, `data.db`, and the protected provider `master.key` under `./pocket_gateway_data`, and serves the dashboard at `http://127.0.0.1:8080/_/`. Flags override `POCKET_AI_GATEWAY_LISTEN` and `POCKET_AI_GATEWAY_DATA_DIR`. A network-facing bind also requires `--public-url https://gateway.example.com`; this pins host/origin checks and secure cookies without trusting forwarded headers.
 
 On a new data directory, startup prints the setup URL and the path to an owner-only file containing a short-lived code. The first dashboard visit opens `/_/setup/`; enter that code to create the owner account. No default credentials are created.
 

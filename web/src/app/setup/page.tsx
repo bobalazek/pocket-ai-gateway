@@ -24,7 +24,7 @@ export default function SetupPage() {
         email: String(form.get("email") ?? ""),
         password: String(form.get("password") ?? ""),
       });
-      window.location.replace("/_/");
+      window.location.replace("/_/providers/");
     } catch (failure) {
       setError(failure instanceof GatewayAPIError ? failure.message : "Setup could not be completed");
       setSubmitting(false);

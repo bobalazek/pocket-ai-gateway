@@ -46,22 +46,25 @@ type ApiKeySecret struct {
 }
 
 type Attempt struct {
-	ID                  string         `json:"id"`
-	RequestID           string         `json:"request_id"`
-	Ordinal             int64          `json:"ordinal"`
-	ConnectionID        string         `json:"connection_id"`
-	ModelID             string         `json:"model_id"`
-	PriceVersionID      sql.NullString `json:"price_version_id"`
-	State               string         `json:"state"`
-	UsageStatus         string         `json:"usage_status"`
-	EstimatedTokens     int64          `json:"estimated_tokens"`
-	InputTokens         sql.NullInt64  `json:"input_tokens"`
-	OutputTokens        sql.NullInt64  `json:"output_tokens"`
-	EstimatedCostNanos  sql.NullInt64  `json:"estimated_cost_nanos"`
-	AsRecordedCostNanos sql.NullInt64  `json:"as_recorded_cost_nanos"`
-	RestatedCostNanos   sql.NullInt64  `json:"restated_cost_nanos"`
-	StartedAt           int64          `json:"started_at"`
-	FinishedAt          sql.NullInt64  `json:"finished_at"`
+	ID                    string         `json:"id"`
+	RequestID             string         `json:"request_id"`
+	Ordinal               int64          `json:"ordinal"`
+	ConnectionID          string         `json:"connection_id"`
+	ModelID               string         `json:"model_id"`
+	PriceVersionID        sql.NullString `json:"price_version_id"`
+	State                 string         `json:"state"`
+	UsageStatus           string         `json:"usage_status"`
+	EstimatedTokens       int64          `json:"estimated_tokens"`
+	InputTokens           sql.NullInt64  `json:"input_tokens"`
+	OutputTokens          sql.NullInt64  `json:"output_tokens"`
+	EstimatedCostNanos    sql.NullInt64  `json:"estimated_cost_nanos"`
+	AsRecordedCostNanos   sql.NullInt64  `json:"as_recorded_cost_nanos"`
+	RestatedCostNanos     sql.NullInt64  `json:"restated_cost_nanos"`
+	StartedAt             int64          `json:"started_at"`
+	FinishedAt            sql.NullInt64  `json:"finished_at"`
+	UpstreamModelRecordID string         `json:"upstream_model_record_id"`
+	UpstreamModelID       string         `json:"upstream_model_id"`
+	ConnectionRevision    int64          `json:"connection_revision"`
 }
 
 type AuditEvent struct {
@@ -173,6 +176,40 @@ type PricingJob struct {
 	CompletedAt      sql.NullInt64  `json:"completed_at"`
 }
 
+type ProviderConnection struct {
+	ID                  string `json:"id"`
+	Name                string `json:"name"`
+	Adapter             string `json:"adapter"`
+	BaseUrl             string `json:"base_url"`
+	Enabled             int64  `json:"enabled"`
+	AllowPrivateNetwork int64  `json:"allow_private_network"`
+	TimeoutMs           int64  `json:"timeout_ms"`
+	Revision            int64  `json:"revision"`
+	CreatedAt           int64  `json:"created_at"`
+	UpdatedAt           int64  `json:"updated_at"`
+}
+
+type ProviderCredential struct {
+	ConnectionID string         `json:"connection_id"`
+	Ciphertext   []byte         `json:"ciphertext"`
+	Nonce        []byte         `json:"nonce"`
+	ExternalRef  sql.NullString `json:"external_ref"`
+	UpdatedAt    int64          `json:"updated_at"`
+}
+
+type PublicModel struct {
+	ID                 string `json:"id"`
+	Label              string `json:"label"`
+	Description        string `json:"description"`
+	TargetConnectionID string `json:"target_connection_id"`
+	TargetModelID      string `json:"target_model_id"`
+	CapabilitiesJson   string `json:"capabilities_json"`
+	Active             int64  `json:"active"`
+	Revision           int64  `json:"revision"`
+	CreatedAt          int64  `json:"created_at"`
+	UpdatedAt          int64  `json:"updated_at"`
+}
+
 type QuotaPeriod struct {
 	PolicyID        string        `json:"policy_id"`
 	PeriodStart     int64         `json:"period_start"`
@@ -210,6 +247,16 @@ type SetupToken struct {
 	Verifier      []byte         `json:"verifier"`
 	ExpiresAt     int64          `json:"expires_at"`
 	ClaimedUserID sql.NullString `json:"claimed_user_id"`
+}
+
+type UpstreamModel struct {
+	ID               string `json:"id"`
+	ConnectionID     string `json:"connection_id"`
+	UpstreamID       string `json:"upstream_id"`
+	CapabilitiesJson string `json:"capabilities_json"`
+	Active           int64  `json:"active"`
+	CreatedAt        int64  `json:"created_at"`
+	UpdatedAt        int64  `json:"updated_at"`
 }
 
 type UsageLedger struct {
