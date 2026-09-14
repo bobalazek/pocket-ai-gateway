@@ -1,0 +1,46 @@
+# Pocket AI Gateway
+
+Pocket AI Gateway is an open-source, local-first AI gateway packaged as one Go executable with an embedded Next.js dashboard and two protected SQLite databases.
+
+## Current implementation
+
+- Phases 1–2 provide the local runtime, secure owner setup/recovery, login and sessions, owner/admin/member accounts, scoped rotating API keys, instance locking, and paired snapshot/restore.
+- `GET /healthz` returns process liveness.
+- `GET /_/` opens the embedded dashboard.
+- `GET /_/status/` shows the local runtime readiness screen.
+- Implemented auth endpoints cover setup, activation, login/logout, current/all owned sessions, session revocation, password change, and `PATCH /api/v1/me`.
+- Implemented management endpoints cover `/api/v1/admin/users`, owner transfer, one-time activation/recovery codes, and owned `/api/v1/keys` lifecycle/rotation.
+- A new instance prints the setup URL and the path to an owner-only `setup-code` file. Never expose that file's contents in agent output.
+- Provider forwarding, limits, usage accounting, and the remaining management APIs are not implemented yet.
+
+## Stable namespace plan
+
+- OpenAI-compatible API: `/api/openai/v1/`
+- Anthropic-compatible API: `/api/anthropic/v1/`
+- Gemini-compatible API: `/api/gemini/v1beta/`
+- Gateway management API: `/api/v1/`
+- Authentication API: `/api/v1/auth/`
+- Administrative API: `/api/v1/admin/`
+
+The URL path selects the client protocol. Headers never switch a request between OpenAI, Anthropic, or Gemini response formats.
+
+## Operator commands
+
+- `pocket-ai-gateway serve`
+- `pocket-ai-gateway snapshot --output <directory>`
+- `pocket-ai-gateway restore --snapshot <directory>`
+- `pocket-ai-gateway owner-reset --data-dir <directory>`
+- `pocket-ai-gateway version`
+
+The server listens on `127.0.0.1:8080` and stores data in `pocket_gateway_data` unless flags or environment variables override those process settings.
+
+## Documentation
+
+- Product requirements: `docs/project/prd.md`
+- Architecture: `docs/architecture/README.md`
+- API boundaries: `docs/reference/api.md`
+- Operations and recovery: `docs/guides/operations.md`
+- Delivery phases: `docs/plan/README.md`
+- Decisions: `docs/project/decisions/README.md`
+
+Do not treat planned endpoints as implemented. Unknown prices are not zero, health output is not an authorization signal, and no public telemetry is enabled by default.

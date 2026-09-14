@@ -1,0 +1,23 @@
+# Runtime data and local credentials
+/pocket_gateway_data/
+.env
+.env.*
+!.env.example
+*.key
+*.pgb
+setup-code
+recovery-code
+
+# Build/dependency output
+/dist/
+/web/.next/
+/web/out/
+/web/node_modules/
+/web/public/llms.txt
+/node_modules/
+/.pnpm-store/
+/.impeccable/review/
+*.tsbuildinfo
+
+# Local editor/OS files
+.DS_Store

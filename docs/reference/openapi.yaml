@@ -1,0 +1,655 @@
+openapi: 3.1.0
+info:
+  title: Pocket AI Gateway Management API
+  version: 0.2.0
+  description: Implemented Phase 2 management surface. Compatible inference APIs are specified separately when implemented.
+servers:
+  - url: /api/v1
+security:
+  - sessionCookie: []
+paths:
+  /auth/setup/status:
+    get:
+      security: []
+      operationId: setupStatus
+      responses:
+        "200":
+          description: Safe setup state
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [setup_required, setup_recovery_available]
+                properties:
+                  setup_required: { type: boolean }
+                  setup_recovery_available: { type: boolean }
+        "503": { $ref: "#/components/responses/ServiceUnavailable" }
+        default: { $ref: "#/components/responses/Error" }
+  /auth/setup/claim:
+    post:
+      security: []
+      operationId: claimOwner
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/OwnerClaim" }
+      responses:
+        "201": { $ref: "#/components/responses/User" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "409": { $ref: "#/components/responses/Conflict" }
+        "413": { $ref: "#/components/responses/PayloadTooLarge" }
+        "415": { $ref: "#/components/responses/UnsupportedMediaType" }
+        "429": { $ref: "#/components/responses/TooManyRequests" }
+        "503": { $ref: "#/components/responses/ServiceUnavailable" }
+        default: { $ref: "#/components/responses/Error" }
+  /auth/login:
+    post:
+      security: []
+      operationId: login
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [email, password]
+              properties:
+                email: { type: string, format: email, maxLength: 254 }
+                password: { type: string, format: password, maxLength: 1024, writeOnly: true }
+      responses:
+        "200": { $ref: "#/components/responses/User" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "413": { $ref: "#/components/responses/PayloadTooLarge" }
+        "415": { $ref: "#/components/responses/UnsupportedMediaType" }
+        "429": { $ref: "#/components/responses/TooManyRequests" }
+        "503": { $ref: "#/components/responses/ServiceUnavailable" }
+        default: { $ref: "#/components/responses/Error" }
+  /auth/activate:
+    post:
+      security: []
+      operationId: activateAccount
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [code, password]
+              properties:
+                code: { type: string, writeOnly: true }
+                password: { type: string, format: password, minLength: 12, maxLength: 1024, writeOnly: true }
+      responses:
+        "200": { $ref: "#/components/responses/User" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "413": { $ref: "#/components/responses/PayloadTooLarge" }
+        "415": { $ref: "#/components/responses/UnsupportedMediaType" }
+        "429": { $ref: "#/components/responses/TooManyRequests" }
+        "503": { $ref: "#/components/responses/ServiceUnavailable" }
+        default: { $ref: "#/components/responses/Error" }
+  /auth/logout:
+    post:
+      operationId: logout
+      parameters: [{ $ref: "#/components/parameters/CSRF" }]
+      responses:
+        "204": { description: Session revoked }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "503": { $ref: "#/components/responses/ServiceUnavailable" }
+        default: { $ref: "#/components/responses/Error" }
+  /auth/session:
+    get:
+      operationId: currentSession
+      responses:
+        "200":
+          description: Current user and session
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [user, session]
+                properties:
+                  user: { $ref: "#/components/schemas/User" }
+                  session: { $ref: "#/components/schemas/Session" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "503": { $ref: "#/components/responses/ServiceUnavailable" }
+        default: { $ref: "#/components/responses/Error" }
+  /auth/sessions:
+    get:
+      operationId: listSessions
+      responses:
+        "200":
+          description: Owned sessions
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [items]
+                properties:
+                  items: { type: array, items: { $ref: "#/components/schemas/Session" } }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "503": { $ref: "#/components/responses/ServiceUnavailable" }
+        default: { $ref: "#/components/responses/Error" }
+  /auth/sessions/{id}:
+    delete:
+      operationId: revokeSession
+      parameters:
+        - { $ref: "#/components/parameters/ID" }
+        - { $ref: "#/components/parameters/CSRF" }
+      responses:
+        "204": { description: Session revoked }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "503": { $ref: "#/components/responses/ServiceUnavailable" }
+        default: { $ref: "#/components/responses/Error" }
+  /auth/password:
+    post:
+      operationId: changePassword
+      parameters: [{ $ref: "#/components/parameters/CSRF" }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [current_password, new_password]
+              properties:
+                current_password: { type: string, format: password, writeOnly: true }
+                new_password: { type: string, format: password, minLength: 12, maxLength: 1024, writeOnly: true }
+      responses:
+        "204": { description: Password changed; other sessions revoked }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "413": { $ref: "#/components/responses/PayloadTooLarge" }
+        "415": { $ref: "#/components/responses/UnsupportedMediaType" }
+        "429": { $ref: "#/components/responses/TooManyRequests" }
+        "503": { $ref: "#/components/responses/ServiceUnavailable" }
+        default: { $ref: "#/components/responses/Error" }
+  /me:
+    get:
+      operationId: getProfile
+      responses:
+        "200": { $ref: "#/components/responses/User" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "503": { $ref: "#/components/responses/ServiceUnavailable" }
+        default: { $ref: "#/components/responses/Error" }
+    patch:
+      operationId: updateProfile
+      parameters: [{ $ref: "#/components/parameters/CSRF" }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [email, display_name]
+              properties:
+                email: { type: string, format: email, maxLength: 254 }
+                display_name: { type: string, minLength: 1, maxLength: 100 }
+                current_password: { type: string, format: password, writeOnly: true, description: Required when email changes }
+      responses:
+        "200": { $ref: "#/components/responses/User" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "413": { $ref: "#/components/responses/PayloadTooLarge" }
+        "415": { $ref: "#/components/responses/UnsupportedMediaType" }
+        "429": { $ref: "#/components/responses/TooManyRequests" }
+        "503": { $ref: "#/components/responses/ServiceUnavailable" }
+        default: { $ref: "#/components/responses/Error" }
+  /admin/users:
+    get:
+      operationId: listUsers
+      parameters:
+        - { $ref: "#/components/parameters/Limit" }
+        - { $ref: "#/components/parameters/Cursor" }
+      responses:
+        "200": { $ref: "#/components/responses/UserPage" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "503": { $ref: "#/components/responses/ServiceUnavailable" }
+        default: { $ref: "#/components/responses/Error" }
+    post:
+      operationId: createUser
+      parameters: [{ $ref: "#/components/parameters/CSRF" }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [email, display_name, role, grants]
+              properties:
+                email: { type: string, format: email, maxLength: 254 }
+                display_name: { type: string, minLength: 1, maxLength: 100 }
+                role: { type: string, enum: [admin, member] }
+                grants: { $ref: "#/components/schemas/Grants" }
+      responses:
+        "201":
+          description: User and one-time activation code
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [user, activation_code]
+                properties:
+                  user: { $ref: "#/components/schemas/ManagedUser" }
+                  activation_code: { type: string, writeOnly: true }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "409": { $ref: "#/components/responses/Conflict" }
+        "413": { $ref: "#/components/responses/PayloadTooLarge" }
+        "415": { $ref: "#/components/responses/UnsupportedMediaType" }
+        "503": { $ref: "#/components/responses/ServiceUnavailable" }
+        default: { $ref: "#/components/responses/Error" }
+  /admin/users/{id}:
+    get:
+      operationId: getUser
+      parameters: [{ $ref: "#/components/parameters/ID" }]
+      responses:
+        "200": { $ref: "#/components/responses/ManagedUser" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "503": { $ref: "#/components/responses/ServiceUnavailable" }
+        default: { $ref: "#/components/responses/Error" }
+    patch:
+      operationId: updateUser
+      parameters:
+        - { $ref: "#/components/parameters/ID" }
+        - { $ref: "#/components/parameters/Revision" }
+        - { $ref: "#/components/parameters/CSRF" }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              properties:
+                email: { type: string, format: email, maxLength: 254 }
+                display_name: { type: string, minLength: 1, maxLength: 100 }
+                status: { type: string, enum: [active, suspended] }
+      responses:
+        "200": { $ref: "#/components/responses/ManagedUser" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "409": { $ref: "#/components/responses/Conflict" }
+        "413": { $ref: "#/components/responses/PayloadTooLarge" }
+        "415": { $ref: "#/components/responses/UnsupportedMediaType" }
+        "428": { $ref: "#/components/responses/PreconditionRequired" }
+        "503": { $ref: "#/components/responses/ServiceUnavailable" }
+        default: { $ref: "#/components/responses/Error" }
+  /admin/users/{id}/{purpose}-code:
+    post:
+      operationId: issueUserCode
+      parameters:
+        - { $ref: "#/components/parameters/ID" }
+        - { name: purpose, in: path, required: true, schema: { type: string, enum: [activation, recovery] } }
+        - { $ref: "#/components/parameters/CSRF" }
+      responses:
+        "201":
+          description: One-time 24-hour code
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [code]
+                properties:
+                  code: { type: string, writeOnly: true }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "503": { $ref: "#/components/responses/ServiceUnavailable" }
+        default: { $ref: "#/components/responses/Error" }
+  /admin/users/{id}/grants:
+    put:
+      operationId: updateUserGrants
+      parameters:
+        - { $ref: "#/components/parameters/ID" }
+        - { $ref: "#/components/parameters/Revision" }
+        - { $ref: "#/components/parameters/CSRF" }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/Grants" }
+      responses:
+        "200": { $ref: "#/components/responses/ManagedUser" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "409": { $ref: "#/components/responses/Conflict" }
+        "413": { $ref: "#/components/responses/PayloadTooLarge" }
+        "415": { $ref: "#/components/responses/UnsupportedMediaType" }
+        "428": { $ref: "#/components/responses/PreconditionRequired" }
+        "503": { $ref: "#/components/responses/ServiceUnavailable" }
+        default: { $ref: "#/components/responses/Error" }
+  /admin/owner/transfer:
+    post:
+      operationId: transferOwner
+      parameters: [{ $ref: "#/components/parameters/CSRF" }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [user_id, revision]
+              properties:
+                user_id: { type: string }
+                revision: { type: integer, minimum: 1 }
+      responses:
+        "204": { description: Ownership transferred; both users signed out }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "409": { $ref: "#/components/responses/Conflict" }
+        "413": { $ref: "#/components/responses/PayloadTooLarge" }
+        "415": { $ref: "#/components/responses/UnsupportedMediaType" }
+        "503": { $ref: "#/components/responses/ServiceUnavailable" }
+        default: { $ref: "#/components/responses/Error" }
+  /keys:
+    get:
+      operationId: listKeys
+      parameters:
+        - { $ref: "#/components/parameters/Limit" }
+        - { $ref: "#/components/parameters/Cursor" }
+      responses:
+        "200": { $ref: "#/components/responses/KeyPage" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "503": { $ref: "#/components/responses/ServiceUnavailable" }
+        default: { $ref: "#/components/responses/Error" }
+    post:
+      operationId: createKey
+      parameters: [{ $ref: "#/components/parameters/CSRF" }]
+      requestBody: { $ref: "#/components/requestBodies/KeyInput" }
+      responses:
+        "201": { $ref: "#/components/responses/KeySecret" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "413": { $ref: "#/components/responses/PayloadTooLarge" }
+        "415": { $ref: "#/components/responses/UnsupportedMediaType" }
+        "503": { $ref: "#/components/responses/ServiceUnavailable" }
+        default: { $ref: "#/components/responses/Error" }
+  /keys/{id}:
+    get:
+      operationId: getKey
+      parameters: [{ $ref: "#/components/parameters/ID" }]
+      responses:
+        "200": { $ref: "#/components/responses/Key" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "503": { $ref: "#/components/responses/ServiceUnavailable" }
+        default: { $ref: "#/components/responses/Error" }
+    patch:
+      operationId: updateKey
+      parameters:
+        - { $ref: "#/components/parameters/ID" }
+        - { $ref: "#/components/parameters/Revision" }
+        - { $ref: "#/components/parameters/CSRF" }
+      requestBody: { $ref: "#/components/requestBodies/KeyInput" }
+      responses:
+        "200": { $ref: "#/components/responses/Key" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "409": { $ref: "#/components/responses/Conflict" }
+        "413": { $ref: "#/components/responses/PayloadTooLarge" }
+        "415": { $ref: "#/components/responses/UnsupportedMediaType" }
+        "428": { $ref: "#/components/responses/PreconditionRequired" }
+        "503": { $ref: "#/components/responses/ServiceUnavailable" }
+        default: { $ref: "#/components/responses/Error" }
+    delete:
+      operationId: revokeKey
+      parameters:
+        - { $ref: "#/components/parameters/ID" }
+        - { $ref: "#/components/parameters/Revision" }
+        - { $ref: "#/components/parameters/CSRF" }
+      responses:
+        "204": { description: Key and all secrets revoked }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "409": { $ref: "#/components/responses/Conflict" }
+        "428": { $ref: "#/components/responses/PreconditionRequired" }
+        "503": { $ref: "#/components/responses/ServiceUnavailable" }
+        default: { $ref: "#/components/responses/Error" }
+  /keys/{id}/rotate:
+    post:
+      operationId: rotateKey
+      parameters:
+        - { $ref: "#/components/parameters/ID" }
+        - { $ref: "#/components/parameters/Revision" }
+        - { $ref: "#/components/parameters/CSRF" }
+      responses:
+        "200": { $ref: "#/components/responses/KeySecret" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "409": { $ref: "#/components/responses/Conflict" }
+        "428": { $ref: "#/components/responses/PreconditionRequired" }
+        "503": { $ref: "#/components/responses/ServiceUnavailable" }
+        default: { $ref: "#/components/responses/Error" }
+components:
+  securitySchemes:
+    sessionCookie: { type: apiKey, in: cookie, name: pocket_ai_gateway_session }
+  parameters:
+    ID: { name: id, in: path, required: true, schema: { type: string } }
+    CSRF: { name: X-CSRF-Token, in: header, required: true, schema: { type: string }, description: Must equal the readable strict SameSite CSRF cookie }
+    Revision: { name: If-Match, in: header, required: true, schema: { type: string, pattern: '^"[1-9][0-9]*"$' } }
+    Limit: { name: limit, in: query, schema: { type: integer, minimum: 1, maximum: 200, default: 50 } }
+    Cursor: { name: cursor, in: query, schema: { type: string } }
+  requestBodies:
+    KeyInput:
+      required: true
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/KeyInput" }
+  responses:
+    Error:
+      description: Unexpected management API error
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/Error" }
+    BadRequest:
+      description: Invalid request
+      content: { application/json: { schema: { $ref: "#/components/schemas/Error" } } }
+    Unauthorized:
+      description: Authentication failed or is required
+      content: { application/json: { schema: { $ref: "#/components/schemas/Error" } } }
+    Forbidden:
+      description: The request is not permitted or could not be verified
+      content: { application/json: { schema: { $ref: "#/components/schemas/Error" } } }
+    NotFound:
+      description: Resource not found
+      content: { application/json: { schema: { $ref: "#/components/schemas/Error" } } }
+    Conflict:
+      description: Resource state conflict
+      content: { application/json: { schema: { $ref: "#/components/schemas/Error" } } }
+    PayloadTooLarge:
+      description: Request body exceeds 64 KiB
+      content: { application/json: { schema: { $ref: "#/components/schemas/Error" } } }
+    UnsupportedMediaType:
+      description: Content-Type must be application/json
+      content: { application/json: { schema: { $ref: "#/components/schemas/Error" } } }
+    PreconditionRequired:
+      description: A current revision is required in If-Match
+      content: { application/json: { schema: { $ref: "#/components/schemas/Error" } } }
+    TooManyRequests:
+      description: Too many authentication attempts
+      content: { application/json: { schema: { $ref: "#/components/schemas/Error" } } }
+    ServiceUnavailable:
+      description: Required storage is unavailable
+      content: { application/json: { schema: { $ref: "#/components/schemas/Error" } } }
+    User:
+      description: User resource
+      content:
+        application/json:
+          schema:
+            type: object
+            required: [user]
+            properties:
+              user: { $ref: "#/components/schemas/User" }
+    UserPage:
+      description: Role-scoped user page
+      content:
+        application/json:
+          schema:
+            allOf:
+              - { $ref: "#/components/schemas/Page" }
+              - type: object
+                properties:
+                  data: { type: array, items: { $ref: "#/components/schemas/ManagedUser" } }
+    ManagedUser:
+      description: Revisioned administrative user resource
+      content:
+        application/json:
+          schema:
+            type: object
+            required: [user]
+            properties:
+              user: { $ref: "#/components/schemas/ManagedUser" }
+    Key:
+      description: API key without secret
+      content:
+        application/json:
+          schema:
+            type: object
+            required: [key]
+            properties:
+              key: { $ref: "#/components/schemas/APIKey" }
+    KeySecret:
+      description: API key plus one-time secret
+      content:
+        application/json:
+          schema:
+            type: object
+            required: [key, secret]
+            properties:
+              key: { $ref: "#/components/schemas/APIKey" }
+              secret: { type: string, writeOnly: true }
+    KeyPage:
+      description: Owned API-key page
+      content:
+        application/json:
+          schema:
+            allOf:
+              - { $ref: "#/components/schemas/Page" }
+              - type: object
+                properties:
+                  data: { type: array, items: { $ref: "#/components/schemas/APIKey" } }
+  schemas:
+    OwnerClaim:
+      type: object
+      additionalProperties: false
+      required: [setup_code, email, display_name, password]
+      properties:
+        setup_code: { type: string, writeOnly: true }
+        email: { type: string, format: email, maxLength: 254 }
+        display_name: { type: string, minLength: 1, maxLength: 100 }
+        password: { type: string, format: password, minLength: 12, maxLength: 1024, writeOnly: true }
+    User:
+      type: object
+      required: [id, email, display_name, role, status, grants]
+      properties:
+        id: { type: string }
+        email: { type: string, format: email }
+        display_name: { type: string }
+        role: { type: string, enum: [owner, admin, member] }
+        status: { type: string, enum: [active, suspended, pending_activation, archived] }
+        grants: { $ref: "#/components/schemas/Grants" }
+    ManagedUser:
+      allOf:
+        - { $ref: "#/components/schemas/User" }
+        - type: object
+          required: [revision, created_at, updated_at, grants]
+          properties:
+            revision: { type: integer, minimum: 1 }
+            created_at: { type: string, format: date-time }
+            updated_at: { type: string, format: date-time }
+            grants: { $ref: "#/components/schemas/Grants" }
+    Grants:
+      type: object
+      additionalProperties: false
+      required: [unrestricted, scopes, model_patterns, connection_ids]
+      properties:
+        unrestricted: { type: boolean, description: Read-only true for the owner; user writes are forced false }
+        scopes: { type: array, maxItems: 100, uniqueItems: true, items: { type: string, enum: [chat:generate, responses:generate, embeddings:generate, models:read, tokens:count] } }
+        model_patterns: { type: array, maxItems: 100, uniqueItems: true, items: { type: string, minLength: 1, maxLength: 200 } }
+        connection_ids: { type: array, maxItems: 100, uniqueItems: true, items: { type: string, minLength: 1, maxLength: 200 } }
+    Session:
+      type: object
+      required: [id, current, created_at, last_seen_at, expires_at, authenticated_at, user_agent]
+      properties:
+        id: { type: string }
+        current: { type: boolean }
+        created_at: { type: string, format: date-time }
+        last_seen_at: { type: string, format: date-time }
+        expires_at: { type: string, format: date-time }
+        authenticated_at: { type: string, format: date-time }
+        user_agent: { type: string }
+    KeyInput:
+      type: object
+      additionalProperties: false
+      required: [label, scopes, model_patterns, connection_ids, expires_at]
+      properties:
+        label: { type: string, minLength: 1, maxLength: 100 }
+        state: { type: string, enum: [active, disabled] }
+        scopes: { type: array, uniqueItems: true, items: { type: string, enum: [chat:generate, responses:generate, embeddings:generate, models:read, tokens:count] } }
+        model_patterns: { type: array, maxItems: 100, uniqueItems: true, items: { type: string, minLength: 1, maxLength: 200 } }
+        connection_ids: { type: array, maxItems: 100, uniqueItems: true, items: { type: string, minLength: 1, maxLength: 200 } }
+        expires_at: { oneOf: [{ type: string, format: date-time }, { type: string, maxLength: 0 }] }
+    APIKey:
+      type: object
+      required: [id, label, state, scopes, model_patterns, connection_ids, expires_at, revision, created_at, updated_at]
+      properties:
+        id: { type: string }
+        label: { type: string, minLength: 1, maxLength: 100 }
+        state: { type: string, enum: [active, disabled, revoked] }
+        scopes: { type: array, uniqueItems: true, items: { type: string } }
+        model_patterns: { type: array, uniqueItems: true, items: { type: string } }
+        connection_ids: { type: array, uniqueItems: true, items: { type: string } }
+        expires_at: { type: [string, "null"], format: date-time }
+        revision: { type: integer, minimum: 1 }
+        created_at: { type: string, format: date-time }
+        updated_at: { type: string, format: date-time }
+    Page:
+      type: object
+      required: [data, next_cursor, has_more]
+      properties:
+        next_cursor: { type: string }
+        has_more: { type: boolean }
+    Error:
+      type: object
+      required: [error]
+      properties:
+        error:
+          type: object
+          required: [code, message]
+          properties:
+            code: { type: string }
+            message: { type: string }
