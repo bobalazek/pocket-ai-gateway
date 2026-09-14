@@ -20,27 +20,31 @@ const (
 )
 
 type AdmissionInput struct {
-	RequestID             string
-	KeyID                 string
-	ConnectionID          string
-	ModelID               string
-	UpstreamModelRecordID string
-	UpstreamModelID       string
-	ConnectionRevision    int64
-	ModelRevision         int64
-	Operation             string
-	TargetOperation       string
-	Scope                 string
-	Dialect               string
-	TargetDialect         string
-	TranslationApplied    bool
-	RequestToolCount      int64
-	BodyBytes             int64
-	BatchItems            int64
-	EstimatedInputTokens  int64
-	EstimatedOutputTokens int64
-	EnforceOutputBound    bool
-	OutputBounded         bool
+	RequestID              string
+	KeyID                  string
+	ConnectionID           string
+	ModelID                string
+	UpstreamModelRecordID  string
+	UpstreamModelID        string
+	ConnectionRevision     int64
+	ModelRevision          int64
+	Operation              string
+	TargetOperation        string
+	Scope                  string
+	Dialect                string
+	TargetDialect          string
+	TranslationApplied     bool
+	RequestToolCount       int64
+	SelectionReason        string
+	RejectedCandidatesJSON string
+	RequiredPriceVersionID string
+	RequireFreePrice       bool
+	BodyBytes              int64
+	BatchItems             int64
+	EstimatedInputTokens   int64
+	EstimatedOutputTokens  int64
+	EnforceOutputBound     bool
+	OutputBounded          bool
 }
 
 type Admission struct {
@@ -82,7 +86,10 @@ func (service *Service) Admit(ctx context.Context, input AdmissionInput) (Admiss
 	if input.TargetDialect == "" {
 		input.TargetDialect = input.Dialect
 	}
-	if input.KeyID == "" || input.ConnectionID == "" || input.ModelID == "" || input.Operation == "" || input.TargetOperation == "" || input.Scope == "" || input.Dialect == "" || input.TargetDialect == "" || len(input.KeyID) > 200 || len(input.ConnectionID) > 200 || len(input.ModelID) > 200 || len(input.Operation) > 100 || len(input.TargetOperation) > 300 || len(input.Scope) > 100 || len(input.Dialect) > 50 || len(input.TargetDialect) > 50 || input.BodyBytes < 0 || input.BatchItems < 0 || input.RequestToolCount < 0 || input.EstimatedInputTokens < 0 || input.EstimatedOutputTokens < 0 {
+	if input.RejectedCandidatesJSON == "" {
+		input.RejectedCandidatesJSON = "[]"
+	}
+	if input.KeyID == "" || input.ConnectionID == "" || input.ModelID == "" || input.Operation == "" || input.TargetOperation == "" || input.Scope == "" || input.Dialect == "" || input.TargetDialect == "" || len(input.KeyID) > 200 || len(input.ConnectionID) > 200 || len(input.ModelID) > 200 || len(input.Operation) > 100 || len(input.TargetOperation) > 300 || len(input.Scope) > 100 || len(input.Dialect) > 50 || len(input.TargetDialect) > 50 || len(input.SelectionReason) > 500 || len(input.RejectedCandidatesJSON) > 16_384 || len(input.RequiredPriceVersionID) > 200 || input.RequireFreePrice && input.RequiredPriceVersionID == "" || !json.Valid([]byte(input.RejectedCandidatesJSON)) || input.BodyBytes < 0 || input.BatchItems < 0 || input.RequestToolCount < 0 || input.EstimatedInputTokens < 0 || input.EstimatedOutputTokens < 0 {
 		return Admission{}, errors.New("invalid admission input")
 	}
 	estimatedTokens, ok := checkedAdd(input.EstimatedInputTokens, input.EstimatedOutputTokens)
@@ -132,7 +139,7 @@ func (service *Service) Admit(ctx context.Context, input AdmissionInput) (Admiss
 	}
 	if input.UpstreamModelRecordID != "" {
 		var current bool
-		err := tx.QueryRowContext(ctx, `SELECT EXISTS(SELECT 1 FROM public_models JOIN upstream_models ON upstream_models.id=public_models.target_model_id JOIN provider_connections ON provider_connections.id=public_models.target_connection_id WHERE public_models.id=? AND public_models.target_model_id=? AND public_models.target_connection_id=? AND public_models.revision=? AND upstream_models.upstream_id=? AND public_models.active=1 AND upstream_models.active=1 AND provider_connections.enabled=1 AND provider_connections.revision=?)`, input.ModelID, input.UpstreamModelRecordID, input.ConnectionID, input.ModelRevision, input.UpstreamModelID, input.ConnectionRevision).Scan(&current)
+		err := tx.QueryRowContext(ctx, `SELECT EXISTS(SELECT 1 FROM public_models JOIN public_model_targets ON public_model_targets.public_model_id=public_models.id JOIN upstream_models ON upstream_models.id=public_model_targets.upstream_model_id JOIN provider_connections ON provider_connections.id=upstream_models.connection_id WHERE public_models.id=? AND upstream_models.id=? AND provider_connections.id=? AND public_models.revision=? AND upstream_models.upstream_id=? AND public_models.active=1 AND public_model_targets.enabled=1 AND upstream_models.active=1 AND provider_connections.enabled=1 AND provider_connections.revision=?)`, input.ModelID, input.UpstreamModelRecordID, input.ConnectionID, input.ModelRevision, input.UpstreamModelID, input.ConnectionRevision).Scan(&current)
 		if err != nil || !current {
 			return Admission{}, ErrDenied
 		}
@@ -171,6 +178,9 @@ func (service *Service) Admit(ctx context.Context, input AdmissionInput) (Admiss
 	priceVersionID := ""
 	price, priceErr := priceAt(ctx, tx, input.ConnectionID, input.ModelID, effective)
 	if priceErr == nil {
+		if input.RequireFreePrice && (price.ID != input.RequiredPriceVersionID || !VerifiedFreePrice(price.inputNanosPerMillion, price.outputNanosPerMillion, price.Source, price.createdAt, effective)) {
+			return Admission{}, ErrDenied
+		}
 		cost, err := CalculateCost(input.EstimatedInputTokens, input.EstimatedOutputTokens, price.inputNanosPerMillion, price.outputNanosPerMillion)
 		if err != nil {
 			return Admission{}, err
@@ -178,6 +188,9 @@ func (service *Service) Admit(ctx context.Context, input AdmissionInput) (Admiss
 		estimatedCost, priceVersionID = &cost, price.ID
 	} else if !errors.Is(priceErr, sql.ErrNoRows) {
 		return Admission{}, priceErr
+	}
+	if input.RequireFreePrice && priceErr != nil {
+		return Admission{}, ErrDenied
 	}
 	for _, policy := range policies {
 		if policy.Metric != "spend" {
@@ -206,8 +219,8 @@ func (service *Service) Admit(ctx context.Context, input AdmissionInput) (Admiss
 	} else if _, err := tx.ExecContext(ctx, "UPDATE requests SET state = 'reserved', finished_at = NULL WHERE id = ?", requestID); err != nil {
 		return Admission{}, err
 	}
-	_, err = tx.ExecContext(ctx, `INSERT INTO attempts (id, request_id, ordinal, connection_id, model_id, upstream_model_record_id, upstream_model_id, connection_revision, target_dialect, target_operation, translation_applied, request_tool_count, price_version_id, state, estimated_tokens, estimated_cost_nanos, started_at)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULLIF(?, ''), 'reserved', ?, ?, ?)`, attemptID, requestID, ordinal, input.ConnectionID, input.ModelID, input.UpstreamModelRecordID, input.UpstreamModelID, input.ConnectionRevision, input.TargetDialect, input.TargetOperation, input.TranslationApplied, input.RequestToolCount, priceVersionID, estimatedTokens, estimatedCost, effective)
+	_, err = tx.ExecContext(ctx, `INSERT INTO attempts (id, request_id, ordinal, connection_id, model_id, upstream_model_record_id, upstream_model_id, connection_revision, target_dialect, target_operation, translation_applied, request_tool_count, selection_reason, rejected_candidates_json, price_version_id, state, estimated_tokens, estimated_cost_nanos, started_at)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULLIF(?, ''), 'reserved', ?, ?, ?)`, attemptID, requestID, ordinal, input.ConnectionID, input.ModelID, input.UpstreamModelRecordID, input.UpstreamModelID, input.ConnectionRevision, input.TargetDialect, input.TargetOperation, input.TranslationApplied, input.RequestToolCount, input.SelectionReason, input.RejectedCandidatesJSON, priceVersionID, estimatedTokens, estimatedCost, effective)
 	if err != nil {
 		return Admission{}, err
 	}

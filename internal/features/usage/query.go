@@ -3,6 +3,7 @@ package usage
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
 	"errors"
 	"sort"
 	"strings"
@@ -53,23 +54,25 @@ type UsageQuery struct {
 }
 
 type RequestAttempt struct {
-	ID                 string  `json:"id"`
-	Ordinal            int64   `json:"ordinal"`
-	ConnectionID       string  `json:"connection_id"`
-	ModelID            string  `json:"model_id"`
-	UpstreamID         string  `json:"upstream_model_id"`
-	TargetDialect      string  `json:"target_dialect"`
-	TargetOperation    string  `json:"target_operation"`
-	TranslationApplied bool    `json:"translation_applied"`
-	RequestToolCount   int64   `json:"request_tool_count"`
-	ResponseToolCalls  int64   `json:"response_tool_call_count"`
-	ToolCallStatus     string  `json:"tool_call_status"`
-	State              string  `json:"state"`
-	UsageStatus        string  `json:"usage_status"`
-	InputTokens        int64   `json:"input_tokens"`
-	OutputTokens       int64   `json:"output_tokens"`
-	CostUSD            *string `json:"cost_usd"`
-	StartedAt          string  `json:"started_at"`
+	ID                 string              `json:"id"`
+	Ordinal            int64               `json:"ordinal"`
+	ConnectionID       string              `json:"connection_id"`
+	ModelID            string              `json:"model_id"`
+	UpstreamID         string              `json:"upstream_model_id"`
+	TargetDialect      string              `json:"target_dialect"`
+	TargetOperation    string              `json:"target_operation"`
+	TranslationApplied bool                `json:"translation_applied"`
+	RequestToolCount   int64               `json:"request_tool_count"`
+	ResponseToolCalls  int64               `json:"response_tool_call_count"`
+	ToolCallStatus     string              `json:"tool_call_status"`
+	SelectionReason    string              `json:"selection_reason"`
+	RejectedCandidates []map[string]string `json:"rejected_candidates"`
+	State              string              `json:"state"`
+	UsageStatus        string              `json:"usage_status"`
+	InputTokens        int64               `json:"input_tokens"`
+	OutputTokens       int64               `json:"output_tokens"`
+	CostUSD            *string             `json:"cost_usd"`
+	StartedAt          string              `json:"started_at"`
 }
 
 type RequestRecord struct {
@@ -146,7 +149,7 @@ func (service *Service) ListRequests(ctx context.Context, actor auth.User, query
 		next = encodeCursor(started.UnixMilli(), items[len(items)-1].ID)
 	}
 	for index := range items {
-		attemptRows, err := service.database.QueryContext(ctx, `SELECT id,ordinal,connection_id,model_id,upstream_model_id,target_dialect,target_operation,translation_applied,request_tool_count,response_tool_call_count,tool_call_status,state,usage_status,COALESCE(input_tokens,0),COALESCE(output_tokens,0),COALESCE(restated_cost_nanos,as_recorded_cost_nanos),started_at FROM attempts WHERE request_id=? ORDER BY ordinal`, items[index].ID)
+		attemptRows, err := service.database.QueryContext(ctx, `SELECT id,ordinal,connection_id,model_id,upstream_model_id,target_dialect,target_operation,translation_applied,request_tool_count,response_tool_call_count,tool_call_status,selection_reason,rejected_candidates_json,state,usage_status,COALESCE(input_tokens,0),COALESCE(output_tokens,0),COALESCE(restated_cost_nanos,as_recorded_cost_nanos),started_at FROM attempts WHERE request_id=? ORDER BY ordinal`, items[index].ID)
 		if err != nil {
 			return nil, "", err
 		}
@@ -154,10 +157,12 @@ func (service *Service) ListRequests(ctx context.Context, actor auth.User, query
 			var attempt RequestAttempt
 			var cost sql.NullInt64
 			var started int64
-			if err := attemptRows.Scan(&attempt.ID, &attempt.Ordinal, &attempt.ConnectionID, &attempt.ModelID, &attempt.UpstreamID, &attempt.TargetDialect, &attempt.TargetOperation, &attempt.TranslationApplied, &attempt.RequestToolCount, &attempt.ResponseToolCalls, &attempt.ToolCallStatus, &attempt.State, &attempt.UsageStatus, &attempt.InputTokens, &attempt.OutputTokens, &cost, &started); err != nil {
+			var rejected string
+			if err := attemptRows.Scan(&attempt.ID, &attempt.Ordinal, &attempt.ConnectionID, &attempt.ModelID, &attempt.UpstreamID, &attempt.TargetDialect, &attempt.TargetOperation, &attempt.TranslationApplied, &attempt.RequestToolCount, &attempt.ResponseToolCalls, &attempt.ToolCallStatus, &attempt.SelectionReason, &rejected, &attempt.State, &attempt.UsageStatus, &attempt.InputTokens, &attempt.OutputTokens, &cost, &started); err != nil {
 				attemptRows.Close()
 				return nil, "", err
 			}
+			_ = json.Unmarshal([]byte(rejected), &attempt.RejectedCandidates)
 			if cost.Valid {
 				value := FormatUSD(cost.Int64)
 				attempt.CostUSD = &value

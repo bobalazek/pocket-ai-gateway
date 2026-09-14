@@ -26,4 +26,4 @@ The layout follows the nearby personal SaaS template's docs/project conventions:
 
 The supplied AI-Gateway-PRD.md was treated as reference material. Its single-administrator scope and narrower limits were superseded by the user's request for users, broader quotas, and routing strategies. The original file in Downloads was left untouched. There is no second, competing PRD in this repository.
 
-Phases 1–5 are complete. Later phases remain scoped work packages.
+Phases 1–6 are complete. Later phases remain scoped work packages.

@@ -7,7 +7,9 @@ Pocket AI Gateway is a self-hosted AI gateway in one executable. It embeds a Nex
 - **One executable** — the dashboard and migrations are embedded in the Go binary; Node.js is only needed to build it.
 - **Three client protocols** — OpenAI Chat and stateless Responses, Anthropic Messages, and Gemini generateContent keep their own request, response, error, and streaming shapes.
 - **Cross-provider translation** — route supported text, image input, JSON schema output, function tools, tool results, stop sequences, token usage, and supported incremental streams across OpenAI, Anthropic, and Gemini families.
-- **Provider and model control** — configure encrypted provider credentials, upstream models, stable public model names, capabilities, and prices from the dashboard.
+- **Provider and model control** — start from OpenAI, Anthropic, Gemini, OpenRouter, or Ollama presets; configure encrypted credentials, upstream models, stable public names, capabilities, and prices.
+- **Safe routing** — fixed, ordered fallback, weighted, lowest estimated cost, and observed latency strategies filter grants and compatibility before scoring, honor free-only routes, and record every attempt and rejection reason.
+- **Curated catalog** — optionally refresh bounded, versioned model metadata from a configured GitHub source; imported entries remain candidates until an administrator publishes them.
 - **Users and keys** — owner, administrator, and member accounts; scoped application keys; key rotation, expiration, suspension, recovery, and session revocation.
 - **Durable limits** — fixed windows, quotas, token buckets, concurrency controls, request/body/batch ceilings, and spend limits at instance, user, key, and connection scope.
 - **Usage and request history** — token and cost accounting, unknown-usage reconciliation, historical repricing, protocol/target details, and a local dashboard.
@@ -68,8 +70,9 @@ For an HTTPS deployment, a system service, data-directory permissions, reverse-p
 1. Complete onboarding at `/_/setup/`.
 2. Add a provider connection in **Providers** and save its credential.
 3. Add its upstream model and publish a stable name in **Models**.
-4. Create a scoped key in **API keys**.
-5. Verify the setup in **Playground** or call the matching client namespace.
+4. Choose a routing strategy, add fallback targets, and preview the result in **Models**.
+5. Create a scoped key that grants every connection the route may select.
+6. Verify the setup in **Playground** or call the matching client namespace.
 
 ```sh
 curl http://127.0.0.1:8080/api/openai/v1/chat/completions \

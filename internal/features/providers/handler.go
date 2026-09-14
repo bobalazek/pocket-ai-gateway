@@ -20,6 +20,7 @@ func NewHandler(service *Service, authHandler *auth.Handler) *Handler {
 
 func (handler *Handler) Register(mux *http.ServeMux) {
 	mux.HandleFunc("GET /api/v1/providers", handler.providerTypes)
+	mux.HandleFunc("GET /api/v1/provider-presets", handler.providerPresets)
 	mux.HandleFunc("GET /api/v1/connections", handler.listConnections)
 	mux.HandleFunc("POST /api/v1/connections", handler.createConnection)
 	mux.HandleFunc("GET /api/v1/connections/{id}", handler.getConnection)
@@ -29,6 +30,13 @@ func (handler *Handler) Register(mux *http.ServeMux) {
 	mux.HandleFunc("POST /api/v1/connections/{id}/models", handler.createUpstreamModel)
 	mux.HandleFunc("GET /api/v1/models", handler.listPublicModels)
 	mux.HandleFunc("POST /api/v1/models", handler.createPublicModel)
+	mux.HandleFunc("GET /api/v1/admin/models", handler.listManagedPublicModels)
+	mux.HandleFunc("GET /api/v1/admin/models/{id}/route", handler.getRoute)
+	mux.HandleFunc("PUT /api/v1/admin/models/{id}/route", handler.putRoute)
+	mux.HandleFunc("POST /api/v1/admin/models/{id}/route-preview", handler.previewRoute)
+	mux.HandleFunc("GET /api/v1/admin/catalog", handler.getCatalog)
+	mux.HandleFunc("PUT /api/v1/admin/catalog", handler.configureCatalog)
+	mux.HandleFunc("POST /api/v1/admin/catalog/refresh", handler.refreshCatalog)
 }
 
 func (handler *Handler) providerTypes(response http.ResponseWriter, request *http.Request) {
@@ -36,6 +44,12 @@ func (handler *Handler) providerTypes(response http.ResponseWriter, request *htt
 		return
 	}
 	auth.WriteJSON(response, http.StatusOK, map[string]any{"data": ProviderTypes()})
+}
+func (handler *Handler) providerPresets(response http.ResponseWriter, request *http.Request) {
+	if _, _, ok := handler.auth.Authorize(response, request); !ok {
+		return
+	}
+	auth.WriteJSON(response, http.StatusOK, map[string]any{"data": Presets()})
 }
 func (handler *Handler) listConnections(response http.ResponseWriter, request *http.Request) {
 	current, _, ok := handler.auth.Authorize(response, request)
@@ -183,6 +197,132 @@ func (handler *Handler) createPublicModel(response http.ResponseWriter, request 
 	}
 	response.Header().Set("ETag", etag(item.Revision))
 	auth.WriteJSON(response, http.StatusCreated, map[string]any{"model": item})
+}
+
+func (handler *Handler) listManagedPublicModels(response http.ResponseWriter, request *http.Request) {
+	current, _, ok := handler.auth.Authorize(response, request)
+	if !ok {
+		return
+	}
+	items, err := handler.service.ListManagedPublicModels(request.Context(), current.User)
+	if err != nil {
+		handler.writeError(response, err)
+		return
+	}
+	auth.WriteJSON(response, http.StatusOK, map[string]any{"data": items})
+}
+
+func (handler *Handler) getRoute(response http.ResponseWriter, request *http.Request) {
+	current, _, ok := handler.auth.Authorize(response, request)
+	if !ok {
+		return
+	}
+	model, targets, err := handler.service.RouteConfig(request.Context(), current.User, request.PathValue("id"))
+	if err != nil {
+		handler.writeError(response, err)
+		return
+	}
+	response.Header().Set("ETag", etag(model.Revision))
+	auth.WriteJSON(response, http.StatusOK, map[string]any{"model": model, "targets": targets})
+}
+
+func (handler *Handler) putRoute(response http.ResponseWriter, request *http.Request) {
+	current, _, ok := handler.auth.AuthorizeMutation(response, request)
+	if !ok {
+		return
+	}
+	revision, ok := revision(response, request)
+	if !ok {
+		return
+	}
+	var input RouteConfigInput
+	if !auth.DecodeJSON(response, request, &input) {
+		return
+	}
+	model, err := handler.service.ConfigureRoute(request.Context(), current.User, request.PathValue("id"), revision, input)
+	if err != nil {
+		handler.writeError(response, err)
+		return
+	}
+	response.Header().Set("ETag", etag(model.Revision))
+	auth.WriteJSON(response, http.StatusOK, map[string]any{"model": model})
+}
+
+func (handler *Handler) previewRoute(response http.ResponseWriter, request *http.Request) {
+	current, _, ok := handler.auth.AuthorizeMutation(response, request)
+	if !ok {
+		return
+	}
+	if _, _, err := handler.service.RouteConfig(request.Context(), current.User, request.PathValue("id")); err != nil {
+		handler.writeError(response, err)
+		return
+	}
+	var input struct {
+		Operation             string `json:"operation"`
+		Streaming             bool   `json:"streaming"`
+		EstimatedInputTokens  int64  `json:"estimated_input_tokens"`
+		EstimatedOutputTokens int64  `json:"estimated_output_tokens"`
+	}
+	if !auth.DecodeJSON(response, request, &input) {
+		return
+	}
+	if input.Operation == "" || input.EstimatedInputTokens < 0 || input.EstimatedOutputTokens < 0 {
+		auth.WriteError(response, http.StatusBadRequest, "invalid_request", "operation and non-negative estimates are required")
+		return
+	}
+	plan, err := handler.service.Route(request.Context(), request.PathValue("id"), RouteOptions{Operation: input.Operation, Streaming: input.Streaming, EstimatedInputTokens: input.EstimatedInputTokens, EstimatedOutputTokens: input.EstimatedOutputTokens, Seed: "preview"})
+	if err != nil && !errors.Is(err, ErrNotFound) {
+		handler.writeError(response, err)
+		return
+	}
+	auth.WriteJSON(response, http.StatusOK, map[string]any{"route": plan})
+}
+
+func (handler *Handler) getCatalog(response http.ResponseWriter, request *http.Request) {
+	current, _, ok := handler.auth.Authorize(response, request)
+	if !ok {
+		return
+	}
+	items, state, err := handler.service.Catalog(request.Context(), current.User)
+	if err != nil {
+		handler.writeError(response, err)
+		return
+	}
+	auth.WriteJSON(response, http.StatusOK, map[string]any{"data": items, "state": state})
+}
+
+func (handler *Handler) configureCatalog(response http.ResponseWriter, request *http.Request) {
+	current, _, ok := handler.auth.AuthorizeMutation(response, request)
+	if !ok {
+		return
+	}
+	var input struct {
+		SourceURL            string `json:"source_url"`
+		RefreshEnabled       bool   `json:"refresh_enabled"`
+		RefreshIntervalHours int64  `json:"refresh_interval_hours"`
+	}
+	if !auth.DecodeJSON(response, request, &input) {
+		return
+	}
+	state, err := handler.service.ConfigureCatalog(request.Context(), current.User, input.SourceURL, input.RefreshEnabled, input.RefreshIntervalHours)
+	if err != nil {
+		handler.writeError(response, err)
+		return
+	}
+	auth.WriteJSON(response, http.StatusOK, map[string]any{"state": state})
+}
+
+func (handler *Handler) refreshCatalog(response http.ResponseWriter, request *http.Request) {
+	current, _, ok := handler.auth.AuthorizeMutation(response, request)
+	if !ok {
+		return
+	}
+	state, err := handler.service.RefreshCatalog(request.Context(), current.User)
+	if err != nil {
+		handler.writeError(response, err)
+		return
+	}
+	auth.WriteJSON(response, http.StatusOK, map[string]any{"state": state})
 }
 
 func (handler *Handler) writeError(response http.ResponseWriter, err error) {

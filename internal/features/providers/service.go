@@ -45,6 +45,7 @@ type Connection struct {
 	Enabled             bool   `json:"enabled"`
 	AllowPrivateNetwork bool   `json:"allow_private_network"`
 	TimeoutMS           int64  `json:"timeout_ms"`
+	Preset              string `json:"preset"`
 	CredentialState     string `json:"credential_state"`
 	Revision            int64  `json:"revision"`
 	CreatedAt           string `json:"created_at"`
@@ -58,6 +59,7 @@ type ConnectionInput struct {
 	Enabled             bool   `json:"enabled"`
 	AllowPrivateNetwork bool   `json:"allow_private_network"`
 	TimeoutMS           int64  `json:"timeout_ms"`
+	Preset              string `json:"preset"`
 }
 
 type UpstreamModel struct {
@@ -79,6 +81,8 @@ type PublicModel struct {
 	Capabilities       []string `json:"capabilities"`
 	Active             bool     `json:"active"`
 	Revision           int64    `json:"revision"`
+	RoutingStrategy    string   `json:"routing_strategy"`
+	FreeOnly           bool     `json:"free_only"`
 }
 
 type VisibleModel struct {
@@ -96,6 +100,7 @@ type Target struct {
 	TimeoutMS           int64
 	ConnectionRevision  int64
 	Credential          string
+	Preset              string
 }
 
 func New(database *sql.DB, key []byte) *Service {
@@ -119,7 +124,7 @@ func (service *Service) ListConnections(ctx context.Context, actor auth.User) ([
 	if err := requireManager(ctx, service.database, &actor); err != nil {
 		return nil, err
 	}
-	rows, err := service.database.QueryContext(ctx, `SELECT provider_connections.id, name, adapter, base_url, enabled, allow_private_network, timeout_ms,
+	rows, err := service.database.QueryContext(ctx, `SELECT provider_connections.id, name, adapter, base_url, enabled, allow_private_network, timeout_ms, preset,
 		CASE WHEN provider_credentials.external_ref IS NOT NULL THEN 'external' WHEN provider_credentials.ciphertext IS NOT NULL THEN 'stored' ELSE 'missing' END,
 		revision, provider_connections.created_at, provider_connections.updated_at FROM provider_connections LEFT JOIN provider_credentials ON provider_credentials.connection_id = provider_connections.id ORDER BY created_at DESC, provider_connections.id DESC`)
 	if err != nil {
@@ -145,7 +150,7 @@ func (service *Service) GetConnection(ctx context.Context, actor auth.User, id s
 }
 
 func (service *Service) getConnection(ctx context.Context, id string) (Connection, error) {
-	item, err := scanConnection(service.database.QueryRowContext(ctx, `SELECT provider_connections.id, name, adapter, base_url, enabled, allow_private_network, timeout_ms,
+	item, err := scanConnection(service.database.QueryRowContext(ctx, `SELECT provider_connections.id, name, adapter, base_url, enabled, allow_private_network, timeout_ms, preset,
 		CASE WHEN provider_credentials.external_ref IS NOT NULL THEN 'external' WHEN provider_credentials.ciphertext IS NOT NULL THEN 'stored' ELSE 'missing' END,
 		revision, provider_connections.created_at, provider_connections.updated_at FROM provider_connections LEFT JOIN provider_credentials ON provider_credentials.connection_id = provider_connections.id WHERE provider_connections.id = ?`, id))
 	if errors.Is(err, sql.ErrNoRows) {
@@ -177,7 +182,7 @@ func (service *Service) CreateConnection(ctx context.Context, actor auth.User, i
 	if err = requireManager(ctx, tx, &actor); err != nil {
 		return Connection{}, err
 	}
-	if _, err = tx.ExecContext(ctx, `INSERT INTO provider_connections (id,name,adapter,base_url,enabled,allow_private_network,timeout_ms,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?,?)`, id, input.Name, input.Adapter, input.BaseURL, input.Enabled, input.AllowPrivateNetwork, input.TimeoutMS, now, now); err != nil {
+	if _, err = tx.ExecContext(ctx, `INSERT INTO provider_connections (id,name,adapter,base_url,enabled,allow_private_network,timeout_ms,preset,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?,?,?)`, id, input.Name, input.Adapter, input.BaseURL, input.Enabled, input.AllowPrivateNetwork, input.TimeoutMS, input.Preset, now, now); err != nil {
 		return Connection{}, mutationError(err)
 	}
 	if err = audit(ctx, tx, actor.ID, "provider.connection.create", "provider_connection", id); err != nil {
@@ -207,7 +212,7 @@ func (service *Service) UpdateConnection(ctx context.Context, actor auth.User, i
 	if err = requireManager(ctx, tx, &actor); err != nil {
 		return Connection{}, err
 	}
-	result, err := tx.ExecContext(ctx, `UPDATE provider_connections SET name=?,adapter=?,base_url=?,enabled=?,allow_private_network=?,timeout_ms=?,revision=revision+1,updated_at=? WHERE id=? AND revision=?`, input.Name, input.Adapter, input.BaseURL, input.Enabled, input.AllowPrivateNetwork, input.TimeoutMS, time.Now().UnixMilli(), id, revision)
+	result, err := tx.ExecContext(ctx, `UPDATE provider_connections SET name=?,adapter=?,base_url=?,enabled=?,allow_private_network=?,timeout_ms=?,preset=?,revision=revision+1,updated_at=? WHERE id=? AND revision=?`, input.Name, input.Adapter, input.BaseURL, input.Enabled, input.AllowPrivateNetwork, input.TimeoutMS, input.Preset, time.Now().UnixMilli(), id, revision)
 	if err != nil {
 		return Connection{}, err
 	}
@@ -259,6 +264,9 @@ func (service *Service) PutCredential(ctx context.Context, actor auth.User, id, 
 		return err
 	}
 	if _, err = tx.ExecContext(ctx, `INSERT INTO provider_credentials (connection_id,ciphertext,nonce,external_ref,updated_at) VALUES (?,?,?,?,?) ON CONFLICT(connection_id) DO UPDATE SET ciphertext=excluded.ciphertext,nonce=excluded.nonce,external_ref=excluded.external_ref,updated_at=excluded.updated_at`, id, ciphertext, nonce, nullableString(externalRef), time.Now().UnixMilli()); err != nil {
+		return err
+	}
+	if _, err = tx.ExecContext(ctx, "UPDATE provider_connections SET revision=revision+1,updated_at=? WHERE id=?", time.Now().UnixMilli(), id); err != nil {
 		return err
 	}
 	if err = audit(ctx, tx, actor.ID, "provider.credential.replace", "provider_connection", id); err != nil {
@@ -368,6 +376,9 @@ func (service *Service) CreatePublicModel(ctx context.Context, actor auth.User, 
 	if _, err = tx.ExecContext(ctx, "INSERT INTO public_models (id,label,description,target_connection_id,target_model_id,capabilities_json,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?)", id, label, description, connectionID, targetModelID, string(raw), now, now); err != nil {
 		return PublicModel{}, mutationError(err)
 	}
+	if _, err = tx.ExecContext(ctx, "INSERT INTO public_model_targets (public_model_id,upstream_model_id,priority,weight,enabled,created_at,updated_at) VALUES (?,?,1,1,1,?,?)", id, targetModelID, now, now); err != nil {
+		return PublicModel{}, err
+	}
 	if err = audit(ctx, tx, actor.ID, "model.publish", "public_model", id); err != nil {
 		return PublicModel{}, err
 	}
@@ -378,7 +389,16 @@ func (service *Service) CreatePublicModel(ctx context.Context, actor auth.User, 
 }
 
 func (service *Service) ListPublicModels(ctx context.Context) ([]PublicModel, error) {
-	rows, err := service.database.QueryContext(ctx, publicModelSelect+" WHERE public_models.active=1 AND upstream_models.active=1 AND provider_connections.enabled=1 ORDER BY public_models.id")
+	return service.listPublicModels(ctx, publicModelSelect+` WHERE public_models.active=1 AND EXISTS(
+		SELECT 1 FROM public_model_targets available
+		JOIN upstream_models available_model ON available_model.id=available.upstream_model_id
+		JOIN provider_connections available_connection ON available_connection.id=available_model.connection_id
+		WHERE available.public_model_id=public_models.id AND available.enabled=1 AND available_model.active=1 AND available_connection.enabled=1
+	) ORDER BY public_models.id`)
+}
+
+func (service *Service) listPublicModels(ctx context.Context, query string) ([]PublicModel, error) {
+	rows, err := service.database.QueryContext(ctx, query)
 	if err != nil {
 		return nil, err
 	}
@@ -398,7 +418,7 @@ func (service *Service) ListManagedPublicModels(ctx context.Context, actor auth.
 	if err := requireManager(ctx, service.database, &actor); err != nil {
 		return nil, err
 	}
-	return service.ListPublicModels(ctx)
+	return service.listPublicModels(ctx, publicModelSelect+" WHERE public_models.active=1 ORDER BY public_models.id")
 }
 
 func (service *Service) ListVisibleModels(ctx context.Context, actor auth.User) ([]VisibleModel, error) {
@@ -417,7 +437,12 @@ func (service *Service) ListVisibleModels(ctx context.Context, actor auth.User) 
 	}
 	visible := make([]VisibleModel, 0, len(items))
 	for _, item := range items {
-		if !actor.Grants.Unrestricted && (!containsString(actor.Grants.ConnectionIDs, item.TargetConnectionID) || !matchesModel(actor.Grants.ModelPatterns, item.ID)) {
+		if !matchesModel(actor.Grants.ModelPatterns, item.ID) && !actor.Grants.Unrestricted {
+			continue
+		}
+		if !service.HasAvailableRouteTarget(ctx, item.ID, func(id string) bool {
+			return actor.Grants.Unrestricted || containsString(actor.Grants.ConnectionIDs, id)
+		}) {
 			continue
 		}
 		visible = append(visible, VisibleModel{ID: item.ID, Label: item.Label, Description: item.Description, Adapter: item.Adapter, Capabilities: item.Capabilities})
@@ -425,10 +450,10 @@ func (service *Service) ListVisibleModels(ctx context.Context, actor auth.User) 
 	return visible, nil
 }
 
-const publicModelSelect = `SELECT public_models.id,public_models.label,public_models.description,public_models.target_connection_id,public_models.target_model_id,upstream_models.upstream_id,provider_connections.adapter,public_models.capabilities_json,public_models.active,public_models.revision FROM public_models JOIN upstream_models ON upstream_models.id=public_models.target_model_id JOIN provider_connections ON provider_connections.id=public_models.target_connection_id`
+const publicModelSelect = `SELECT public_models.id,public_models.label,public_models.description,public_models.target_connection_id,public_models.target_model_id,upstream_models.upstream_id,provider_connections.adapter,public_models.capabilities_json,public_models.active,public_models.revision,public_models.routing_strategy,public_models.free_only FROM public_models JOIN upstream_models ON upstream_models.id=public_models.target_model_id JOIN provider_connections ON provider_connections.id=public_models.target_connection_id`
 
 func (service *Service) ResolvePublicModel(ctx context.Context, id string) (PublicModel, error) {
-	item, err := scanPublicModel(service.database.QueryRowContext(ctx, publicModelSelect+" WHERE public_models.id=? AND public_models.active=1 AND upstream_models.active=1 AND provider_connections.enabled=1", id))
+	item, err := scanPublicModel(service.database.QueryRowContext(ctx, publicModelSelect+" WHERE public_models.id=? AND public_models.active=1", id))
 	if errors.Is(err, sql.ErrNoRows) {
 		return PublicModel{}, ErrNotFound
 	}
@@ -468,7 +493,7 @@ func (service *Service) Target(ctx context.Context, id string) (Target, error) {
 
 func (service *Service) TargetIsCurrent(ctx context.Context, target Target) bool {
 	var exists bool
-	err := service.database.QueryRowContext(ctx, `SELECT EXISTS(SELECT 1 FROM public_models JOIN upstream_models ON upstream_models.id=public_models.target_model_id JOIN provider_connections ON provider_connections.id=public_models.target_connection_id WHERE public_models.id=? AND public_models.target_model_id=? AND public_models.target_connection_id=? AND public_models.revision=? AND upstream_models.upstream_id=? AND public_models.active=1 AND upstream_models.active=1 AND provider_connections.enabled=1 AND provider_connections.revision=?)`, target.ID, target.TargetModelID, target.TargetConnectionID, target.Revision, target.UpstreamID, target.ConnectionRevision).Scan(&exists)
+	err := service.database.QueryRowContext(ctx, `SELECT EXISTS(SELECT 1 FROM public_models JOIN public_model_targets ON public_model_targets.public_model_id=public_models.id JOIN upstream_models ON upstream_models.id=public_model_targets.upstream_model_id JOIN provider_connections ON provider_connections.id=upstream_models.connection_id WHERE public_models.id=? AND upstream_models.id=? AND provider_connections.id=? AND public_models.revision=? AND upstream_models.upstream_id=? AND public_models.active=1 AND public_model_targets.enabled=1 AND upstream_models.active=1 AND provider_connections.enabled=1 AND provider_connections.revision=?)`, target.ID, target.TargetModelID, target.TargetConnectionID, target.Revision, target.UpstreamID, target.ConnectionRevision).Scan(&exists)
 	return err == nil && exists
 }
 
@@ -485,10 +510,15 @@ func validateConnection(input ConnectionInput) (ConnectionInput, error) {
 	input.Name = strings.TrimSpace(input.Name)
 	input.Adapter = strings.TrimSpace(input.Adapter)
 	input.BaseURL = strings.TrimRight(strings.TrimSpace(input.BaseURL), "/")
+	input.Preset = strings.TrimSpace(input.Preset)
+	if input.Preset == "" {
+		input.Preset = "custom"
+	}
+	input = applyPreset(input)
 	if input.TimeoutMS == 0 {
 		input.TimeoutMS = 60000
 	}
-	if input.Name == "" || len(input.Name) > 200 || adapters[input.Adapter] == nil {
+	if input.Name == "" || len(input.Name) > 200 || adapters[input.Adapter] == nil || !presetAllowed(input.Preset, input.Adapter) {
 		return ConnectionInput{}, errors.New("name and supported adapter are required")
 	}
 	parsed, err := url.Parse(input.BaseURL)
@@ -618,7 +648,7 @@ func audit(ctx context.Context, tx *sql.Tx, actorID, action, resourceType, resou
 	if err != nil {
 		return err
 	}
-	_, err = tx.ExecContext(ctx, "INSERT INTO audit_events (id,actor_user_id,action,resource_type,resource_id,created_at) VALUES (?,?,?,?,?,?)", "aud_"+id, actorID, action, resourceType, resourceID, time.Now().UnixMilli())
+	_, err = tx.ExecContext(ctx, "INSERT INTO audit_events (id,actor_user_id,action,resource_type,resource_id,created_at) VALUES (?,?,?,?,?,?)", "aud_"+id, nullableString(actorID), action, resourceType, resourceID, time.Now().UnixMilli())
 	return err
 }
 func formatTime(value int64) string { return time.UnixMilli(value).UTC().Format(time.RFC3339Nano) }
@@ -628,14 +658,14 @@ type scanner interface{ Scan(...any) error }
 func scanConnection(row scanner) (Connection, error) {
 	var item Connection
 	var created, updated int64
-	err := row.Scan(&item.ID, &item.Name, &item.Adapter, &item.BaseURL, &item.Enabled, &item.AllowPrivateNetwork, &item.TimeoutMS, &item.CredentialState, &item.Revision, &created, &updated)
+	err := row.Scan(&item.ID, &item.Name, &item.Adapter, &item.BaseURL, &item.Enabled, &item.AllowPrivateNetwork, &item.TimeoutMS, &item.Preset, &item.CredentialState, &item.Revision, &created, &updated)
 	item.CreatedAt, item.UpdatedAt = formatTime(created), formatTime(updated)
 	return item, err
 }
 func scanPublicModel(row scanner) (PublicModel, error) {
 	var item PublicModel
 	var raw string
-	err := row.Scan(&item.ID, &item.Label, &item.Description, &item.TargetConnectionID, &item.TargetModelID, &item.UpstreamID, &item.Adapter, &raw, &item.Active, &item.Revision)
+	err := row.Scan(&item.ID, &item.Label, &item.Description, &item.TargetConnectionID, &item.TargetModelID, &item.UpstreamID, &item.Adapter, &raw, &item.Active, &item.Revision, &item.RoutingStrategy, &item.FreeOnly)
 	if err == nil {
 		err = json.Unmarshal([]byte(raw), &item.Capabilities)
 	}

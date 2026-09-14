@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/bobalazek/pocket-ai-gateway/internal/credentials"
@@ -23,6 +24,7 @@ type PriceVersion struct {
 	CreatedAt             string  `json:"created_at"`
 	inputNanosPerMillion  int64
 	outputNanosPerMillion int64
+	createdAt             int64
 }
 
 type PriceInput struct {
@@ -188,6 +190,7 @@ func scanPrice(row scanner) (PriceVersion, error) {
 	var from, created int64
 	var to sql.NullInt64
 	err := row.Scan(&item.ID, &item.ConnectionID, &item.ModelID, &item.inputNanosPerMillion, &item.outputNanosPerMillion, &item.Source, &from, &to, &created)
+	item.createdAt = created
 	item.InputUSDPerMillion, item.OutputUSDPerMillion = FormatUSD(item.inputNanosPerMillion), FormatUSD(item.outputNanosPerMillion)
 	item.EffectiveFrom, item.CreatedAt = timeString(from), timeString(created)
 	if to.Valid {
@@ -195,6 +198,11 @@ func scanPrice(row scanner) (PriceVersion, error) {
 		item.EffectiveTo = &value
 	}
 	return item, err
+}
+
+func VerifiedFreePrice(inputNanos, outputNanos int64, source string, verifiedAt, now int64) bool {
+	const freshness = 24 * time.Hour
+	return inputNanos == 0 && outputNanos == 0 && strings.TrimSpace(source) != "" && verifiedAt <= now && verifiedAt >= now-freshness.Milliseconds()
 }
 
 func priceAt(ctx context.Context, queryer interface {

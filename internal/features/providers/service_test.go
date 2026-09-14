@@ -72,6 +72,16 @@ func TestConnectionModelAndCredentialLifecycle(t *testing.T) {
 	if target.Credential != "provider-secret" || target.UpstreamID != "gpt-test" || target.BaseURL != "http://127.0.0.1:9000/v1" {
 		t.Fatalf("target = %#v", target)
 	}
+	if err := service.PutCredential(ctx, owner, connection.ID, "rotated-secret", ""); err != nil {
+		t.Fatal(err)
+	}
+	if service.TargetIsCurrent(ctx, target) {
+		t.Fatal("credential rotation left the captured target current")
+	}
+	target, err = service.Target(ctx, model.ID)
+	if err != nil || target.Credential != "rotated-secret" {
+		t.Fatalf("rotated target = %#v, %v", target, err)
+	}
 	connections, err := service.ListConnections(ctx, owner)
 	if err != nil || len(connections) != 1 || connections[0].CredentialState != "stored" {
 		t.Fatalf("connections = %#v, %v", connections, err)
@@ -88,7 +98,7 @@ func TestConnectionModelAndCredentialLifecycle(t *testing.T) {
 		t.Fatalf("visible models = %#v, %v", visible, err)
 	}
 	var audits int
-	if err := store.SystemDB().QueryRowContext(ctx, "SELECT COUNT(*) FROM audit_events WHERE actor_user_id=? AND resource_type IN ('provider_connection','upstream_model','public_model')", owner.ID).Scan(&audits); err != nil || audits != 4 {
+	if err := store.SystemDB().QueryRowContext(ctx, "SELECT COUNT(*) FROM audit_events WHERE actor_user_id=? AND resource_type IN ('provider_connection','upstream_model','public_model')", owner.ID).Scan(&audits); err != nil || audits != 5 {
 		t.Fatalf("provider audits = %d, %v", audits, err)
 	}
 	if _, err := service.CreatePublicModel(ctx, owner, "bad/id", "Bad", "", upstream.ID, []string{"chat"}); err == nil {
@@ -97,6 +107,7 @@ func TestConnectionModelAndCredentialLifecycle(t *testing.T) {
 	if err := service.PutCredential(ctx, owner, connection.ID, "", "env:BAD-NAME"); err == nil {
 		t.Fatal("unsafe environment reference was accepted")
 	}
+	connection = connections[0]
 	if _, err := service.UpdateConnection(ctx, owner, connection.ID, connection.Revision, ConnectionInput{Name: connection.Name, Adapter: connection.Adapter, BaseURL: connection.BaseURL, Enabled: false, AllowPrivateNetwork: true, TimeoutMS: connection.TimeoutMS}); err != nil {
 		t.Fatal(err)
 	}

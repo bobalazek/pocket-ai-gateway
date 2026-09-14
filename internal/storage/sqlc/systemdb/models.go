@@ -46,31 +46,33 @@ type ApiKeySecret struct {
 }
 
 type Attempt struct {
-	ID                    string         `json:"id"`
-	RequestID             string         `json:"request_id"`
-	Ordinal               int64          `json:"ordinal"`
-	ConnectionID          string         `json:"connection_id"`
-	ModelID               string         `json:"model_id"`
-	PriceVersionID        sql.NullString `json:"price_version_id"`
-	State                 string         `json:"state"`
-	UsageStatus           string         `json:"usage_status"`
-	EstimatedTokens       int64          `json:"estimated_tokens"`
-	InputTokens           sql.NullInt64  `json:"input_tokens"`
-	OutputTokens          sql.NullInt64  `json:"output_tokens"`
-	EstimatedCostNanos    sql.NullInt64  `json:"estimated_cost_nanos"`
-	AsRecordedCostNanos   sql.NullInt64  `json:"as_recorded_cost_nanos"`
-	RestatedCostNanos     sql.NullInt64  `json:"restated_cost_nanos"`
-	StartedAt             int64          `json:"started_at"`
-	FinishedAt            sql.NullInt64  `json:"finished_at"`
-	UpstreamModelRecordID string         `json:"upstream_model_record_id"`
-	UpstreamModelID       string         `json:"upstream_model_id"`
-	ConnectionRevision    int64          `json:"connection_revision"`
-	TargetDialect         string         `json:"target_dialect"`
-	TargetOperation       string         `json:"target_operation"`
-	TranslationApplied    int64          `json:"translation_applied"`
-	RequestToolCount      int64          `json:"request_tool_count"`
-	ResponseToolCallCount int64          `json:"response_tool_call_count"`
-	ToolCallStatus        string         `json:"tool_call_status"`
+	ID                     string         `json:"id"`
+	RequestID              string         `json:"request_id"`
+	Ordinal                int64          `json:"ordinal"`
+	ConnectionID           string         `json:"connection_id"`
+	ModelID                string         `json:"model_id"`
+	PriceVersionID         sql.NullString `json:"price_version_id"`
+	State                  string         `json:"state"`
+	UsageStatus            string         `json:"usage_status"`
+	EstimatedTokens        int64          `json:"estimated_tokens"`
+	InputTokens            sql.NullInt64  `json:"input_tokens"`
+	OutputTokens           sql.NullInt64  `json:"output_tokens"`
+	EstimatedCostNanos     sql.NullInt64  `json:"estimated_cost_nanos"`
+	AsRecordedCostNanos    sql.NullInt64  `json:"as_recorded_cost_nanos"`
+	RestatedCostNanos      sql.NullInt64  `json:"restated_cost_nanos"`
+	StartedAt              int64          `json:"started_at"`
+	FinishedAt             sql.NullInt64  `json:"finished_at"`
+	UpstreamModelRecordID  string         `json:"upstream_model_record_id"`
+	UpstreamModelID        string         `json:"upstream_model_id"`
+	ConnectionRevision     int64          `json:"connection_revision"`
+	TargetDialect          string         `json:"target_dialect"`
+	TargetOperation        string         `json:"target_operation"`
+	TranslationApplied     int64          `json:"translation_applied"`
+	RequestToolCount       int64          `json:"request_tool_count"`
+	ResponseToolCallCount  int64          `json:"response_tool_call_count"`
+	ToolCallStatus         string         `json:"tool_call_status"`
+	SelectionReason        string         `json:"selection_reason"`
+	RejectedCandidatesJson string         `json:"rejected_candidates_json"`
 }
 
 type AuditEvent struct {
@@ -89,6 +91,29 @@ type BucketState struct {
 	RefillRemainder int64  `json:"refill_remainder"`
 	LastRefillAt    int64  `json:"last_refill_at"`
 	LastEffectiveAt int64  `json:"last_effective_at"`
+}
+
+type CatalogCandidate struct {
+	Provider              string        `json:"provider"`
+	ModelID               string        `json:"model_id"`
+	Label                 string        `json:"label"`
+	CapabilitiesJson      string        `json:"capabilities_json"`
+	InputNanosPerMillion  sql.NullInt64 `json:"input_nanos_per_million"`
+	OutputNanosPerMillion sql.NullInt64 `json:"output_nanos_per_million"`
+	Free                  int64         `json:"free"`
+	Source                string        `json:"source"`
+	SourceVersion         string        `json:"source_version"`
+	DiscoveredAt          int64         `json:"discovered_at"`
+}
+
+type CatalogRefreshState struct {
+	Singleton            int64         `json:"singleton"`
+	SourceUrl            string        `json:"source_url"`
+	SourceVersion        string        `json:"source_version"`
+	LastCheckedAt        sql.NullInt64 `json:"last_checked_at"`
+	LastError            string        `json:"last_error"`
+	RefreshEnabled       int64         `json:"refresh_enabled"`
+	RefreshIntervalHours int64         `json:"refresh_interval_hours"`
 }
 
 type ConcurrencyLease struct {
@@ -193,6 +218,7 @@ type ProviderConnection struct {
 	Revision            int64  `json:"revision"`
 	CreatedAt           int64  `json:"created_at"`
 	UpdatedAt           int64  `json:"updated_at"`
+	Preset              string `json:"preset"`
 }
 
 type ProviderCredential struct {
@@ -214,6 +240,18 @@ type PublicModel struct {
 	Revision           int64  `json:"revision"`
 	CreatedAt          int64  `json:"created_at"`
 	UpdatedAt          int64  `json:"updated_at"`
+	RoutingStrategy    string `json:"routing_strategy"`
+	FreeOnly           int64  `json:"free_only"`
+}
+
+type PublicModelTarget struct {
+	PublicModelID   string `json:"public_model_id"`
+	UpstreamModelID string `json:"upstream_model_id"`
+	Priority        int64  `json:"priority"`
+	Weight          int64  `json:"weight"`
+	Enabled         int64  `json:"enabled"`
+	CreatedAt       int64  `json:"created_at"`
+	UpdatedAt       int64  `json:"updated_at"`
 }
 
 type QuotaPeriod struct {
@@ -246,6 +284,19 @@ type Reservation struct {
 	State         string        `json:"state"`
 	CreatedAt     int64         `json:"created_at"`
 	SettledAt     sql.NullInt64 `json:"settled_at"`
+}
+
+type RouteObservation struct {
+	UpstreamModelID     string        `json:"upstream_model_id"`
+	Operation           string        `json:"operation"`
+	Streaming           int64         `json:"streaming"`
+	SuccessCount        int64         `json:"success_count"`
+	FailureCount        int64         `json:"failure_count"`
+	ConsecutiveFailures int64         `json:"consecutive_failures"`
+	EwmaFirstByteMs     sql.NullInt64 `json:"ewma_first_byte_ms"`
+	EwmaTotalMs         sql.NullInt64 `json:"ewma_total_ms"`
+	CircuitOpenUntil    sql.NullInt64 `json:"circuit_open_until"`
+	UpdatedAt           int64         `json:"updated_at"`
 }
 
 type SetupToken struct {

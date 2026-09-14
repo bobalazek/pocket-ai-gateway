@@ -2,6 +2,7 @@ package gateway
 
 import (
 	"bufio"
+	"bytes"
 	"context"
 	"database/sql"
 	"encoding/json"
@@ -500,6 +501,92 @@ func TestResponsesStreamToolMetadataDeduplicatesLifecycle(t *testing.T) {
 	count, status := parseToolMetadata("responses", raw)
 	if count != 1 || status != "completed" {
 		t.Fatalf("count=%d status=%q", count, status)
+	}
+}
+
+func TestOrderedFallbackRecordsEachAttempt(t *testing.T) {
+	failed := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { http.Error(w, "busy", http.StatusServiceUnavailable) }))
+	defer failed.Close()
+	succeeded := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		io.WriteString(w, `{"id":"chat_2","object":"chat.completion","choices":[{"message":{"role":"assistant","content":"fallback"},"finish_reason":"stop"}],"usage":{"prompt_tokens":2,"completion_tokens":1,"total_tokens":3}}`)
+	}))
+	defer succeeded.Close()
+	ctx, store, owner, keyService, providerService, usageService := gatewayFixture(t)
+	defer store.Close()
+	firstConnection, firstModel := publishModel(t, ctx, providerService, owner, "openai", failed.URL+"/v1", "first", []string{"chat"})
+	secondConnection, err := providerService.CreateConnection(ctx, owner, providers.ConnectionInput{Name: "second", Adapter: "openai", BaseURL: succeeded.URL + "/v1", Enabled: true, AllowPrivateNetwork: true, TimeoutMS: 5000})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err = providerService.PutCredential(ctx, owner, secondConnection.ID, "provider-secret", ""); err != nil {
+		t.Fatal(err)
+	}
+	secondModel, err := providerService.CreateUpstreamModel(ctx, owner, secondConnection.ID, "second", []string{"chat"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	configured, err := providerService.ConfigureRoute(ctx, owner, firstModel.ID, firstModel.Revision, providers.RouteConfigInput{Strategy: "ordered_fallback", Targets: []providers.RouteTargetInput{{UpstreamModelID: firstModel.TargetModelID, Priority: 1, Weight: 1, Enabled: true}, {UpstreamModelID: secondModel.ID, Priority: 2, Weight: 1, Enabled: true}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	_ = configured
+	_, secret, err := keyService.Create(ctx, owner.ID, keys.Input{Label: "fallback", Scopes: []string{"chat:generate"}, ModelPatterns: []string{firstModel.ID}, ConnectionIDs: []string{firstConnection.ID, secondConnection.ID}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	mux := http.NewServeMux()
+	New(keyService, providerService, usageService).Register(mux)
+	server := httptest.NewServer(mux)
+	defer server.Close()
+	request, _ := http.NewRequest(http.MethodPost, server.URL+"/api/openai/v1/chat/completions", strings.NewReader(`{"model":"`+firstModel.ID+`","max_tokens":8,"messages":[{"role":"user","content":"Hi"}]}`))
+	request.Header.Set("Authorization", "Bearer "+secret)
+	response, err := http.DefaultClient.Do(request)
+	if err != nil {
+		t.Fatal(err)
+	}
+	raw, _ := io.ReadAll(response.Body)
+	response.Body.Close()
+	if response.StatusCode != http.StatusOK || !bytes.Contains(raw, []byte("fallback")) {
+		t.Fatalf("status=%d body=%s", response.StatusCode, raw)
+	}
+	items, _, err := usageService.ListRequests(ctx, owner, usage.UsageQuery{})
+	if err != nil || len(items) != 1 || len(items[0].Attempts) != 2 {
+		t.Fatalf("history=%#v err=%v", items, err)
+	}
+	if items[0].Attempts[0].State != "failed" || items[0].Attempts[1].State != "succeeded" || !strings.HasPrefix(items[0].Attempts[0].SelectionReason, "ordered_fallback:") {
+		t.Fatalf("attempts=%#v", items[0].Attempts)
+	}
+}
+
+func TestAttemptWriterCommitsStreamOnlyAfterFlush(t *testing.T) {
+	recorder := httptest.NewRecorder()
+	writer := newAttemptWriter(recorder, true)
+	writer.WriteHeader(http.StatusOK)
+	if writer.Committed() {
+		t.Fatal("stream headers committed before output")
+	}
+	_, _ = writer.Write([]byte("data: first\n\n"))
+	if writer.Committed() {
+		t.Fatal("stream output committed before flush")
+	}
+	writer.Flush()
+	if !writer.Committed() || recorder.Body.String() != "data: first\n\n" {
+		t.Fatalf("committed=%v body=%q", writer.Committed(), recorder.Body.String())
+	}
+}
+
+func TestNativeNonStreamResponseIsBounded(t *testing.T) {
+	upstream := httptest.NewServer(http.HandlerFunc(func(response http.ResponseWriter, _ *http.Request) {
+		_, _ = io.CopyN(response, strings.NewReader(strings.Repeat("x", maxInferenceBody+1)), maxInferenceBody+1)
+	}))
+	defer upstream.Close()
+	recorder := httptest.NewRecorder()
+	writer := newAttemptWriter(recorder, false)
+	request := httptest.NewRequest(http.MethodPost, "/", nil)
+	status, _, err := new(Handler).dispatch(writer, request, providers.Target{BaseURL: upstream.URL, AllowPrivateNetwork: true, TimeoutMS: 5000}, "v1/chat", nil, false, "openai", func() {})
+	writer.Commit()
+	if err == nil || status != http.StatusOK || recorder.Code != http.StatusBadGateway || recorder.Body.Len() > 1024 {
+		t.Fatalf("status=%d gateway=%d bytes=%d err=%v", status, recorder.Code, recorder.Body.Len(), err)
 	}
 }
 

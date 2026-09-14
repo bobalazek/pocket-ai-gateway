@@ -166,7 +166,9 @@ func serve(ctx context.Context, version string, cfg Config, logOutput io.Writer)
 	workerContext, stopWorker := context.WithCancel(ctx)
 	workerDone := make(chan struct{})
 	go projectUsage(workerContext, stores.SystemDB(), stores.DataDB(), logger, workerDone)
-	defer func() { stopWorker(); <-workerDone }()
+	catalogDone := make(chan struct{})
+	go func() { defer close(catalogDone); providerService.RunCatalogRefresh(workerContext) }()
+	defer func() { stopWorker(); <-workerDone; <-catalogDone }()
 	httpServer := &http.Server{
 		Handler:           server.NewWithServices(stores.SystemDB(), publicOrigin, usageService, providerService),
 		ReadHeaderTimeout: 5 * time.Second,

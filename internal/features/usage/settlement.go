@@ -32,6 +32,26 @@ type ReconciliationInput struct {
 	IdempotencyKey string `json:"idempotency_key"`
 }
 
+func (service *Service) CloseFailedRequest(ctx context.Context, requestID string) error {
+	tx, err := service.database.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	now := service.now().UnixMilli()
+	if _, err = tx.ExecContext(ctx, "DELETE FROM concurrency_leases WHERE lease_kind='request' AND lease_id=?", requestID); err != nil {
+		return err
+	}
+	result, err := tx.ExecContext(ctx, "UPDATE requests SET state='failed',finished_at=? WHERE id=? AND state='in_progress'", now, requestID)
+	if err != nil {
+		return err
+	}
+	if changed, _ := result.RowsAffected(); changed != 1 {
+		return ErrConflict
+	}
+	return tx.Commit()
+}
+
 func (service *Service) CancelBeforeDispatch(ctx context.Context, attemptID string) error {
 	tx, err := service.database.BeginTx(ctx, nil)
 	if err != nil {
@@ -45,6 +65,12 @@ func (service *Service) CancelBeforeDispatch(ctx context.Context, attemptID stri
 	}
 	now := service.now().UnixMilli()
 	if err := service.releaseReservations(ctx, tx, attemptID, now); err != nil {
+		return err
+	}
+	if _, err := tx.ExecContext(ctx, "DELETE FROM concurrency_leases WHERE lease_kind='attempt' AND lease_id=?", attemptID); err != nil {
+		return err
+	}
+	if _, err := tx.ExecContext(ctx, "DELETE FROM concurrency_leases WHERE lease_kind='request' AND lease_id=?", requestID); err != nil {
 		return err
 	}
 	if _, err := tx.ExecContext(ctx, "UPDATE attempts SET state='cancelled_before_dispatch',usage_status='estimated',finished_at=? WHERE id=?", now, attemptID); err != nil {

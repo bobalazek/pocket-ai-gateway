@@ -138,7 +138,7 @@ Go's HTTP server supplies request goroutines. Add goroutines only for independen
 
 ## Routing implementation
 
-Filter first: operation → user/key grants → published/enabled target → feature compatibility → pricing/free-only policy → circuit availability → capacity. Final admission rechecks atomic limits because capacity may change after selection.
+Filter first: operation → user/key grants → published/enabled target → feature compatibility → pricing/free-only policy → circuit availability → capacity. Free-only routes require a manager-recorded zero price verified within the previous 24 hours; final admission atomically rechecks the exact price and freshness because either can change after selection. Embedding models use exactly one fixed target so stored vectors never change spaces under the same public ID.
 
 | Strategy | Selection rule |
 | --- | --- |
@@ -150,7 +150,7 @@ Filter first: operation → user/key grants → published/enabled target → fea
 
 Initial latency defaults to evaluate with mocks: at least 10 successful samples, a 15-minute freshness horizon, EWMA alpha 0.2, and at most 5% exploration of eligible candidates. Cold/stale pools use configured priority. These are tuning proposals, not measured optimums. Exploration uses real authorized traffic; no automatic paid probes.
 
-Track failure rate separately from speed. Use closed/open/half-open circuit state with bounded cooldown and one admitted probe; rate-limit Retry-After and connection authentication faults have distinct handling. Cap weights/time arithmetic and test deterministic seeded sampling. Record strategy/config revision, observation age, selected score, cold-start/exploration status, and all attempts.
+Track failure rate separately from speed. Three consecutive retryable failures open a 30-second target circuit; successful traffic clears it. Rate-limit Retry-After and connection authentication faults have distinct handling. Cap weights/time arithmetic and test deterministic seeded sampling. Record strategy/config revision, observation age, selected score, cold-start/exploration status, and all attempts.
 
 Never compare arbitrary different models as equivalent quality. Operators opt into each target in a public model. Embeddings remain fixed. “Fastest” means observed under this instance's traffic, not a guaranteed global fastest provider.
 
@@ -164,6 +164,6 @@ Config edits use optimistic concurrency: stale revision returns 409 with reload 
 
 ## Architectural validation
 
-Phase 1 proves embedded assets, two local stores, lock ownership, migrations, durability, and paired snapshot primitives. Phase 3 proves atomic configurable limits and historical repricing. Phases 4–5 prove all three protocols with deterministic upstreams and pinned SDKs. Phase 6 proves strategies/catalog refresh. Phase 7 certifies remote stores, S3 recovery, and deployment from built artifacts.
+Embedded-asset, local-store, locking, migration, accounting, protocol, translation, routing, and catalog-refresh behavior is covered by deterministic local tests. Remote stores, S3 recovery, and release artifacts require their separate operational certification.
 
 Phase 1 evidence is recorded in its phase specification. No provider compatibility guarantee, remote-driver certification, release benchmark, or security audit is claimed yet.

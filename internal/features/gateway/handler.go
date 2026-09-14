@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"bytes"
 	"context"
+	"crypto/sha256"
 	"encoding/json"
 	"errors"
 	"io"
@@ -35,28 +36,28 @@ func (handler *Handler) Register(mux *http.ServeMux) {
 	mux.HandleFunc("GET /api/openai/v1/models", handler.openAIModels)
 	mux.HandleFunc("GET /api/openai/v1/models/{model}", handler.openAIModel)
 	mux.HandleFunc("POST /api/openai/v1/chat/completions", func(w http.ResponseWriter, r *http.Request) {
-		handler.forward(w, r, "openai", "chat:generate", "chat/completions")
+		handler.forward(w, r, "openai", "chat:generate", "chat/completions", "", nil)
 	})
 	mux.HandleFunc("POST /api/openai/v1/responses", func(w http.ResponseWriter, r *http.Request) {
-		handler.forward(w, r, "responses", "responses:generate", "responses")
+		handler.forward(w, r, "responses", "responses:generate", "responses", "", nil)
 	})
 	mux.HandleFunc("POST /api/openai/v1/embeddings", func(w http.ResponseWriter, r *http.Request) {
-		handler.forward(w, r, "openai", "embeddings:generate", "embeddings")
+		handler.forward(w, r, "openai", "embeddings:generate", "embeddings", "", nil)
 	})
 	mux.HandleFunc("GET /api/anthropic/v1/models", handler.anthropicModels)
 	mux.HandleFunc("GET /api/anthropic/v1/models/{model}", handler.anthropicModel)
 	mux.HandleFunc("POST /api/anthropic/v1/messages", func(w http.ResponseWriter, r *http.Request) {
-		handler.forward(w, r, "anthropic", "chat:generate", "messages")
+		handler.forward(w, r, "anthropic", "chat:generate", "messages", "", nil)
 	})
 	mux.HandleFunc("POST /api/anthropic/v1/messages/count_tokens", func(w http.ResponseWriter, r *http.Request) {
-		handler.forward(w, r, "anthropic", "tokens:count", "messages/count_tokens")
+		handler.forward(w, r, "anthropic", "tokens:count", "messages/count_tokens", "", nil)
 	})
 	mux.HandleFunc("GET /api/gemini/v1beta/models", handler.geminiModels)
 	mux.HandleFunc("GET /api/gemini/v1beta/models/{model}", handler.geminiModel)
 	mux.HandleFunc("POST /api/gemini/v1beta/models/{action...}", handler.geminiAction)
 }
 
-func (handler *Handler) forward(response http.ResponseWriter, request *http.Request, dialect, scope, upstreamPath string) {
+func (handler *Handler) forward(response http.ResponseWriter, request *http.Request, dialect, scope, upstreamPath, publicIDOverride string, streamOverride *bool) {
 	clientOperation := upstreamPath
 	principal, ok := handler.authenticate(response, request, dialect)
 	if !ok {
@@ -75,25 +76,13 @@ func (handler *Handler) forward(response http.ResponseWriter, request *http.Requ
 		return
 	}
 	var publicID string
-	if raw := envelope["model"]; len(raw) > 0 {
+	if publicIDOverride != "" {
+		publicID = publicIDOverride
+	} else if raw := envelope["model"]; len(raw) > 0 {
 		_ = json.Unmarshal(raw, &publicID)
 	}
 	if publicID == "" {
 		handler.writeError(response, dialect, http.StatusBadRequest, "invalid_request", "model is required")
-		return
-	}
-	target, err := handler.providers.Target(request.Context(), publicID)
-	if err != nil {
-		handler.writeError(response, dialect, http.StatusNotFound, "model_not_found", "Model is unavailable")
-		return
-	}
-	native := nativeAdapter(dialect, target.Adapter) || dialect == "responses" && (target.Adapter == "openai" || target.Adapter == "openai_compatible")
-	if !hasCapability(target.Capabilities, scope) || (!native && scope != "chat:generate" && scope != "responses:generate") {
-		handler.writeError(response, dialect, http.StatusBadRequest, "unsupported_operation", "Model does not support this operation")
-		return
-	}
-	if !principal.Allows(scope, publicID, target.TargetConnectionID) {
-		handler.writeError(response, dialect, http.StatusNotFound, "model_not_found", "Model is unavailable to this key")
 		return
 	}
 	if dialect == "responses" {
@@ -104,93 +93,267 @@ func (handler *Handler) forward(response http.ResponseWriter, request *http.Requ
 	}
 	stream := false
 	_ = json.Unmarshal(envelope["stream"], &stream)
-	if dialect == "anthropic" && stream && !native {
-		handler.writeError(response, dialect, http.StatusBadRequest, "unsupported_feature", "Anthropic streaming requires an Anthropic-compatible target so input usage is known before the first event")
-		return
+	if streamOverride != nil {
+		stream = *streamOverride
 	}
 	inputEstimate := originalBodyBytes
 	outputEstimate := maximumOutput(envelope)
-	if !native && target.Adapter == "anthropic" && outputEstimate == 0 {
-		outputEstimate = 4096
-	}
 	batchItems := int64(0)
 	if upstreamPath == "embeddings" {
 		batchItems = jsonCardinality(envelope["input"])
-	}
-	if native {
-		encodedModel, _ := json.Marshal(target.UpstreamID)
-		envelope["model"] = encodedModel
-		body, err = json.Marshal(envelope)
-	} else {
-		upstreamPath, body, err = translateRequest(dialect, target.Adapter, body, target.UpstreamID)
-	}
-	if err != nil {
-		handler.writeError(response, dialect, http.StatusBadRequest, "unsupported_feature", err.Error())
-		return
-	}
-	generation := scope == "chat:generate" || scope == "responses:generate"
-	admission, err := handler.usage.Admit(request.Context(), usage.AdmissionInput{KeyID: principal.KeyID, ConnectionID: target.TargetConnectionID, ModelID: publicID, UpstreamModelRecordID: target.TargetModelID, UpstreamModelID: target.UpstreamID, ConnectionRevision: target.ConnectionRevision, ModelRevision: target.Revision, Operation: clientOperation, TargetOperation: upstreamPath, Scope: scope, Dialect: dialect, TargetDialect: target.Adapter, TranslationApplied: !native, RequestToolCount: requestToolCount, BodyBytes: originalBodyBytes, BatchItems: batchItems, EstimatedInputTokens: inputEstimate, EstimatedOutputTokens: outputEstimate, EnforceOutputBound: generation, OutputBounded: !generation || outputEstimate > 0})
-	if err != nil {
-		handler.writeAdmissionError(response, dialect, err)
-		return
-	}
-	releaseDispatch, current := handler.providers.BeginDispatch(request.Context(), target)
-	if !current {
-		_ = handler.usage.CancelBeforeDispatch(context.WithoutCancel(request.Context()), admission.AttemptID)
-		handler.writeError(response, dialect, http.StatusServiceUnavailable, "gateway_unavailable", "Provider configuration changed before dispatch")
-		return
-	}
-	if err := handler.usage.MarkDispatching(request.Context(), admission.AttemptID); err != nil {
-		releaseDispatch()
-		_ = handler.usage.CancelBeforeDispatch(context.WithoutCancel(request.Context()), admission.AttemptID)
-		handler.writeError(response, dialect, http.StatusServiceUnavailable, "gateway_unavailable", "Request could not be dispatched")
-		return
-	}
-	var result int
-	var raw []byte
-	var copyErr error
-	if native {
-		result, raw, copyErr = handler.dispatch(response, request, target, upstreamPath, body, stream, dialect, releaseDispatch)
-	} else {
-		result, raw, copyErr = handler.dispatchTranslated(response, request, target, upstreamPath, body, dialect, publicID, stream, releaseDispatch)
-	}
-	state, status := "succeeded", "provider_reported"
-	final := true
-	accountDialect := dialect
-	if !native {
-		accountDialect = target.Adapter
-		if accountDialect == "openai_compatible" {
-			accountDialect = "openai"
+	} else if dialect == "gemini" {
+		var object map[string]any
+		_ = json.Unmarshal(body, &object)
+		outputEstimate = geminiMaximumOutput(object)
+		if upstreamPath == "batchEmbedContents" {
+			if values, ok := object["requests"].([]any); ok {
+				batchItems = int64(len(values))
+			}
 		}
 	}
-	inputTokens, outputTokens, cost := parseUsage(accountDialect, raw)
-	toolCalls, toolStatus := parseToolMetadata(accountDialect, raw)
-	if inputTokens == nil || outputTokens == nil {
-		status, cost = "unknown", nil
+	outputBounded := outputEstimate > 0
+	generation := scope == "chat:generate" || scope == "responses:generate"
+	if generation && outputEstimate == 0 {
+		outputEstimate = 4096
 	}
-	if scope == "tokens:count" {
-		if inputTokens != nil {
+	translationBody := body
+	if dialect == "gemini" && stream {
+		envelope["stream"] = []byte("true")
+		translationBody, _ = json.Marshal(envelope)
+	}
+	translationSupport := map[string]bool{}
+	translationChecked := map[string]bool{}
+	seed := sha256.Sum256(append([]byte(principal.KeyID+"\x00"+publicID+"\x00"+strconv.FormatInt(time.Now().UnixNano(), 10)+"\x00"), body...))
+	plan, err := handler.providers.Route(request.Context(), publicID, providers.RouteOptions{Operation: clientOperation, Streaming: stream, EstimatedInputTokens: inputEstimate, EstimatedOutputTokens: outputEstimate, Seed: string(seed[:]), AllowsConnection: func(connectionID string) bool { return principal.Allows(scope, publicID, connectionID) }, Eligibility: func(target providers.Target) (bool, string) {
+		native := nativeTarget(dialect, target.Adapter)
+		if !hasCapability(target.Capabilities, scope) {
+			return false, "unsupported_capability"
+		}
+		if !native && scope != "chat:generate" && scope != "responses:generate" {
+			return false, "translation_unsupported"
+		}
+		if dialect == "anthropic" && stream && !native {
+			return false, "anthropic_stream_usage_unavailable"
+		}
+		if !native {
+			if !translationChecked[target.Adapter] {
+				_, _, err := translateRequest(dialect, target.Adapter, translationBody, target.UpstreamID)
+				translationChecked[target.Adapter], translationSupport[target.Adapter] = true, err == nil
+			}
+			if !translationSupport[target.Adapter] {
+				return false, "request_translation_unsupported"
+			}
+		}
+		return true, ""
+	}})
+	if err != nil {
+		handler.writeError(response, dialect, http.StatusNotFound, "model_not_found", "Model is unavailable")
+		return
+	}
+	overallTimeout := time.Duration(0)
+	for _, candidate := range plan.Targets {
+		overallTimeout += time.Duration(candidate.Target().TimeoutMS) * time.Millisecond
+	}
+	overallTimeout = min(max(overallTimeout, time.Second), 10*time.Minute)
+	sharedContext, cancelShared := context.WithTimeout(request.Context(), overallTimeout)
+	defer cancelShared()
+	request = request.Clone(sharedContext)
+	rejected, _ := json.Marshal(plan.Rejected)
+	requestID := ""
+	for index, routeTarget := range plan.Targets {
+		target := routeTarget.Target()
+		native := nativeTarget(dialect, target.Adapter)
+		targetPath, targetBody := upstreamPath, body
+		var targetEnvelope map[string]json.RawMessage
+		_ = json.Unmarshal(body, &targetEnvelope)
+		if native && dialect == "gemini" {
+			targetPath = "models/" + url.PathEscape(target.UpstreamID) + ":" + clientOperation
+			if stream {
+				targetPath += "?alt=sse"
+			}
+		} else if native {
+			targetEnvelope["model"], _ = json.Marshal(target.UpstreamID)
+			targetBody, err = json.Marshal(targetEnvelope)
+		} else {
+			targetPath, targetBody, err = translateRequest(dialect, target.Adapter, translationBody, target.UpstreamID)
+		}
+		if err != nil {
+			if requestID != "" {
+				_ = handler.usage.CloseFailedRequest(context.WithoutCancel(request.Context()), requestID)
+			}
+			handler.writeError(response, dialect, http.StatusBadRequest, "unsupported_feature", err.Error())
+			return
+		}
+		admission, admitErr := handler.usage.Admit(request.Context(), usage.AdmissionInput{RequestID: requestID, KeyID: principal.KeyID, ConnectionID: target.TargetConnectionID, ModelID: publicID, UpstreamModelRecordID: target.TargetModelID, UpstreamModelID: target.UpstreamID, ConnectionRevision: target.ConnectionRevision, ModelRevision: target.Revision, Operation: clientOperation, TargetOperation: targetPath, Scope: scope, Dialect: dialect, TargetDialect: target.Adapter, TranslationApplied: !native, RequestToolCount: requestToolCount, SelectionReason: plan.SelectionReason, RejectedCandidatesJSON: string(rejected), RequiredPriceVersionID: routeTarget.PriceVersionID(), RequireFreePrice: plan.FreeOnly, BodyBytes: originalBodyBytes, BatchItems: batchItems, EstimatedInputTokens: inputEstimate, EstimatedOutputTokens: outputEstimate, EnforceOutputBound: generation, OutputBounded: !generation || outputBounded})
+		if admitErr != nil {
+			if requestID != "" {
+				_ = handler.usage.CloseFailedRequest(context.WithoutCancel(request.Context()), requestID)
+			}
+			handler.writeAdmissionError(response, dialect, admitErr)
+			return
+		}
+		requestID = admission.RequestID
+		releaseDispatch, current := handler.providers.BeginDispatch(request.Context(), target)
+		if !current {
+			_ = handler.usage.CancelBeforeDispatch(context.WithoutCancel(request.Context()), admission.AttemptID)
+			handler.writeError(response, dialect, http.StatusServiceUnavailable, "gateway_unavailable", "Provider configuration changed before dispatch")
+			return
+		}
+		if err = handler.usage.MarkDispatching(request.Context(), admission.AttemptID); err != nil {
+			releaseDispatch()
+			_ = handler.usage.CancelBeforeDispatch(context.WithoutCancel(request.Context()), admission.AttemptID)
+			handler.writeError(response, dialect, http.StatusServiceUnavailable, "gateway_unavailable", "Request could not be dispatched")
+			return
+		}
+		attemptWriter := newAttemptWriter(response, stream)
+		started := time.Now()
+		var result int
+		var raw []byte
+		var copyErr error
+		if native {
+			result, raw, copyErr = handler.dispatch(attemptWriter, request, target, targetPath, targetBody, stream, dialect, releaseDispatch)
+		} else {
+			result, raw, copyErr = handler.dispatchTranslated(attemptWriter, request, target, targetPath, targetBody, dialect, publicID, stream, releaseDispatch)
+		}
+		success := copyErr == nil && result >= 200 && result < 300
+		if request.Context().Err() == nil && (success || result == 0 || retryableResult(result, nil)) {
+			_ = handler.providers.RecordRouteOutcome(context.WithoutCancel(request.Context()), target, clientOperation, stream, success, attemptWriter.FirstByte(started), time.Since(started))
+		}
+		retry := index+1 < len(plan.Targets) && retryableResult(result, copyErr) && !attemptWriter.Committed()
+		state, status := "succeeded", "provider_reported"
+		accountDialect := dialect
+		if !native {
+			accountDialect = target.Adapter
+			if accountDialect == "openai_compatible" {
+				accountDialect = "openai"
+			}
+		}
+		inputTokens, outputTokens, cost := parseUsage(accountDialect, raw)
+		toolCalls, toolStatus := parseToolMetadata(accountDialect, raw)
+		if inputTokens == nil || outputTokens == nil {
+			status, cost = "unknown", nil
+		}
+		if scope == "tokens:count" && inputTokens != nil {
 			zero := int64(0)
 			cost = &zero
 		}
+		if !success {
+			state, status = "failed", "unknown"
+			inputTokens, outputTokens, cost = nil, nil, nil
+			if result >= 400 && result < 500 && copyErr == nil {
+				zero := int64(0)
+				status, inputTokens, outputTokens, cost = "estimated", &zero, &zero, &zero
+			}
+		}
+		if copyErr != nil && toolCalls > 0 {
+			toolStatus = "incomplete"
+		}
+		if errors.Is(request.Context().Err(), context.Canceled) {
+			state, status = "interrupted_unknown", "unknown"
+			retry = false
+		}
+		handler.settle(admission.AttemptID, usage.SettlementInput{IdempotencyKey: "dispatch:" + admission.AttemptID, State: state, UsageStatus: status, InputTokens: inputTokens, OutputTokens: outputTokens, CostNanos: cost, ResponseToolCallCount: toolCalls, ToolCallStatus: toolStatus, FinalRequest: !retry})
+		if retry {
+			if !waitRetry(request.Context(), index) {
+				_ = handler.usage.CloseFailedRequest(context.WithoutCancel(request.Context()), requestID)
+				return
+			}
+			continue
+		}
+		if !success && attemptWriter.status == 0 {
+			handler.writeError(attemptWriter, dialect, http.StatusBadGateway, "upstream_error", "Provider request failed")
+		}
+		attemptWriter.Commit()
+		return
 	}
-	if copyErr != nil || result == 0 || result >= 400 {
-		state, status = "failed", "unknown"
-		inputTokens, outputTokens, cost = nil, nil, nil
-		if result >= 400 && result < 500 && copyErr == nil {
-			zero := int64(0)
-			status, inputTokens, outputTokens, cost = "estimated", &zero, &zero, &zero
+}
+
+func nativeTarget(dialect, adapter string) bool {
+	return nativeAdapter(dialect, adapter) || dialect == "responses" && (adapter == "openai" || adapter == "openai_compatible")
+}
+func retryableResult(status int, err error) bool {
+	return err != nil || status == 0 || status == http.StatusRequestTimeout || status == http.StatusTooEarly || status == http.StatusTooManyRequests || status >= 500
+}
+func waitRetry(ctx context.Context, index int) bool {
+	delay := time.Duration(25+(index*17)%51) * time.Millisecond
+	timer := time.NewTimer(delay)
+	defer timer.Stop()
+	select {
+	case <-ctx.Done():
+		return false
+	case <-timer.C:
+		return true
+	}
+}
+
+type attemptWriter struct {
+	destination          http.ResponseWriter
+	header               http.Header
+	status               int
+	body                 bytes.Buffer
+	streaming, committed bool
+	firstWrite           time.Time
+}
+
+func newAttemptWriter(destination http.ResponseWriter, streaming bool) *attemptWriter {
+	return &attemptWriter{destination: destination, header: make(http.Header), streaming: streaming}
+}
+func (writer *attemptWriter) Header() http.Header { return writer.header }
+func (writer *attemptWriter) WriteHeader(status int) {
+	if writer.status != 0 {
+		return
+	}
+	writer.status = status
+}
+func (writer *attemptWriter) Write(value []byte) (int, error) {
+	if writer.firstWrite.IsZero() {
+		writer.firstWrite = time.Now()
+	}
+	if writer.status == 0 {
+		writer.WriteHeader(http.StatusOK)
+	}
+	if writer.committed {
+		return writer.destination.Write(value)
+	}
+	return writer.body.Write(value)
+}
+func (writer *attemptWriter) Flush() {
+	if writer.status == 0 {
+		writer.WriteHeader(http.StatusOK)
+	}
+	if writer.status >= 200 && writer.status < 300 {
+		writer.commitHeader()
+		if flusher, ok := writer.destination.(http.Flusher); ok {
+			flusher.Flush()
 		}
 	}
-	if copyErr != nil && toolCalls > 0 {
-		toolStatus = "incomplete"
-	}
-	if errors.Is(request.Context().Err(), context.Canceled) {
-		state = "interrupted_unknown"
-		status = "unknown"
-	}
-	handler.settle(admission.AttemptID, usage.SettlementInput{IdempotencyKey: "dispatch:" + admission.AttemptID, State: state, UsageStatus: status, InputTokens: inputTokens, OutputTokens: outputTokens, CostNanos: cost, ResponseToolCallCount: toolCalls, ToolCallStatus: toolStatus, FinalRequest: final})
 }
+func (writer *attemptWriter) Committed() bool { return writer.committed }
+func (writer *attemptWriter) FirstByte(started time.Time) time.Duration {
+	if writer.firstWrite.IsZero() {
+		return 0
+	}
+	return writer.firstWrite.Sub(started)
+}
+func (writer *attemptWriter) commitHeader() {
+	if writer.committed {
+		return
+	}
+	for name, values := range writer.header {
+		writer.destination.Header()[name] = append([]string(nil), values...)
+	}
+	status := writer.status
+	if status == 0 {
+		status = http.StatusOK
+	}
+	writer.destination.WriteHeader(status)
+	writer.committed = true
+	if writer.body.Len() > 0 {
+		_, _ = writer.destination.Write(writer.body.Bytes())
+		writer.body.Reset()
+	}
+}
+func (writer *attemptWriter) Commit() { writer.commitHeader() }
 
 func validateStatelessResponses(envelope map[string]json.RawMessage) error {
 	var stored bool
@@ -230,114 +393,8 @@ func (handler *Handler) geminiAction(response http.ResponseWriter, request *http
 		handler.writeError(response, "gemini", http.StatusNotFound, "NOT_FOUND", "Operation is unavailable")
 		return
 	}
-	principal, ok := handler.authenticate(response, request, "gemini")
-	if !ok {
-		return
-	}
-	target, err := handler.providers.Target(request.Context(), publicID)
-	native := err == nil && nativeAdapter("gemini", target.Adapter)
-	if err != nil || !hasCapability(target.Capabilities, scope) || (!native && scope != "chat:generate") || !principal.Allows(scope, publicID, target.TargetConnectionID) {
-		handler.writeError(response, "gemini", http.StatusNotFound, "NOT_FOUND", "Model is unavailable")
-		return
-	}
-	body, err := io.ReadAll(http.MaxBytesReader(response, request.Body, maxInferenceBody))
-	if err != nil {
-		handler.writeError(response, "gemini", http.StatusRequestEntityTooLarge, "RESOURCE_EXHAUSTED", "Request body exceeds 16 MiB")
-		return
-	}
-	var object map[string]any
-	if json.Unmarshal(body, &object) != nil {
-		handler.writeError(response, "gemini", http.StatusBadRequest, "INVALID_ARGUMENT", "Request body must be a JSON object")
-		return
-	}
-	requestToolCount := countRequestTools("gemini", body)
 	stream := name == "streamGenerateContent"
-	relative, upstreamBody := "", body
-	if native {
-		relative = "models/" + url.PathEscape(target.UpstreamID) + ":" + name
-		if stream {
-			relative += "?alt=sse"
-		}
-	} else {
-		translationBody := body
-		if stream {
-			object["stream"] = true
-			translationBody, err = json.Marshal(object)
-		}
-		if err == nil {
-			relative, upstreamBody, err = translateRequest("gemini", target.Adapter, translationBody, target.UpstreamID)
-		}
-		if err != nil {
-			handler.writeError(response, "gemini", http.StatusBadRequest, "INVALID_ARGUMENT", err.Error())
-			return
-		}
-	}
-	batchItems := int64(0)
-	if name == "batchEmbedContents" {
-		if values, ok := object["requests"].([]any); ok {
-			batchItems = int64(len(values))
-		}
-	}
-	outputEstimate := geminiMaximumOutput(object)
-	admission, err := handler.usage.Admit(request.Context(), usage.AdmissionInput{KeyID: principal.KeyID, ConnectionID: target.TargetConnectionID, ModelID: publicID, UpstreamModelRecordID: target.TargetModelID, UpstreamModelID: target.UpstreamID, ConnectionRevision: target.ConnectionRevision, ModelRevision: target.Revision, Operation: name, TargetOperation: relative, Scope: scope, Dialect: "gemini", TargetDialect: target.Adapter, TranslationApplied: !native, RequestToolCount: requestToolCount, BodyBytes: int64(len(body)), BatchItems: batchItems, EstimatedInputTokens: int64(len(body)), EstimatedOutputTokens: outputEstimate, EnforceOutputBound: scope == "chat:generate", OutputBounded: scope != "chat:generate" || outputEstimate > 0})
-	if err != nil {
-		handler.writeAdmissionError(response, "gemini", err)
-		return
-	}
-	releaseDispatch, current := handler.providers.BeginDispatch(request.Context(), target)
-	if !current {
-		_ = handler.usage.CancelBeforeDispatch(context.WithoutCancel(request.Context()), admission.AttemptID)
-		handler.writeError(response, "gemini", http.StatusServiceUnavailable, "UNAVAILABLE", "Provider configuration changed before dispatch")
-		return
-	}
-	if err := handler.usage.MarkDispatching(request.Context(), admission.AttemptID); err != nil {
-		releaseDispatch()
-		_ = handler.usage.CancelBeforeDispatch(context.WithoutCancel(request.Context()), admission.AttemptID)
-		handler.writeError(response, "gemini", http.StatusServiceUnavailable, "UNAVAILABLE", "Request could not be dispatched")
-		return
-	}
-	var result int
-	var raw []byte
-	var copyErr error
-	if native {
-		result, raw, copyErr = handler.dispatch(response, request, target, relative, upstreamBody, stream, "gemini", releaseDispatch)
-	} else {
-		result, raw, copyErr = handler.dispatchTranslated(response, request, target, relative, upstreamBody, "gemini", publicID, stream, releaseDispatch)
-	}
-	state, status := "succeeded", "provider_reported"
-	accountDialect := "gemini"
-	if !native {
-		accountDialect = target.Adapter
-		if accountDialect == "openai_compatible" {
-			accountDialect = "openai"
-		}
-	}
-	in, out, cost := parseUsage(accountDialect, raw)
-	toolCalls, toolStatus := parseToolMetadata(accountDialect, raw)
-	if in == nil || out == nil {
-		status, cost = "unknown", nil
-	}
-	if scope == "tokens:count" {
-		if in != nil {
-			zero := int64(0)
-			cost = &zero
-		}
-	}
-	if copyErr != nil || result == 0 || result >= 400 {
-		state, status = "failed", "unknown"
-		in, out, cost = nil, nil, nil
-		if result >= 400 && result < 500 && copyErr == nil {
-			zero := int64(0)
-			status, in, out, cost = "estimated", &zero, &zero, &zero
-		}
-	}
-	if copyErr != nil && toolCalls > 0 {
-		toolStatus = "incomplete"
-	}
-	if errors.Is(request.Context().Err(), context.Canceled) {
-		state, status = "interrupted_unknown", "unknown"
-	}
-	handler.settle(admission.AttemptID, usage.SettlementInput{IdempotencyKey: "dispatch:" + admission.AttemptID, State: state, UsageStatus: status, InputTokens: in, OutputTokens: out, CostNanos: cost, ResponseToolCallCount: toolCalls, ToolCallStatus: toolStatus, FinalRequest: true})
+	handler.forward(response, request, "gemini", scope, name, publicID, &stream)
 }
 
 func (handler *Handler) settle(attemptID string, input usage.SettlementInput) {
@@ -392,19 +449,27 @@ func (handler *Handler) dispatch(response http.ResponseWriter, request *http.Req
 	if contentType == "" {
 		contentType = "application/json"
 	}
+	if !stream {
+		raw, readErr := io.ReadAll(io.LimitReader(result.Body, maxInferenceBody+1))
+		if readErr != nil || len(raw) > maxInferenceBody {
+			handler.writeError(response, dialect, http.StatusBadGateway, "upstream_error", "Provider response exceeds 16 MiB")
+			return result.StatusCode, nil, errors.New("provider response exceeds 16 MiB")
+		}
+		response.Header().Set("Content-Type", contentType)
+		response.Header().Set("Cache-Control", "no-store")
+		response.WriteHeader(result.StatusCode)
+		_, err = response.Write(raw)
+		return result.StatusCode, raw, err
+	}
 	response.Header().Set("Content-Type", contentType)
 	response.Header().Set("Cache-Control", "no-store")
 	response.WriteHeader(result.StatusCode)
-	capture := &limitedCapture{limit: 8 << 20}
-	destination := io.Writer(response)
-	if stream {
-		flusher, ok := response.(http.Flusher)
-		if !ok {
-			return result.StatusCode, nil, errors.New("streaming is unsupported by the response writer")
-		}
-		destination = flushWriter{writer: response, flusher: flusher}
+	flusher, ok := response.(http.Flusher)
+	if !ok {
+		return result.StatusCode, nil, errors.New("streaming is unsupported by the response writer")
 	}
-	_, err = io.Copy(destination, io.TeeReader(result.Body, capture))
+	capture := &limitedCapture{limit: 8 << 20}
+	_, err = io.Copy(flushWriter{writer: response, flusher: flusher}, io.TeeReader(result.Body, capture))
 	return result.StatusCode, capture.Bytes(), err
 }
 
@@ -534,7 +599,7 @@ func (handler *Handler) allowedModels(response http.ResponseWriter, request *htt
 	}
 	filtered := items[:0]
 	for _, item := range items {
-		if modelVisibleInDialect(dialect, item) && principal.Allows("models:read", item.ID, item.TargetConnectionID) {
+		if modelVisibleInDialect(dialect, item) && handler.providers.HasAvailableRouteTarget(request.Context(), item.ID, func(connectionID string) bool { return principal.Allows("models:read", item.ID, connectionID) }) {
 			filtered = append(filtered, item)
 		}
 	}
@@ -728,6 +793,9 @@ func joinURL(base, relative string) (string, error) {
 	return parsed.String(), nil
 }
 func setProviderCredential(request *http.Request, adapter, credential string) {
+	if credential == "" {
+		return
+	}
 	switch adapter {
 	case "anthropic":
 		request.Header.Set("x-api-key", credential)

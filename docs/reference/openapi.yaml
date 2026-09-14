@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: Pocket AI Gateway Management API
-  version: 0.5.0
+  version: 0.6.0
   description: Implemented identity, limits, usage, pricing, provider, model, and request-history management surface. Compatible inference APIs have separate protocol specifications.
 servers:
   - url: /api/v1
@@ -454,6 +454,217 @@ paths:
         "428": { $ref: "#/components/responses/PreconditionRequired" }
         "503": { $ref: "#/components/responses/ServiceUnavailable" }
         default: { $ref: "#/components/responses/Error" }
+  /providers:
+    get:
+      operationId: listProviderTypes
+      responses:
+        "200": { description: Supported adapters and capabilities, content: { application/json: { schema: { type: object, required: [data], properties: { data: { type: array, items: { type: object, required: [id, capabilities], properties: { id: { type: string }, capabilities: { type: array, items: { type: string } } } } } } } } } }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "503": { $ref: "#/components/responses/ServiceUnavailable" }
+        default: { $ref: "#/components/responses/Error" }
+  /provider-presets:
+    get:
+      operationId: listProviderPresets
+      responses:
+        "200": { description: Built-in provider connection presets, content: { application/json: { schema: { type: object, required: [data], properties: { data: { type: array, items: { $ref: "#/components/schemas/ProviderPreset" } } } } } } }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "503": { $ref: "#/components/responses/ServiceUnavailable" }
+        default: { $ref: "#/components/responses/Error" }
+  /connections:
+    get:
+      operationId: listProviderConnections
+      responses:
+        "200": { description: Provider connections, content: { application/json: { schema: { type: object, required: [data], properties: { data: { type: array, items: { $ref: "#/components/schemas/ProviderConnection" } } } } } } }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "503": { $ref: "#/components/responses/ServiceUnavailable" }
+        default: { $ref: "#/components/responses/Error" }
+    post:
+      operationId: createProviderConnection
+      parameters: [{ $ref: "#/components/parameters/CSRF" }]
+      requestBody: { required: true, content: { application/json: { schema: { $ref: "#/components/schemas/ProviderConnectionInput" } } } }
+      responses:
+        "201": { description: Connection created, content: { application/json: { schema: { type: object, required: [connection], properties: { connection: { $ref: "#/components/schemas/ProviderConnection" } } } } } }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "409": { $ref: "#/components/responses/Conflict" }
+        "503": { $ref: "#/components/responses/ServiceUnavailable" }
+        "413": { $ref: "#/components/responses/PayloadTooLarge" }
+        "415": { $ref: "#/components/responses/UnsupportedMediaType" }
+        default: { $ref: "#/components/responses/Error" }
+  /connections/{id}:
+    get:
+      operationId: getProviderConnection
+      parameters: [{ $ref: "#/components/parameters/ID" }]
+      responses:
+        "200": { description: Provider connection, content: { application/json: { schema: { type: object, required: [connection], properties: { connection: { $ref: "#/components/schemas/ProviderConnection" } } } } } }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "503": { $ref: "#/components/responses/ServiceUnavailable" }
+        default: { $ref: "#/components/responses/Error" }
+    patch:
+      operationId: updateProviderConnection
+      parameters: [{ $ref: "#/components/parameters/ID" }, { $ref: "#/components/parameters/Revision" }, { $ref: "#/components/parameters/CSRF" }]
+      requestBody: { required: true, content: { application/json: { schema: { $ref: "#/components/schemas/ProviderConnectionInput" } } } }
+      responses:
+        "200": { description: Connection updated, content: { application/json: { schema: { type: object, required: [connection], properties: { connection: { $ref: "#/components/schemas/ProviderConnection" } } } } } }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "409": { $ref: "#/components/responses/Conflict" }
+        "428": { $ref: "#/components/responses/PreconditionRequired" }
+        "503": { $ref: "#/components/responses/ServiceUnavailable" }
+        "413": { $ref: "#/components/responses/PayloadTooLarge" }
+        "415": { $ref: "#/components/responses/UnsupportedMediaType" }
+        default: { $ref: "#/components/responses/Error" }
+  /connections/{id}/credential:
+    put:
+      operationId: replaceProviderCredential
+      parameters: [{ $ref: "#/components/parameters/ID" }, { $ref: "#/components/parameters/CSRF" }]
+      requestBody:
+        required: true
+        content: { application/json: { schema: { type: object, additionalProperties: false, properties: { credential: { type: string, writeOnly: true, maxLength: 16384 }, external_ref: { type: string, pattern: '^env:[A-Za-z_][A-Za-z0-9_]*$', writeOnly: true } } } } }
+      responses:
+        "204": { description: Credential replaced }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "503": { $ref: "#/components/responses/ServiceUnavailable" }
+        "413": { $ref: "#/components/responses/PayloadTooLarge" }
+        "415": { $ref: "#/components/responses/UnsupportedMediaType" }
+        default: { $ref: "#/components/responses/Error" }
+  /connections/{id}/models:
+    get:
+      operationId: listUpstreamModels
+      parameters: [{ $ref: "#/components/parameters/ID" }]
+      responses:
+        "200": { description: Upstream models, content: { application/json: { schema: { type: object, required: [data], properties: { data: { type: array, items: { $ref: "#/components/schemas/UpstreamModel" } } } } } } }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "503": { $ref: "#/components/responses/ServiceUnavailable" }
+        default: { $ref: "#/components/responses/Error" }
+    post:
+      operationId: createUpstreamModel
+      parameters: [{ $ref: "#/components/parameters/ID" }, { $ref: "#/components/parameters/CSRF" }]
+      requestBody: { required: true, content: { application/json: { schema: { type: object, additionalProperties: false, required: [upstream_id, capabilities], properties: { upstream_id: { type: string, minLength: 1, maxLength: 300 }, capabilities: { type: array, minItems: 1, uniqueItems: true, items: { type: string, enum: [chat, embeddings, count_tokens] } } } } } } }
+      responses:
+        "201": { description: Upstream model created, content: { application/json: { schema: { type: object, required: [model], properties: { model: { $ref: "#/components/schemas/UpstreamModel" } } } } } }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "409": { $ref: "#/components/responses/Conflict" }
+        "503": { $ref: "#/components/responses/ServiceUnavailable" }
+        "413": { $ref: "#/components/responses/PayloadTooLarge" }
+        "415": { $ref: "#/components/responses/UnsupportedMediaType" }
+        default: { $ref: "#/components/responses/Error" }
+  /models:
+    get:
+      operationId: listVisibleModels
+      responses:
+        "200": { description: Grant-filtered public models, content: { application/json: { schema: { type: object, required: [data], properties: { data: { type: array, items: { $ref: "#/components/schemas/VisibleModel" } } } } } } }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "503": { $ref: "#/components/responses/ServiceUnavailable" }
+        default: { $ref: "#/components/responses/Error" }
+    post:
+      operationId: createPublicModel
+      parameters: [{ $ref: "#/components/parameters/CSRF" }]
+      requestBody: { required: true, content: { application/json: { schema: { $ref: "#/components/schemas/PublicModelInput" } } } }
+      responses:
+        "201": { description: Public model created, content: { application/json: { schema: { type: object, required: [model], properties: { model: { $ref: "#/components/schemas/PublicModel" } } } } } }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "409": { $ref: "#/components/responses/Conflict" }
+        "503": { $ref: "#/components/responses/ServiceUnavailable" }
+        "413": { $ref: "#/components/responses/PayloadTooLarge" }
+        "415": { $ref: "#/components/responses/UnsupportedMediaType" }
+        default: { $ref: "#/components/responses/Error" }
+  /admin/models:
+    get:
+      operationId: listManagedModels
+      responses:
+        "200": { description: Full public model configuration, content: { application/json: { schema: { type: object, required: [data], properties: { data: { type: array, items: { $ref: "#/components/schemas/PublicModel" } } } } } } }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "503": { $ref: "#/components/responses/ServiceUnavailable" }
+        default: { $ref: "#/components/responses/Error" }
+  /admin/models/{id}/route:
+    get:
+      operationId: getModelRoute
+      parameters: [{ $ref: "#/components/parameters/ID" }]
+      responses:
+        "200": { description: Route configuration, content: { application/json: { schema: { type: object, required: [model, targets], properties: { model: { $ref: "#/components/schemas/PublicModel" }, targets: { type: array, items: { $ref: "#/components/schemas/RouteTargetInput" } } } } } } }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "503": { $ref: "#/components/responses/ServiceUnavailable" }
+        default: { $ref: "#/components/responses/Error" }
+    put:
+      operationId: updateModelRoute
+      parameters: [{ $ref: "#/components/parameters/ID" }, { $ref: "#/components/parameters/Revision" }, { $ref: "#/components/parameters/CSRF" }]
+      requestBody: { required: true, content: { application/json: { schema: { $ref: "#/components/schemas/RouteConfigInput" } } } }
+      responses:
+        "200": { description: Route updated, content: { application/json: { schema: { type: object, required: [model], properties: { model: { $ref: "#/components/schemas/PublicModel" } } } } } }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "409": { $ref: "#/components/responses/Conflict" }
+        "428": { $ref: "#/components/responses/PreconditionRequired" }
+        "503": { $ref: "#/components/responses/ServiceUnavailable" }
+        "413": { $ref: "#/components/responses/PayloadTooLarge" }
+        "415": { $ref: "#/components/responses/UnsupportedMediaType" }
+        default: { $ref: "#/components/responses/Error" }
+  /admin/models/{id}/route-preview:
+    post:
+      operationId: previewModelRoute
+      parameters: [{ $ref: "#/components/parameters/ID" }, { $ref: "#/components/parameters/CSRF" }]
+      requestBody: { required: true, content: { application/json: { schema: { $ref: "#/components/schemas/RoutePreviewInput" } } } }
+      responses:
+        "200": { description: Route selection without inference, content: { application/json: { schema: { type: object, required: [route], properties: { route: { $ref: "#/components/schemas/RoutePlan" } } } } } }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "503": { $ref: "#/components/responses/ServiceUnavailable" }
+        "413": { $ref: "#/components/responses/PayloadTooLarge" }
+        "415": { $ref: "#/components/responses/UnsupportedMediaType" }
+        default: { $ref: "#/components/responses/Error" }
+  /admin/catalog:
+    get:
+      operationId: getCatalog
+      responses:
+        "200": { description: Catalog candidates and refresh state, content: { application/json: { schema: { type: object, required: [data, state], properties: { data: { type: array, maxItems: 5000, items: { $ref: "#/components/schemas/CatalogCandidate" } }, state: { $ref: "#/components/schemas/CatalogState" } } } } } }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "503": { $ref: "#/components/responses/ServiceUnavailable" }
+        default: { $ref: "#/components/responses/Error" }
+    put:
+      operationId: configureCatalog
+      parameters: [{ $ref: "#/components/parameters/CSRF" }]
+      requestBody: { required: true, content: { application/json: { schema: { $ref: "#/components/schemas/CatalogConfigInput" } } } }
+      responses:
+        "200": { description: Catalog refresh configuration, content: { application/json: { schema: { type: object, required: [state], properties: { state: { $ref: "#/components/schemas/CatalogState" } } } } } }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "503": { $ref: "#/components/responses/ServiceUnavailable" }
+        "413": { $ref: "#/components/responses/PayloadTooLarge" }
+        "415": { $ref: "#/components/responses/UnsupportedMediaType" }
+        default: { $ref: "#/components/responses/Error" }
+  /admin/catalog/refresh:
+    post:
+      operationId: refreshCatalog
+      parameters: [{ $ref: "#/components/parameters/CSRF" }]
+      responses:
+        "200": { description: Catalog refreshed, content: { application/json: { schema: { type: object, required: [state], properties: { state: { $ref: "#/components/schemas/CatalogState" } } } } } }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "503": { $ref: "#/components/responses/ServiceUnavailable" }
+        default: { $ref: "#/components/responses/Error" }
   /admin/policies:
     get:
       operationId: listLimitPolicies
@@ -842,6 +1053,175 @@ components:
             properties:
               result: { $ref: "#/components/schemas/RepriceResult" }
   schemas:
+    ProviderPreset:
+      type: object
+      required: [id, label, adapter, base_url, credential_required, private_network]
+      properties:
+        id: { type: string, enum: [openai, anthropic, gemini, openrouter, ollama] }
+        label: { type: string }
+        adapter: { type: string, enum: [openai, anthropic, gemini, openai_compatible] }
+        base_url: { type: string, format: uri }
+        credential_required: { type: boolean }
+        private_network: { type: boolean }
+    ProviderConnectionInput:
+      type: object
+      additionalProperties: false
+      required: [name, enabled, timeout_ms]
+      oneOf:
+        - required: [adapter, base_url, allow_private_network]
+          properties:
+            preset: { type: string, enum: [custom], default: custom }
+        - required: [preset]
+          properties:
+            preset: { type: string, enum: [openai, anthropic, gemini, openrouter, ollama] }
+      properties:
+        name: { type: string, minLength: 1, maxLength: 200 }
+        adapter: { type: string, enum: [openai, anthropic, gemini, openai_compatible] }
+        base_url: { type: string, format: uri }
+        enabled: { type: boolean }
+        allow_private_network: { type: boolean }
+        timeout_ms: { type: integer, minimum: 1000, maximum: 600000 }
+        preset: { type: string, enum: [custom, openai, anthropic, gemini, openrouter, ollama], default: custom }
+    ProviderConnection:
+      allOf:
+        - { $ref: "#/components/schemas/ProviderConnectionInput" }
+        - type: object
+          required: [id, preset, credential_state, revision, created_at, updated_at]
+          properties:
+            id: { type: string }
+            credential_state: { type: string, enum: [missing, stored, external] }
+            revision: { type: integer, minimum: 1 }
+            created_at: { type: string, format: date-time }
+            updated_at: { type: string, format: date-time }
+    UpstreamModel:
+      type: object
+      required: [id, connection_id, upstream_id, capabilities, active]
+      properties:
+        id: { type: string }
+        connection_id: { type: string }
+        upstream_id: { type: string }
+        capabilities: { type: array, minItems: 1, uniqueItems: true, items: { type: string, enum: [chat, embeddings, count_tokens] } }
+        active: { type: boolean }
+    VisibleModel:
+      type: object
+      required: [id, label, description, adapter, capabilities]
+      properties:
+        id: { type: string }
+        label: { type: string }
+        description: { type: string }
+        adapter: { type: string }
+        capabilities: { type: array, items: { type: string } }
+    PublicModelInput:
+      type: object
+      additionalProperties: false
+      required: [id, label, description, target_model_id, capabilities]
+      properties:
+        id: { type: string, pattern: '^[A-Za-z0-9][A-Za-z0-9._-]{0,199}$' }
+        label: { type: string, minLength: 1, maxLength: 200 }
+        description: { type: string, maxLength: 1000 }
+        target_model_id: { type: string }
+        capabilities: { type: array, minItems: 1, uniqueItems: true, items: { type: string, enum: [chat, embeddings, count_tokens] } }
+    PublicModel:
+      allOf:
+        - { $ref: "#/components/schemas/VisibleModel" }
+        - type: object
+          required: [target_connection_id, target_model_id, upstream_id, active, revision, routing_strategy, free_only]
+          properties:
+            target_connection_id: { type: string }
+            target_model_id: { type: string }
+            upstream_id: { type: string }
+            active: { type: boolean }
+            revision: { type: integer, minimum: 1 }
+            routing_strategy: { $ref: "#/components/schemas/RouteStrategy" }
+            free_only: { type: boolean }
+    RouteStrategy: { type: string, enum: [fixed, ordered_fallback, weighted, lowest_cost, lowest_latency] }
+    RouteTargetInput:
+      type: object
+      additionalProperties: false
+      required: [upstream_model_id, priority, weight, enabled]
+      properties:
+        upstream_model_id: { type: string }
+        priority: { type: integer, minimum: 1, maximum: 1000 }
+        weight: { type: integer, minimum: 1, maximum: 10000 }
+        enabled: { type: boolean }
+    RouteConfigInput:
+      type: object
+      additionalProperties: false
+      required: [strategy, free_only, targets]
+      description: Fixed routes accept exactly one enabled target. Public models with embedding capability also require fixed routing to preserve vector compatibility. Free-only routes require a manager-recorded zero price verified within 24 hours.
+      allOf:
+        - if:
+            properties:
+              strategy: { const: fixed }
+          then:
+            properties:
+              targets: { maxItems: 1 }
+      properties:
+        strategy: { $ref: "#/components/schemas/RouteStrategy" }
+        free_only: { type: boolean }
+        targets: { type: array, minItems: 1, maxItems: 32, items: { $ref: "#/components/schemas/RouteTargetInput" } }
+    RoutePreviewInput:
+      type: object
+      additionalProperties: false
+      required: [operation, streaming, estimated_input_tokens, estimated_output_tokens]
+      properties:
+        operation: { type: string, minLength: 1 }
+        streaming: { type: boolean }
+        estimated_input_tokens: { type: integer, minimum: 0 }
+        estimated_output_tokens: { type: integer, minimum: 0 }
+    RoutePlan:
+      type: object
+      required: [model_id, strategy, free_only, selection_reason, targets, rejected]
+      properties:
+        model_id: { type: string }
+        strategy: { $ref: "#/components/schemas/RouteStrategy" }
+        free_only: { type: boolean }
+        selection_reason: { type: string }
+        targets: { type: array, items: { type: object, required: [upstream_model_id, connection_id, upstream_id, adapter, priority, weight, sample_count], properties: { upstream_model_id: { type: string }, connection_id: { type: string }, upstream_id: { type: string }, adapter: { type: string }, priority: { type: integer }, weight: { type: integer }, sample_count: { type: integer }, estimated_cost_usd: { type: string }, latency_ms: { type: integer }, circuit_open_until: { type: string, format: date-time } } } }
+        rejected: { type: array, items: { $ref: "#/components/schemas/RouteRejection" } }
+    RouteRejection:
+      type: object
+      required: [upstream_model_id, connection_id, reason]
+      properties:
+        upstream_model_id: { type: string }
+        connection_id: { type: string }
+        reason: { type: string, enum: [connection_not_granted, unsupported_capability, translation_unsupported, request_translation_unsupported, anthropic_stream_usage_unavailable, credential_unavailable, not_verified_free, circuit_open, price_unknown] }
+    CatalogConfigInput:
+      type: object
+      additionalProperties: false
+      required: [source_url, refresh_enabled, refresh_interval_hours]
+      properties:
+        source_url:
+          description: HTTPS github.com or raw.githubusercontent.com JSON URL; empty disables a source
+          oneOf:
+            - { type: string, const: "" }
+            - { type: string, format: uri, pattern: '^https://(github\\.com|raw\\.githubusercontent\\.com)/' }
+        refresh_enabled: { type: boolean, default: false }
+        refresh_interval_hours: { type: integer, minimum: 1, maximum: 720 }
+    CatalogState:
+      type: object
+      required: [source_url, source_version, last_checked_at, last_error, refresh_enabled, refresh_interval_hours]
+      properties:
+        source_url: { type: string }
+        source_version: { type: string }
+        last_checked_at: { type: [string, "null"], format: date-time }
+        last_error: { type: string }
+        refresh_enabled: { type: boolean }
+        refresh_interval_hours: { type: integer }
+    CatalogCandidate:
+      type: object
+      required: [provider, model_id, label, capabilities, free, source, source_version, discovered_at]
+      properties:
+        provider: { type: string }
+        model_id: { type: string }
+        label: { type: string }
+        capabilities: { type: array, items: { type: string } }
+        input_nanos_per_million: { type: integer, minimum: 0 }
+        output_nanos_per_million: { type: integer, minimum: 0 }
+        free: { type: boolean }
+        source: { type: string }
+        source_version: { type: string }
+        discovered_at: { type: string, format: date-time }
     OwnerClaim:
       type: object
       additionalProperties: false
@@ -1017,7 +1397,7 @@ components:
         started_at: { type: string, format: date-time }
     RequestAttempt:
       type: object
-      required: [id, ordinal, connection_id, model_id, upstream_model_id, target_dialect, target_operation, translation_applied, request_tool_count, response_tool_call_count, tool_call_status, state, usage_status, input_tokens, output_tokens, cost_usd, started_at]
+      required: [id, ordinal, connection_id, model_id, upstream_model_id, target_dialect, target_operation, translation_applied, request_tool_count, response_tool_call_count, tool_call_status, selection_reason, rejected_candidates, state, usage_status, input_tokens, output_tokens, cost_usd, started_at]
       properties:
         id: { type: string }
         ordinal: { type: integer, minimum: 1 }
@@ -1030,6 +1410,8 @@ components:
         request_tool_count: { type: integer, minimum: 0 }
         response_tool_call_count: { type: integer, minimum: 0 }
         tool_call_status: { type: string, enum: [none, completed, incomplete] }
+        selection_reason: { type: string }
+        rejected_candidates: { type: array, items: { $ref: "#/components/schemas/RouteRejection" } }
         state: { type: string, enum: [reserved, dispatching, streaming, succeeded, failed, cancelled_before_dispatch, cancelled, interrupted_unknown] }
         usage_status: { type: string, enum: [pending, provider_reported, estimated, unknown] }
         input_tokens: { type: integer, minimum: 0 }

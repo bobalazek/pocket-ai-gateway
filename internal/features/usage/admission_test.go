@@ -191,6 +191,32 @@ func TestAdmissionRechecksKeyGrants(t *testing.T) {
 	}
 }
 
+func TestAdmissionRechecksSelectedFreePrice(t *testing.T) {
+	ctx, service, owner, keyID, store := testService(t)
+	defer store.Close()
+	free, err := service.CreatePrice(ctx, owner, PriceInput{ConnectionID: "conn_test", ModelID: "model_test", InputUSDPerMillion: "0", OutputUSDPerMillion: "0", Source: "test", EffectiveFrom: time.Now().Add(-2 * time.Hour).UTC().Format(time.RFC3339)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err = store.SystemDB().ExecContext(ctx, "UPDATE price_versions SET created_at=? WHERE id=?", time.Now().Add(-25*time.Hour).UnixMilli(), free.ID); err != nil {
+		t.Fatal(err)
+	}
+	_, err = service.Admit(ctx, AdmissionInput{KeyID: keyID, ConnectionID: "conn_test", ModelID: "model_test", Operation: "chat", Scope: "chat:generate", Dialect: "openai", RequireFreePrice: true, RequiredPriceVersionID: free.ID})
+	if !errors.Is(err, ErrDenied) {
+		t.Fatalf("stale free price admission = %v", err)
+	}
+	if _, err = store.SystemDB().ExecContext(ctx, "UPDATE price_versions SET created_at=? WHERE id=?", time.Now().UnixMilli(), free.ID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err = service.CreatePrice(ctx, owner, PriceInput{ConnectionID: "conn_test", ModelID: "model_test", InputUSDPerMillion: "1", OutputUSDPerMillion: "1", Source: "test", EffectiveFrom: time.Now().Add(-time.Hour).UTC().Format(time.RFC3339)}); err != nil {
+		t.Fatal(err)
+	}
+	_, err = service.Admit(ctx, AdmissionInput{KeyID: keyID, ConnectionID: "conn_test", ModelID: "model_test", Operation: "chat", Scope: "chat:generate", Dialect: "openai", RequireFreePrice: true, RequiredPriceVersionID: free.ID})
+	if !errors.Is(err, ErrDenied) {
+		t.Fatalf("changed free price admission = %v", err)
+	}
+}
+
 func TestCalendarQuotaResetsAtUTCBoundary(t *testing.T) {
 	for name, period := range map[string]string{"week": "week", "month": "month"} {
 		t.Run(name, func(t *testing.T) {
@@ -324,6 +350,8 @@ func TestCancelBeforeDispatchReleasesReservations(t *testing.T) {
 	ctx, service, owner, keyID, store := testService(t)
 	defer store.Close()
 	createPolicy(t, ctx, service, owner, PolicyInput{ScopeKind: "key", ScopeID: keyID, Metric: "requests", Algorithm: "quota", Period: "day", LimitUnits: 1})
+	createPolicy(t, ctx, service, owner, PolicyInput{ScopeKind: "key", ScopeID: keyID, Metric: "concurrency", Algorithm: "concurrency", LimitUnits: 1})
+	createPolicy(t, ctx, service, owner, PolicyInput{ScopeKind: "connection", ScopeID: "conn_test", Metric: "concurrency", Algorithm: "concurrency", LimitUnits: 1})
 	admission, err := service.Admit(ctx, AdmissionInput{KeyID: keyID, ConnectionID: "conn_test", ModelID: "model_test", Operation: "chat", Scope: "chat:generate", Dialect: "openai"})
 	if err != nil {
 		t.Fatal(err)
@@ -332,14 +360,15 @@ func TestCancelBeforeDispatchReleasesReservations(t *testing.T) {
 		t.Fatal(err)
 	}
 	var state string
-	var active, reserved int
+	var active, reserved, leases int
 	if err := store.SystemDB().QueryRowContext(ctx, "SELECT state FROM attempts WHERE id=?", admission.AttemptID).Scan(&state); err != nil {
 		t.Fatal(err)
 	}
 	_ = store.SystemDB().QueryRowContext(ctx, "SELECT COUNT(*) FROM reservations WHERE attempt_id=? AND state='active'", admission.AttemptID).Scan(&active)
 	_ = store.SystemDB().QueryRowContext(ctx, "SELECT COALESCE(SUM(reserved_units),0) FROM quota_periods").Scan(&reserved)
-	if state != "cancelled_before_dispatch" || active != 0 || reserved != 0 {
-		t.Fatalf("cancel state=%s active=%d reserved=%d", state, active, reserved)
+	_ = store.SystemDB().QueryRowContext(ctx, "SELECT COUNT(*) FROM concurrency_leases WHERE request_id=?", admission.RequestID).Scan(&leases)
+	if state != "cancelled_before_dispatch" || active != 0 || reserved != 0 || leases != 0 {
+		t.Fatalf("cancel state=%s active=%d reserved=%d leases=%d", state, active, reserved, leases)
 	}
 }
 

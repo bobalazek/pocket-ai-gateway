@@ -134,15 +134,15 @@ Base path /api/v1/. Server-side session cookies authorize browser operations; se
 | Credential replacement | PUT /connections/{id}/credential | Write-only secret/reference; no reveal endpoint |
 | Provider tests/discovery | POST /connections/{id}/test, POST /connections/{id}/discover | Explicit test mode; billable mode requires scoped inference key |
 | Upstream catalog/prices | GET/POST/PATCH catalog resources under /connections/{id}/models | Candidate data; price versions immutable after use |
-| Public models/routes | GET/POST /models, GET/PATCH/DELETE /models/{id} | Owner/admin mutations; member reads limited public projection |
-| Route preview | POST /models/{id}/preview | Owner/admin; selected key ID + representative feature/size input; no dispatch |
+| Public models/routes | GET/POST /models, GET /admin/models, GET/PUT /admin/models/{id}/route | Owner/admin mutations; member reads limited public projection; fixed and embedding routes use one target; free-only needs manager-recorded zero pricing verified within 24 hours |
+| Route preview | POST /admin/models/{id}/route-preview | Owner/admin; representative operation, stream mode, and token estimates; no dispatch |
 | Policies | GET /keys/{id}/effective-limits, GET/POST /admin/policies, PATCH /admin/policies/{id} | Owner/admin writes; member reads own effective limits |
 | Requests/attempts | GET /requests | Server ownership filter; source/target route, usage, declared-tool count, returned-tool-call count, and completion state; no prompt or argument capture |
 | Captured content | GET /requests/{id}/content | Separate opt-in permission and audit |
 | Usage/unknowns | GET /usage, GET /usage/unresolved, POST /admin/usage/adjustments | Scoped reads; audited privileged adjustments |
 | Repricing | POST /admin/usage/reprice-preview, POST /admin/usage/reprice | Bounded synchronous preview and idempotent historical adjustments |
 | Unknown reconciliation | POST /admin/usage/reconciliations | Audited token/cost facts that release uncertain reservations |
-| Catalog refresh | POST /admin/catalog/refresh, GET /admin/catalog/status | Configured GitHub source, bounded data only, diff before publication |
+| Catalog refresh | GET/PUT /admin/catalog, POST /admin/catalog/refresh | Configured GitHub source, bounded data only, scheduled refresh off by default; candidates never publish automatically |
 | Audit/settings | GET /admin/audit, GET/PATCH /admin/settings | Privileged views; owner-only secret/backup/security policy fields |
 | Import/export | POST /admin/config/preview, POST /admin/config/import, GET /admin/config/export | Owner; versioned, redacted, transactional |
 | Backup jobs | GET/POST /admin/backups, GET /admin/backups/{id} | Local/S3 destination; owner and recent authentication for artifact access |
@@ -158,16 +158,16 @@ Setup, user/grant mutations, imports, and multi-policy updates transact with the
 
 ## Provider rollout and certification
 
-| Phase | Provider family | Planned adapter boundary |
-| --- | --- | --- |
-| 4 | OpenAI | Native Chat/embeddings; phase 5 stateless Responses |
-| 4 | Anthropic | Native Messages/count_tokens; phase 5 shared-subset translation |
-| 4/5 | Google Gemini | Native client/upstream API plus all cross-format translation; compatible preset optional in phase 6 |
-| 6 | OpenRouter | Compatible interface plus explicit approved aggregator controls |
-| 6 | Ollama | Compatible local preset, explicit private-network permission |
-| 4/6 | Generic OpenAI-compatible | Configurable endpoint with explicit tested capabilities |
-| 8 | Azure OpenAI, AWS Bedrock, Google Vertex AI | Dedicated authentication/resource/routing probes before native adapters |
-| 8 | Mistral, Groq, DeepSeek, xAI, Together, Fireworks, Cohere, Perplexity | Certification queue; use a compatible adapter only where current official docs and tests establish the claimed operation |
+| Provider family | Adapter boundary |
+| --- | --- |
+| OpenAI | Native Chat, stateless Responses, and embeddings |
+| Anthropic | Native Messages/count_tokens and shared-subset translation |
+| Google Gemini | Native client/upstream API plus shared-subset cross-format translation |
+| OpenRouter | OpenAI-compatible preset; downstream-provider guarantees require separately configured OpenRouter controls |
+| Ollama | OpenAI-compatible local preset with explicit private-network access and no credential requirement |
+| Generic OpenAI-compatible | Configurable endpoint with explicitly selected capabilities |
+| Azure OpenAI, AWS Bedrock, Google Vertex AI | Dedicated authentication/resource/routing probes required before native adapters |
+| Mistral, Groq, DeepSeek, xAI, Together, Fireworks, Cohere, Perplexity | Compatible adapter only where current official docs and tests establish the claimed operation |
 
 Gemini, OpenRouter, and Ollama document compatible surfaces, but expose different features. Their inclusion is a testing commitment, not an assumption of native parity. [Gemini compatibility](https://ai.google.dev/gemini-api/docs/openai), [OpenRouter quickstart](https://openrouter.ai/docs/quickstart), [Ollama compatibility](https://docs.ollama.com/api/openai-compatibility)
 
