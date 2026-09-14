@@ -29,8 +29,12 @@ type AdmissionInput struct {
 	ConnectionRevision    int64
 	ModelRevision         int64
 	Operation             string
+	TargetOperation       string
 	Scope                 string
 	Dialect               string
+	TargetDialect         string
+	TranslationApplied    bool
+	RequestToolCount      int64
 	BodyBytes             int64
 	BatchItems            int64
 	EstimatedInputTokens  int64
@@ -72,7 +76,13 @@ type counterPlan struct {
 }
 
 func (service *Service) Admit(ctx context.Context, input AdmissionInput) (Admission, error) {
-	if input.KeyID == "" || input.ConnectionID == "" || input.ModelID == "" || input.Operation == "" || input.Scope == "" || input.Dialect == "" || len(input.KeyID) > 200 || len(input.ConnectionID) > 200 || len(input.ModelID) > 200 || len(input.Operation) > 100 || len(input.Scope) > 100 || len(input.Dialect) > 50 || input.BodyBytes < 0 || input.BatchItems < 0 || input.EstimatedInputTokens < 0 || input.EstimatedOutputTokens < 0 {
+	if input.TargetOperation == "" {
+		input.TargetOperation = input.Operation
+	}
+	if input.TargetDialect == "" {
+		input.TargetDialect = input.Dialect
+	}
+	if input.KeyID == "" || input.ConnectionID == "" || input.ModelID == "" || input.Operation == "" || input.TargetOperation == "" || input.Scope == "" || input.Dialect == "" || input.TargetDialect == "" || len(input.KeyID) > 200 || len(input.ConnectionID) > 200 || len(input.ModelID) > 200 || len(input.Operation) > 100 || len(input.TargetOperation) > 300 || len(input.Scope) > 100 || len(input.Dialect) > 50 || len(input.TargetDialect) > 50 || input.BodyBytes < 0 || input.BatchItems < 0 || input.RequestToolCount < 0 || input.EstimatedInputTokens < 0 || input.EstimatedOutputTokens < 0 {
 		return Admission{}, errors.New("invalid admission input")
 	}
 	estimatedTokens, ok := checkedAdd(input.EstimatedInputTokens, input.EstimatedOutputTokens)
@@ -196,8 +206,8 @@ func (service *Service) Admit(ctx context.Context, input AdmissionInput) (Admiss
 	} else if _, err := tx.ExecContext(ctx, "UPDATE requests SET state = 'reserved', finished_at = NULL WHERE id = ?", requestID); err != nil {
 		return Admission{}, err
 	}
-	_, err = tx.ExecContext(ctx, `INSERT INTO attempts (id, request_id, ordinal, connection_id, model_id, upstream_model_record_id, upstream_model_id, connection_revision, price_version_id, state, estimated_tokens, estimated_cost_nanos, started_at)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, NULLIF(?, ''), 'reserved', ?, ?, ?)`, attemptID, requestID, ordinal, input.ConnectionID, input.ModelID, input.UpstreamModelRecordID, input.UpstreamModelID, input.ConnectionRevision, priceVersionID, estimatedTokens, estimatedCost, effective)
+	_, err = tx.ExecContext(ctx, `INSERT INTO attempts (id, request_id, ordinal, connection_id, model_id, upstream_model_record_id, upstream_model_id, connection_revision, target_dialect, target_operation, translation_applied, request_tool_count, price_version_id, state, estimated_tokens, estimated_cost_nanos, started_at)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULLIF(?, ''), 'reserved', ?, ?, ?)`, attemptID, requestID, ordinal, input.ConnectionID, input.ModelID, input.UpstreamModelRecordID, input.UpstreamModelID, input.ConnectionRevision, input.TargetDialect, input.TargetOperation, input.TranslationApplied, input.RequestToolCount, priceVersionID, estimatedTokens, estimatedCost, effective)
 	if err != nil {
 		return Admission{}, err
 	}

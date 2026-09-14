@@ -1,6 +1,6 @@
 # Project documentation
 
-Updated September 14, 2026. Phase files separate recorded implementation evidence from intended product behavior.
+Updated September 15, 2026. Phase files separate recorded implementation evidence from intended product behavior.
 
 | Document | Purpose |
 | --- | --- |
@@ -14,6 +14,7 @@ Updated September 14, 2026. Phase files separate recorded implementation evidenc
 | [Dashboard](design/dashboard.md) | Roles, screens, flows, structural wireframes, and responsive behavior |
 | [Design system](../DESIGN.md) | Implemented dashboard tokens, shell, components, and interaction rules |
 | [Operations](guides/operations.md) | Security, deployment, backup/restore, maintenance, and upgrades |
+| [Deployment](guides/deployment.md) | Standalone build, Docker, systemd, TLS proxy, data volume, and upgrade examples |
 | [Testing](project/testing.md) | Unit, integration, end-to-end, browser, and compatibility test policy |
 | [Roadmap](plan/README.md) | Backend phases, matching frontend work, dependencies, and release gates |
 | [First implementation task](plan/tasks/phase-1-foundation.md) | Bounded starting task and its verification contract |
@@ -25,4 +26,4 @@ The layout follows the nearby personal SaaS template's docs/project conventions:
 
 The supplied AI-Gateway-PRD.md was treated as reference material. Its single-administrator scope and narrower limits were superseded by the user's request for users, broader quotas, and routing strategies. The original file in Downloads was left untouched. There is no second, competing PRD in this repository.
 
-Phases 1–3 are complete. Later phases remain scoped work packages.
+Phases 1–5 are complete. Later phases remain scoped work packages.

@@ -36,6 +36,6 @@ Map systemInstruction, contents/parts, functionCall/functionResponse, candidate 
 
 When native clients use a query-string key, redact it before all logs/traces/captures. Prefer header authentication in docs. The path's public model resolves through ordinary grants and cannot be an arbitrary upstream resource.
 
-Acceptance: pinned Google Gen AI SDK tests against each provider family, exact prefixed URLs and version, native stream/error/tools, authorized model lists, input/output order for embeddings, signature/capability rejection, and no gateway credential leakage.
+Automated coverage pins the Google Gen AI SDK and verifies its exact `/api/gemini/v1beta` request path, then exercises every provider family, native stream/error/tool shapes, authorized model lists, signature rejection, and credential replacement.
 
 Sources: [generation API](https://ai.google.dev/api/generate-content), [function calling](https://ai.google.dev/gemini-api/docs/function-calling), [thought signatures](https://ai.google.dev/gemini-api/docs/thought-signatures).

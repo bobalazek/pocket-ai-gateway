@@ -37,8 +37,8 @@ Errors preserve the Anthropic envelope:
 
 The stream follows message_start, ordered content_block_start/delta/stop events, message_delta, and message_stop. A tool_use block contains id/name/input; tool_result content links back to the original tool ID. Partial argument JSON is forwarded through input_json_delta, not flattened into text.
 
-Translate to/from OpenAI and Gemini while preserving multiple tool calls/results, stop reasons, usage, refusals, and cancellation. Opaque thinking/signatures need an explicit valid mapping/affinity rule; unsupported ones are not silently removed. Count tokens using a capable target-specific path, with honest estimate semantics.
+Translate ordinary JSON requests to/from OpenAI and Gemini while preserving multiple tool calls/results, stop reasons, usage, refusals, and cancellation. Streaming currently requires an Anthropic-compatible target: Anthropic requires input usage in its first event, while OpenAI and Gemini report it only at completion. Opaque thinking/signatures need an explicit valid mapping/affinity rule; unsupported ones are not silently removed. Count tokens using a capable target-specific path, with honest estimate semantics.
 
-Acceptance: pinned Anthropic SDK tests across all three provider families; header/version validation; prefixed base URL with no duplicate /v1; Anthropic model pagination; native error/event/tool shapes; no header-selected dialect switching.
+Automated coverage pins the Anthropic SDK and verifies that its `/v1/messages` path is appended exactly once, then exercises OpenAI, Anthropic, and Gemini upstream families, native headers/errors, translated tool cycles, and stream shapes.
 
 Sources: [Anthropic API](https://platform.claude.com/docs/en/api/overview), [streaming](https://platform.claude.com/docs/en/build-with-claude/streaming).

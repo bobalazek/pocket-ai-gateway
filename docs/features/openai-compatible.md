@@ -37,10 +37,10 @@ Errors preserve the OpenAI error envelope:
 
 Chat stream events contain chat.completion.chunk objects with choices/delta; function arguments may arrive as fragments. Responses has a different output-item and event lifecycle: response.created, output-item/content deltas, and terminal response status. Do not reuse Chat chunks as Responses events.
 
-Native Chat, embeddings, and models are implemented. Native and translated stateless Responses input/tools/output/events are phase 5 requirements. Stateful resource operations are tracked in phase 8, with key ownership and provider affinity.
+Chat, embeddings, models, and stateless Responses are implemented. Chat and Responses generation can target OpenAI-compatible, Anthropic, or Gemini providers while keeping OpenAI response and event shapes. Responses requires `store: false`; provider-owned state, background mode, and hosted tools are rejected before dispatch.
 
 An OpenAI-shaped client may target native OpenAI, Anthropic, Gemini, or a certified compatible endpoint. Return OpenAI-shaped output in every case. Preserve model aliases, tool correlation, usage provenance, and error class; reject unmappable semantics before dispatch.
 
-Acceptance: pinned OpenAI SDK tests for both Chat and Responses across all three families, native errors/SSE/tool cycles, embeddings where supported, filtered OpenAI model list, and exact prefixed request URLs.
+Automated coverage includes the pinned OpenAI SDK URL for Chat and Responses, all provider-family translation directions, fragmented tool arguments, stream lifecycle events, native errors, embeddings where supported, and filtered model lists.
 
 Sources: [Chat API](https://developers.openai.com/api/reference/cli/resources/chat/subresources/completions), [Responses guide](https://developers.openai.com/api/docs/guides/migrate-to-responses).

@@ -1,5 +1,5 @@
 openapi: 3.1.0
-info: { title: Pocket AI Gateway OpenAI-Compatible API, version: 0.4.0 }
+info: { title: Pocket AI Gateway OpenAI-Compatible API, version: 0.5.0 }
 servers: [{ url: /api/openai/v1 }]
 security: [{ bearerAuth: [] }]
 paths:
@@ -14,7 +14,13 @@ paths:
     post:
       operationId: createChatCompletion
       requestBody: { required: true, content: { application/json: { schema: { type: object, required: [model, messages], additionalProperties: true } } } }
-      responses: { "200": { description: Native JSON or text/event-stream response }, default: { description: OpenAI-compatible error } }
+      responses: { "200": { description: Native or translated JSON or text/event-stream response }, default: { description: OpenAI-compatible error } }
+  /responses:
+    post:
+      operationId: createResponse
+      description: Stateless Responses request. store must be false; provider-owned state, background mode, and hosted tools are rejected.
+      requestBody: { required: true, content: { application/json: { schema: { type: object, required: [model, input, store], properties: { model: { type: string }, input: {}, store: { const: false }, stream: { type: boolean } }, additionalProperties: true } } } }
+      responses: { "200": { description: Native or translated Responses JSON or lifecycle event stream }, default: { description: OpenAI-compatible error } }
   /embeddings:
     post:
       operationId: createEmbedding

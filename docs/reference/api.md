@@ -1,8 +1,8 @@
 # API namespaces and compatibility contract
 
-Management implementation contract and planned compatibility contract. No inference compatibility test has run yet. The product targets OpenAI, Anthropic, and native Gemini clients with request/response translation to the selected capable upstream.
+Management and compatibility contract. OpenAI, Anthropic, and native Gemini clients use separate namespaces with request, response, tool, usage, and streaming translation to the selected capable upstream.
 
-The implemented Phase 3 management slice is machine-readable in [openapi.yaml](openapi.yaml). Inference routes below remain planned.
+The management API is machine-readable in [openapi.yaml](openapi.yaml). Each inference namespace has its own OpenAPI document: [OpenAI](openapi-openai.yaml), [Anthropic](openapi-anthropic.yaml), and [Gemini](openapi-gemini.yaml).
 
 ## Route hierarchy
 
@@ -58,14 +58,14 @@ Replace gateway credentials with the selected upstream credentials. Strip inboun
 
 ## Translation obligations
 
-Every cell is a required generation compatibility test group, not an implemented claim.
+Every generation cell below has deterministic request/response coverage. Feature-specific restrictions still apply and are rejected before dispatch when translation cannot preserve them.
 
 | Client format | OpenAI-family upstream | Anthropic upstream | Native Gemini upstream |
 | --- | --- | --- | --- |
-| OpenAI Chat | Native/compatible | Translate request, response, errors, streams | Translate request, response, errors, streams |
-| OpenAI Responses | Native | Translate stateless items/tools/events | Translate stateless items/tools/events |
-| Anthropic Messages | Translate request, response, errors, streams | Native | Translate request, response, errors, streams |
-| Gemini generateContent | Translate request, response, errors, streams | Translate request, response, errors, streams | Native |
+| OpenAI Chat | Native/compatible | Translated | Translated |
+| OpenAI Responses | Native stateless | Translated stateless | Translated stateless |
+| Anthropic Messages | Translated | Native | Translated |
+| Gemini generateContent | Translated | Translated | Native |
 
 This is nine protocol-family paths, plus OpenAI's distinct Chat/Responses cases. Embeddings run only on providers/models implementing embeddings; Anthropic text models do not become embedding targets. Counting uses the target's tokenizer/provider capability or returns an explicit unsupported operation.
 
@@ -85,7 +85,7 @@ The internal shared representation contains only faithfully representable messag
 
 Ordinary JSON responses and SSE are initial delivery modes. SSE is not a durable background job. Background submit/poll/cancel needs its own ownership/retention/charging contract and remains a separate clarification.
 
-Parse SSE incrementally with bounded event/response sizes, CRLF/multi-line data/heartbeat support, arbitrary chunks, and split UTF-8. Anthropic partial JSON/content-block events, Gemini streamed candidate envelopes, OpenAI chat chunks, and Responses lifecycle events each have their own codec. [Anthropic streaming](https://platform.claude.com/docs/en/build-with-claude/streaming)
+Parse SSE incrementally with bounded event/response sizes, CRLF/multi-line data/heartbeat support, arbitrary chunks, and split UTF-8. Gemini streamed candidate envelopes, OpenAI chat chunks, and Responses lifecycle events each have their own codec. Anthropic streaming requires an Anthropic-compatible target until another target can provide accurate input usage before `message_start`; cross-provider Anthropic generation is JSON-only. [Anthropic streaming](https://platform.claude.com/docs/en/build-with-claude/streaming)
 
 Do not retry once downstream headers/events are committed. Truncation never emits an invented success terminal event. Midstream errors follow the selected protocol where representable, then close; no normal JSON error is written into an active stream. Client disconnect cancels upstream promptly but may leave billable usage unknown.
 
@@ -137,7 +137,7 @@ Base path /api/v1/. Server-side session cookies authorize browser operations; se
 | Public models/routes | GET/POST /models, GET/PATCH/DELETE /models/{id} | Owner/admin mutations; member reads limited public projection |
 | Route preview | POST /models/{id}/preview | Owner/admin; selected key ID + representative feature/size input; no dispatch |
 | Policies | GET /keys/{id}/effective-limits, GET/POST /admin/policies, PATCH /admin/policies/{id} | Owner/admin writes; member reads own effective limits |
-| Requests/attempts | GET /requests, GET /requests/{id} | Server ownership filter; metadata by default |
+| Requests/attempts | GET /requests | Server ownership filter; source/target route, usage, declared-tool count, returned-tool-call count, and completion state; no prompt or argument capture |
 | Captured content | GET /requests/{id}/content | Separate opt-in permission and audit |
 | Usage/unknowns | GET /usage, GET /usage/unresolved, POST /admin/usage/adjustments | Scoped reads; audited privileged adjustments |
 | Repricing | POST /admin/usage/reprice-preview, POST /admin/usage/reprice | Bounded synchronous preview and idempotent historical adjustments |

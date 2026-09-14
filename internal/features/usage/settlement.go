@@ -12,13 +12,15 @@ import (
 )
 
 type SettlementInput struct {
-	IdempotencyKey string
-	State          string
-	UsageStatus    string
-	InputTokens    *int64
-	OutputTokens   *int64
-	CostNanos      *int64
-	FinalRequest   bool
+	IdempotencyKey        string
+	State                 string
+	UsageStatus           string
+	InputTokens           *int64
+	OutputTokens          *int64
+	CostNanos             *int64
+	ResponseToolCallCount int64
+	ToolCallStatus        string
+	FinalRequest          bool
 }
 
 type ReconciliationInput struct {
@@ -58,8 +60,14 @@ func (service *Service) CancelBeforeDispatch(ctx context.Context, attemptID stri
 }
 
 func (service *Service) Settle(ctx context.Context, attemptID string, input SettlementInput) error {
+	if input.ToolCallStatus == "" {
+		input.ToolCallStatus = "none"
+	}
 	if input.IdempotencyKey == "" || !contains([]string{"succeeded", "failed", "cancelled", "interrupted_unknown"}, input.State) || !contains([]string{"provider_reported", "estimated", "unknown"}, input.UsageStatus) {
 		return errors.New("invalid settlement")
+	}
+	if input.ResponseToolCallCount < 0 || !contains([]string{"none", "completed", "incomplete"}, input.ToolCallStatus) || input.ResponseToolCallCount == 0 && input.ToolCallStatus != "none" || input.ResponseToolCallCount > 0 && input.ToolCallStatus == "none" {
+		return errors.New("invalid tool call settlement")
 	}
 	if input.InputTokens != nil && (*input.InputTokens < 0 || *input.InputTokens > maxSafeInteger) || input.OutputTokens != nil && (*input.OutputTokens < 0 || *input.OutputTokens > maxSafeInteger) || input.CostNanos != nil && *input.CostNanos < 0 {
 		return errors.New("settlement values cannot be negative")
@@ -174,8 +182,8 @@ func (service *Service) Settle(ctx context.Context, attemptID string, input Sett
 			return err
 		}
 	}
-	_, err = tx.ExecContext(ctx, `UPDATE attempts SET state = ?, usage_status = ?, input_tokens = ?, output_tokens = ?, as_recorded_cost_nanos = ?, restated_cost_nanos = ?, finished_at = ? WHERE id = ?`,
-		input.State, input.UsageStatus, input.InputTokens, input.OutputTokens, input.CostNanos, input.CostNanos, now, attemptID)
+	_, err = tx.ExecContext(ctx, `UPDATE attempts SET state = ?, usage_status = ?, input_tokens = ?, output_tokens = ?, as_recorded_cost_nanos = ?, restated_cost_nanos = ?, response_tool_call_count = ?, tool_call_status = ?, finished_at = ? WHERE id = ?`,
+		input.State, input.UsageStatus, input.InputTokens, input.OutputTokens, input.CostNanos, input.CostNanos, input.ResponseToolCallCount, input.ToolCallStatus, now, attemptID)
 	if err != nil {
 		return err
 	}
@@ -229,7 +237,7 @@ func calculatedPriceCost(ctx context.Context, tx *sql.Tx, priceID string, inputT
 }
 
 func settlementSignature(input SettlementInput) string {
-	return fmt.Sprintf("state=%s;usage=%s;final=%t;input=%s;output=%s;cost=%s", input.State, input.UsageStatus, input.FinalRequest, nullableValue(input.InputTokens), nullableValue(input.OutputTokens), nullableValue(input.CostNanos))
+	return fmt.Sprintf("state=%s;usage=%s;final=%t;input=%s;output=%s;cost=%s;tools=%d;tool_status=%s", input.State, input.UsageStatus, input.FinalRequest, nullableValue(input.InputTokens), nullableValue(input.OutputTokens), nullableValue(input.CostNanos), input.ResponseToolCallCount, input.ToolCallStatus)
 }
 
 func nullableValue(value *int64) string {

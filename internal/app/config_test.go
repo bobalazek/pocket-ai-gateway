@@ -110,9 +110,16 @@ func TestParseServeRequiresPublicURLForNetworkBind(t *testing.T) {
 	if _, err := ParseServe([]string{"--listen", "0.0.0.0:8080", "--public-url", "http://gateway.example.test"}, func(string) string { return "" }, io.Discard); err == nil {
 		t.Fatal("network bind with an insecure public URL succeeded")
 	}
+	if _, err := ParseServe([]string{"--listen", "0.0.0.0:8080", "--public-url", "http://gateway.example.test", "--allow-insecure-http"}, func(string) string { return "" }, io.Discard); err == nil {
+		t.Fatal("insecure flag allowed a non-loopback public URL")
+	}
 	cfg, err := ParseServe([]string{"--listen", "0.0.0.0:8080", "--public-url", "https://gateway.example.test"}, func(string) string { return "" }, io.Discard)
 	if err != nil || cfg.PublicURL != "https://gateway.example.test" {
 		t.Fatalf("public URL config = %#v, %v", cfg, err)
+	}
+	local, err := ParseServe([]string{"--listen", "0.0.0.0:8080", "--public-url", "http://localhost:8080", "--allow-insecure-http"}, func(string) string { return "" }, io.Discard)
+	if err != nil || !local.AllowInsecureHTTP {
+		t.Fatalf("explicit local HTTP config = %#v, %v", local, err)
 	}
 }
 

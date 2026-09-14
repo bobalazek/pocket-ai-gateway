@@ -37,6 +37,9 @@ func (handler *Handler) Register(mux *http.ServeMux) {
 	mux.HandleFunc("POST /api/openai/v1/chat/completions", func(w http.ResponseWriter, r *http.Request) {
 		handler.forward(w, r, "openai", "chat:generate", "chat/completions")
 	})
+	mux.HandleFunc("POST /api/openai/v1/responses", func(w http.ResponseWriter, r *http.Request) {
+		handler.forward(w, r, "responses", "responses:generate", "responses")
+	})
 	mux.HandleFunc("POST /api/openai/v1/embeddings", func(w http.ResponseWriter, r *http.Request) {
 		handler.forward(w, r, "openai", "embeddings:generate", "embeddings")
 	})
@@ -54,6 +57,7 @@ func (handler *Handler) Register(mux *http.ServeMux) {
 }
 
 func (handler *Handler) forward(response http.ResponseWriter, request *http.Request, dialect, scope, upstreamPath string) {
+	clientOperation := upstreamPath
 	principal, ok := handler.authenticate(response, request, dialect)
 	if !ok {
 		return
@@ -64,6 +68,7 @@ func (handler *Handler) forward(response http.ResponseWriter, request *http.Requ
 		return
 	}
 	originalBodyBytes := int64(len(body))
+	requestToolCount := countRequestTools(dialect, body)
 	var envelope map[string]json.RawMessage
 	if err := json.Unmarshal(body, &envelope); err != nil {
 		handler.writeError(response, dialect, http.StatusBadRequest, "invalid_request", "Request body must be a JSON object")
@@ -82,30 +87,49 @@ func (handler *Handler) forward(response http.ResponseWriter, request *http.Requ
 		handler.writeError(response, dialect, http.StatusNotFound, "model_not_found", "Model is unavailable")
 		return
 	}
-	if !nativeAdapter(dialect, target.Adapter) || !hasCapability(target.Capabilities, scope) {
-		handler.writeError(response, dialect, http.StatusBadRequest, "unsupported_operation", "Model does not support this native operation")
+	native := nativeAdapter(dialect, target.Adapter) || dialect == "responses" && (target.Adapter == "openai" || target.Adapter == "openai_compatible")
+	if !hasCapability(target.Capabilities, scope) || (!native && scope != "chat:generate" && scope != "responses:generate") {
+		handler.writeError(response, dialect, http.StatusBadRequest, "unsupported_operation", "Model does not support this operation")
 		return
 	}
 	if !principal.Allows(scope, publicID, target.TargetConnectionID) {
 		handler.writeError(response, dialect, http.StatusNotFound, "model_not_found", "Model is unavailable to this key")
 		return
 	}
-	encodedModel, _ := json.Marshal(target.UpstreamID)
-	envelope["model"] = encodedModel
-	body, err = json.Marshal(envelope)
-	if err != nil {
-		handler.writeError(response, dialect, http.StatusBadRequest, "invalid_request", "Request body is invalid")
-		return
+	if dialect == "responses" {
+		if err := validateStatelessResponses(envelope); err != nil {
+			handler.writeError(response, dialect, http.StatusBadRequest, "unsupported_feature", err.Error())
+			return
+		}
 	}
 	stream := false
 	_ = json.Unmarshal(envelope["stream"], &stream)
+	if dialect == "anthropic" && stream && !native {
+		handler.writeError(response, dialect, http.StatusBadRequest, "unsupported_feature", "Anthropic streaming requires an Anthropic-compatible target so input usage is known before the first event")
+		return
+	}
 	inputEstimate := originalBodyBytes
 	outputEstimate := maximumOutput(envelope)
+	if !native && target.Adapter == "anthropic" && outputEstimate == 0 {
+		outputEstimate = 4096
+	}
 	batchItems := int64(0)
 	if upstreamPath == "embeddings" {
 		batchItems = jsonCardinality(envelope["input"])
 	}
-	admission, err := handler.usage.Admit(request.Context(), usage.AdmissionInput{KeyID: principal.KeyID, ConnectionID: target.TargetConnectionID, ModelID: publicID, UpstreamModelRecordID: target.TargetModelID, UpstreamModelID: target.UpstreamID, ConnectionRevision: target.ConnectionRevision, ModelRevision: target.Revision, Operation: upstreamPath, Scope: scope, Dialect: dialect, BodyBytes: originalBodyBytes, BatchItems: batchItems, EstimatedInputTokens: inputEstimate, EstimatedOutputTokens: outputEstimate, EnforceOutputBound: scope == "chat:generate", OutputBounded: scope != "chat:generate" || outputEstimate > 0})
+	if native {
+		encodedModel, _ := json.Marshal(target.UpstreamID)
+		envelope["model"] = encodedModel
+		body, err = json.Marshal(envelope)
+	} else {
+		upstreamPath, body, err = translateRequest(dialect, target.Adapter, body, target.UpstreamID)
+	}
+	if err != nil {
+		handler.writeError(response, dialect, http.StatusBadRequest, "unsupported_feature", err.Error())
+		return
+	}
+	generation := scope == "chat:generate" || scope == "responses:generate"
+	admission, err := handler.usage.Admit(request.Context(), usage.AdmissionInput{KeyID: principal.KeyID, ConnectionID: target.TargetConnectionID, ModelID: publicID, UpstreamModelRecordID: target.TargetModelID, UpstreamModelID: target.UpstreamID, ConnectionRevision: target.ConnectionRevision, ModelRevision: target.Revision, Operation: clientOperation, TargetOperation: upstreamPath, Scope: scope, Dialect: dialect, TargetDialect: target.Adapter, TranslationApplied: !native, RequestToolCount: requestToolCount, BodyBytes: originalBodyBytes, BatchItems: batchItems, EstimatedInputTokens: inputEstimate, EstimatedOutputTokens: outputEstimate, EnforceOutputBound: generation, OutputBounded: !generation || outputEstimate > 0})
 	if err != nil {
 		handler.writeAdmissionError(response, dialect, err)
 		return
@@ -122,10 +146,25 @@ func (handler *Handler) forward(response http.ResponseWriter, request *http.Requ
 		handler.writeError(response, dialect, http.StatusServiceUnavailable, "gateway_unavailable", "Request could not be dispatched")
 		return
 	}
-	result, raw, copyErr := handler.dispatch(response, request, target, upstreamPath, body, stream, dialect, releaseDispatch)
+	var result int
+	var raw []byte
+	var copyErr error
+	if native {
+		result, raw, copyErr = handler.dispatch(response, request, target, upstreamPath, body, stream, dialect, releaseDispatch)
+	} else {
+		result, raw, copyErr = handler.dispatchTranslated(response, request, target, upstreamPath, body, dialect, publicID, stream, releaseDispatch)
+	}
 	state, status := "succeeded", "provider_reported"
 	final := true
-	inputTokens, outputTokens, cost := parseUsage(dialect, raw)
+	accountDialect := dialect
+	if !native {
+		accountDialect = target.Adapter
+		if accountDialect == "openai_compatible" {
+			accountDialect = "openai"
+		}
+	}
+	inputTokens, outputTokens, cost := parseUsage(accountDialect, raw)
+	toolCalls, toolStatus := parseToolMetadata(accountDialect, raw)
 	if inputTokens == nil || outputTokens == nil {
 		status, cost = "unknown", nil
 	}
@@ -143,11 +182,39 @@ func (handler *Handler) forward(response http.ResponseWriter, request *http.Requ
 			status, inputTokens, outputTokens, cost = "estimated", &zero, &zero, &zero
 		}
 	}
+	if copyErr != nil && toolCalls > 0 {
+		toolStatus = "incomplete"
+	}
 	if errors.Is(request.Context().Err(), context.Canceled) {
 		state = "interrupted_unknown"
 		status = "unknown"
 	}
-	handler.settle(admission.AttemptID, usage.SettlementInput{IdempotencyKey: "dispatch:" + admission.AttemptID, State: state, UsageStatus: status, InputTokens: inputTokens, OutputTokens: outputTokens, CostNanos: cost, FinalRequest: final})
+	handler.settle(admission.AttemptID, usage.SettlementInput{IdempotencyKey: "dispatch:" + admission.AttemptID, State: state, UsageStatus: status, InputTokens: inputTokens, OutputTokens: outputTokens, CostNanos: cost, ResponseToolCallCount: toolCalls, ToolCallStatus: toolStatus, FinalRequest: final})
+}
+
+func validateStatelessResponses(envelope map[string]json.RawMessage) error {
+	var stored bool
+	if raw, exists := envelope["store"]; !exists || json.Unmarshal(raw, &stored) != nil || stored {
+		return errors.New("store:false is required")
+	}
+	for _, field := range []string{"background", "conversation", "previous_response_id"} {
+		raw := bytes.TrimSpace(envelope[field])
+		if len(raw) > 0 && !bytes.Equal(raw, []byte("null")) && !bytes.Equal(raw, []byte("false")) && !bytes.Equal(raw, []byte(`""`)) {
+			return errors.New(field + " is not supported by stateless Responses")
+		}
+	}
+	if raw := envelope["tools"]; len(raw) > 0 {
+		var tools []map[string]any
+		if json.Unmarshal(raw, &tools) != nil {
+			return errors.New("tools must be an array")
+		}
+		for _, tool := range tools {
+			if kind, _ := tool["type"].(string); kind != "function" {
+				return errors.New("only function tools are supported by stateless Responses")
+			}
+		}
+	}
+	return nil
 }
 
 func (handler *Handler) geminiAction(response http.ResponseWriter, request *http.Request) {
@@ -168,7 +235,8 @@ func (handler *Handler) geminiAction(response http.ResponseWriter, request *http
 		return
 	}
 	target, err := handler.providers.Target(request.Context(), publicID)
-	if err != nil || !nativeAdapter("gemini", target.Adapter) || !hasCapability(target.Capabilities, scope) || !principal.Allows(scope, publicID, target.TargetConnectionID) {
+	native := err == nil && nativeAdapter("gemini", target.Adapter)
+	if err != nil || !hasCapability(target.Capabilities, scope) || (!native && scope != "chat:generate") || !principal.Allows(scope, publicID, target.TargetConnectionID) {
 		handler.writeError(response, "gemini", http.StatusNotFound, "NOT_FOUND", "Model is unavailable")
 		return
 	}
@@ -182,6 +250,28 @@ func (handler *Handler) geminiAction(response http.ResponseWriter, request *http
 		handler.writeError(response, "gemini", http.StatusBadRequest, "INVALID_ARGUMENT", "Request body must be a JSON object")
 		return
 	}
+	requestToolCount := countRequestTools("gemini", body)
+	stream := name == "streamGenerateContent"
+	relative, upstreamBody := "", body
+	if native {
+		relative = "models/" + url.PathEscape(target.UpstreamID) + ":" + name
+		if stream {
+			relative += "?alt=sse"
+		}
+	} else {
+		translationBody := body
+		if stream {
+			object["stream"] = true
+			translationBody, err = json.Marshal(object)
+		}
+		if err == nil {
+			relative, upstreamBody, err = translateRequest("gemini", target.Adapter, translationBody, target.UpstreamID)
+		}
+		if err != nil {
+			handler.writeError(response, "gemini", http.StatusBadRequest, "INVALID_ARGUMENT", err.Error())
+			return
+		}
+	}
 	batchItems := int64(0)
 	if name == "batchEmbedContents" {
 		if values, ok := object["requests"].([]any); ok {
@@ -189,7 +279,7 @@ func (handler *Handler) geminiAction(response http.ResponseWriter, request *http
 		}
 	}
 	outputEstimate := geminiMaximumOutput(object)
-	admission, err := handler.usage.Admit(request.Context(), usage.AdmissionInput{KeyID: principal.KeyID, ConnectionID: target.TargetConnectionID, ModelID: publicID, UpstreamModelRecordID: target.TargetModelID, UpstreamModelID: target.UpstreamID, ConnectionRevision: target.ConnectionRevision, ModelRevision: target.Revision, Operation: name, Scope: scope, Dialect: "gemini", BodyBytes: int64(len(body)), BatchItems: batchItems, EstimatedInputTokens: int64(len(body)), EstimatedOutputTokens: outputEstimate, EnforceOutputBound: scope == "chat:generate", OutputBounded: scope != "chat:generate" || outputEstimate > 0})
+	admission, err := handler.usage.Admit(request.Context(), usage.AdmissionInput{KeyID: principal.KeyID, ConnectionID: target.TargetConnectionID, ModelID: publicID, UpstreamModelRecordID: target.TargetModelID, UpstreamModelID: target.UpstreamID, ConnectionRevision: target.ConnectionRevision, ModelRevision: target.Revision, Operation: name, TargetOperation: relative, Scope: scope, Dialect: "gemini", TargetDialect: target.Adapter, TranslationApplied: !native, RequestToolCount: requestToolCount, BodyBytes: int64(len(body)), BatchItems: batchItems, EstimatedInputTokens: int64(len(body)), EstimatedOutputTokens: outputEstimate, EnforceOutputBound: scope == "chat:generate", OutputBounded: scope != "chat:generate" || outputEstimate > 0})
 	if err != nil {
 		handler.writeAdmissionError(response, "gemini", err)
 		return
@@ -206,14 +296,24 @@ func (handler *Handler) geminiAction(response http.ResponseWriter, request *http
 		handler.writeError(response, "gemini", http.StatusServiceUnavailable, "UNAVAILABLE", "Request could not be dispatched")
 		return
 	}
-	stream := name == "streamGenerateContent"
-	relative := "models/" + url.PathEscape(target.UpstreamID) + ":" + name
-	if stream {
-		relative += "?alt=sse"
+	var result int
+	var raw []byte
+	var copyErr error
+	if native {
+		result, raw, copyErr = handler.dispatch(response, request, target, relative, upstreamBody, stream, "gemini", releaseDispatch)
+	} else {
+		result, raw, copyErr = handler.dispatchTranslated(response, request, target, relative, upstreamBody, "gemini", publicID, stream, releaseDispatch)
 	}
-	result, raw, copyErr := handler.dispatch(response, request, target, relative, body, stream, "gemini", releaseDispatch)
 	state, status := "succeeded", "provider_reported"
-	in, out, cost := parseUsage("gemini", raw)
+	accountDialect := "gemini"
+	if !native {
+		accountDialect = target.Adapter
+		if accountDialect == "openai_compatible" {
+			accountDialect = "openai"
+		}
+	}
+	in, out, cost := parseUsage(accountDialect, raw)
+	toolCalls, toolStatus := parseToolMetadata(accountDialect, raw)
 	if in == nil || out == nil {
 		status, cost = "unknown", nil
 	}
@@ -231,10 +331,13 @@ func (handler *Handler) geminiAction(response http.ResponseWriter, request *http
 			status, in, out, cost = "estimated", &zero, &zero, &zero
 		}
 	}
+	if copyErr != nil && toolCalls > 0 {
+		toolStatus = "incomplete"
+	}
 	if errors.Is(request.Context().Err(), context.Canceled) {
 		state, status = "interrupted_unknown", "unknown"
 	}
-	handler.settle(admission.AttemptID, usage.SettlementInput{IdempotencyKey: "dispatch:" + admission.AttemptID, State: state, UsageStatus: status, InputTokens: in, OutputTokens: out, CostNanos: cost, FinalRequest: true})
+	handler.settle(admission.AttemptID, usage.SettlementInput{IdempotencyKey: "dispatch:" + admission.AttemptID, State: state, UsageStatus: status, InputTokens: in, OutputTokens: out, CostNanos: cost, ResponseToolCallCount: toolCalls, ToolCallStatus: toolStatus, FinalRequest: true})
 }
 
 func (handler *Handler) settle(attemptID string, input usage.SettlementInput) {
@@ -305,6 +408,61 @@ func (handler *Handler) dispatch(response http.ResponseWriter, request *http.Req
 	return result.StatusCode, capture.Bytes(), err
 }
 
+func (handler *Handler) dispatchTranslated(response http.ResponseWriter, request *http.Request, target providers.Target, relative string, body []byte, dialect, publicModel string, stream bool, releaseDispatch func()) (int, []byte, error) {
+	released := false
+	release := func() {
+		if !released {
+			released = true
+			releaseDispatch()
+		}
+	}
+	defer release()
+	endpoint, err := joinURL(target.BaseURL, relative)
+	if err != nil {
+		handler.writeError(response, dialect, http.StatusBadGateway, "upstream_error", "Provider URL is invalid")
+		return 0, nil, err
+	}
+	upstream, err := http.NewRequestWithContext(request.Context(), http.MethodPost, endpoint, bytes.NewReader(body))
+	if err != nil {
+		return 0, nil, err
+	}
+	upstream.Header.Set("Content-Type", "application/json")
+	setProviderCredential(upstream, target.Adapter, target.Credential)
+	if target.Adapter == "anthropic" {
+		upstream.Header.Set("anthropic-version", "2023-06-01")
+	}
+	result, err := safeClient(time.Duration(target.TimeoutMS)*time.Millisecond, target.AllowPrivateNetwork).Do(upstream)
+	release()
+	if err != nil {
+		handler.writeError(response, dialect, http.StatusBadGateway, "upstream_error", "Provider request failed")
+		return 0, nil, err
+	}
+	defer result.Body.Close()
+	if result.StatusCode < 200 || result.StatusCode >= 300 {
+		io.Copy(io.Discard, io.LimitReader(result.Body, 1<<20))
+		handler.writeError(response, dialect, http.StatusBadGateway, "upstream_error", "Provider rejected the request")
+		return result.StatusCode, nil, nil
+	}
+	if stream {
+		return handler.translateStream(response, result.Body, dialect, target.Adapter, publicModel)
+	}
+	raw, err := io.ReadAll(io.LimitReader(result.Body, (16<<20)+1))
+	if err != nil || len(raw) > 16<<20 {
+		handler.writeError(response, dialect, http.StatusBadGateway, "upstream_error", "Provider response could not be translated")
+		return result.StatusCode, nil, errors.New("translated response exceeds 16 MiB")
+	}
+	translated, err := translateResponse(dialect, target.Adapter, publicModel, raw)
+	if err != nil {
+		handler.writeError(response, dialect, http.StatusBadGateway, "translation_error", "Provider response could not be translated")
+		return result.StatusCode, nil, err
+	}
+	response.Header().Set("Content-Type", "application/json")
+	response.Header().Set("Cache-Control", "no-store")
+	response.WriteHeader(http.StatusOK)
+	_, err = response.Write(translated)
+	return http.StatusOK, raw, err
+}
+
 type flushWriter struct {
 	writer  io.Writer
 	flusher http.Flusher
@@ -319,7 +477,7 @@ func (writer flushWriter) Write(value []byte) (int, error) {
 func (handler *Handler) authenticate(response http.ResponseWriter, request *http.Request, dialect string) (keys.Principal, bool) {
 	var token string
 	switch dialect {
-	case "openai":
+	case "openai", "responses":
 		if len(request.Header.Values("Authorization")) != 1 {
 			handler.writeError(response, dialect, http.StatusUnauthorized, "authentication_error", "Provide one API key")
 			return keys.Principal{}, false
@@ -376,11 +534,24 @@ func (handler *Handler) allowedModels(response http.ResponseWriter, request *htt
 	}
 	filtered := items[:0]
 	for _, item := range items {
-		if nativeAdapter(dialect, item.Adapter) && principal.Allows("models:read", item.ID, item.TargetConnectionID) {
+		if modelVisibleInDialect(dialect, item) && principal.Allows("models:read", item.ID, item.TargetConnectionID) {
 			filtered = append(filtered, item)
 		}
 	}
 	return principal, filtered, true
+}
+
+func modelVisibleInDialect(dialect string, model providers.PublicModel) bool {
+	if hasCapability(model.Capabilities, "chat:generate") {
+		return true
+	}
+	if dialect == "openai" && nativeAdapter("openai", model.Adapter) {
+		return hasCapability(model.Capabilities, "embeddings:generate")
+	}
+	if dialect == "gemini" && nativeAdapter("gemini", model.Adapter) {
+		return hasCapability(model.Capabilities, "embeddings:generate") || hasCapability(model.Capabilities, "tokens:count")
+	}
+	return false
 }
 func (handler *Handler) openAIModels(w http.ResponseWriter, r *http.Request) {
 	_, items, ok := handler.allowedModels(w, r, "openai")
@@ -497,7 +668,7 @@ func nativeAdapter(dialect, adapter string) bool {
 	return dialect == adapter || (dialect == "openai" && adapter == "openai_compatible")
 }
 func hasCapability(values []string, scope string) bool {
-	wanted := map[string]string{"chat:generate": "chat", "embeddings:generate": "embeddings", "tokens:count": "count_tokens"}[scope]
+	wanted := map[string]string{"chat:generate": "chat", "responses:generate": "chat", "embeddings:generate": "embeddings", "tokens:count": "count_tokens"}[scope]
 	for _, v := range values {
 		if v == wanted || v == strings.ReplaceAll(scope, ":", "_") {
 			return true
@@ -506,7 +677,7 @@ func hasCapability(values []string, scope string) bool {
 	return false
 }
 func maximumOutput(body map[string]json.RawMessage) int64 {
-	for _, name := range []string{"max_tokens", "max_completion_tokens"} {
+	for _, name := range []string{"max_tokens", "max_completion_tokens", "max_output_tokens"} {
 		var value int64
 		if json.Unmarshal(body[name], &value) == nil && value > 0 {
 			return value
@@ -632,6 +803,9 @@ func parseUsage(dialect string, raw []byte) (*int64, *int64, *int64) {
 			usageMap, _ = value["usageMetadata"].(map[string]any)
 		} else {
 			usageMap, _ = value["usage"].(map[string]any)
+			if usageMap == nil {
+				usageMap, _ = objectMap(value["response"])["usage"].(map[string]any)
+			}
 		}
 		if dialect == "anthropic" && usageMap == nil {
 			if message, _ := value["message"].(map[string]any); message != nil {
@@ -687,6 +861,102 @@ func parseUsage(dialect string, raw []byte) (*int64, *int64, *int64) {
 		return nil, nil, nil
 	}
 	return &input, &output, nil
+}
+
+func countRequestTools(dialect string, raw []byte) int64 {
+	var value map[string]any
+	if json.Unmarshal(raw, &value) != nil {
+		return 0
+	}
+	if dialect != "gemini" {
+		return int64(len(array(value["tools"])))
+	}
+	var count int64
+	for _, group := range array(value["tools"]) {
+		count += int64(len(array(objectMap(group)["functionDeclarations"])))
+	}
+	return count
+}
+
+func parseToolMetadata(dialect string, raw []byte) (int64, string) {
+	keys := map[string]bool{}
+	completed := len(raw) > 0 && bytes.TrimSpace(raw)[0] == '{'
+	for _, encoded := range responseObjects(raw) {
+		var value map[string]any
+		if json.Unmarshal(encoded, &value) != nil {
+			continue
+		}
+		if count, ok := integer(value["_gateway_tool_call_count"]); ok {
+			status := stringValue(value["_gateway_tool_call_status"])
+			return count, status
+		}
+		switch dialect {
+		case "openai", "openai_compatible":
+			for choiceIndex, item := range array(value["choices"]) {
+				choice := objectMap(item)
+				for callIndex, callValue := range array(objectMap(choice["message"])["tool_calls"]) {
+					call := objectMap(callValue)
+					keys[firstString(call, "id")+":"+strconv.Itoa(choiceIndex)+":"+strconv.Itoa(callIndex)] = true
+				}
+				for _, callValue := range array(objectMap(choice["delta"])["tool_calls"]) {
+					call := objectMap(callValue)
+					keys[strconv.Itoa(choiceIndex)+":"+strconv.FormatInt(number(call["index"]), 10)] = true
+				}
+			}
+			completed = completed || bytes.Contains(raw, []byte("data: [DONE]"))
+		case "anthropic":
+			for index, partValue := range array(value["content"]) {
+				part := objectMap(partValue)
+				if stringValue(part["type"]) == "tool_use" {
+					keys[firstString(part, "id")+":"+strconv.Itoa(index)] = true
+				}
+			}
+			if stringValue(value["type"]) == "content_block_start" && stringValue(objectMap(value["content_block"])["type"]) == "tool_use" {
+				keys[strconv.FormatInt(number(value["index"]), 10)] = true
+			}
+			completed = completed || stringValue(value["type"]) == "message_stop"
+		case "gemini":
+			for candidateIndex, candidateValue := range array(value["candidates"]) {
+				candidate := objectMap(candidateValue)
+				for partIndex, partValue := range array(objectMap(candidate["content"])["parts"]) {
+					if len(objectMap(objectMap(partValue)["functionCall"])) > 0 {
+						keys[strconv.Itoa(candidateIndex)+":"+strconv.Itoa(partIndex)] = true
+					}
+				}
+				completed = completed || stringValue(candidate["finishReason"]) != ""
+			}
+		case "responses":
+			items := array(value["output"])
+			if len(items) == 0 {
+				items = array(objectMap(value["response"])["output"])
+			}
+			if item := objectMap(value["item"]); len(item) > 0 {
+				items = append(items, item)
+			}
+			for index, itemValue := range items {
+				item := objectMap(itemValue)
+				if stringValue(item["type"]) == "function_call" {
+					key := firstString(item, "id", "call_id")
+					if key == "" {
+						if outputIndex, ok := integer(value["output_index"]); ok {
+							key = "index:" + strconv.FormatInt(outputIndex, 10)
+						} else {
+							key = "item:" + strconv.Itoa(index)
+						}
+					}
+					keys[key] = true
+				}
+			}
+			completed = completed || stringValue(value["type"]) == "response.completed" || stringValue(objectMap(value["response"])["status"]) == "completed"
+		}
+	}
+	if len(keys) == 0 {
+		return 0, "none"
+	}
+	if completed {
+		return int64(len(keys)), "completed"
+	}
+	return int64(len(keys)), "incomplete"
 }
 
 func integer(value any) (int64, bool) {

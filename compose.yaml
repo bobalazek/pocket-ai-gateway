@@ -1,0 +1,28 @@
+services:
+  gateway:
+    build:
+      context: .
+      args:
+        VERSION: local
+    command:
+      - serve
+      - --listen
+      - 0.0.0.0:8080
+      - --data-dir
+      - /data
+      - --public-url
+      - http://localhost:8080
+      - --allow-insecure-http
+    ports:
+      - "127.0.0.1:8080:8080"
+    volumes:
+      - pocket-gateway-data:/data
+    read_only: true
+    tmpfs:
+      - /tmp
+    init: true
+    restart: unless-stopped
+    stop_grace_period: 15s
+
+volumes:
+  pocket-gateway-data:

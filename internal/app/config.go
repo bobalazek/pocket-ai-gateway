@@ -17,9 +17,10 @@ const (
 )
 
 type Config struct {
-	Listen    string
-	DataDir   string
-	PublicURL string
+	Listen            string
+	DataDir           string
+	PublicURL         string
+	AllowInsecureHTTP bool
 }
 
 func ParseServe(args []string, getenv func(string) string, output io.Writer) (Config, error) {
@@ -34,6 +35,7 @@ func ParseServe(args []string, getenv func(string) string, output io.Writer) (Co
 	flags.StringVar(&cfg.Listen, "listen", cfg.Listen, "address to listen on")
 	flags.StringVar(&cfg.DataDir, "data-dir", cfg.DataDir, "directory for local gateway data")
 	flags.StringVar(&cfg.PublicURL, "public-url", cfg.PublicURL, "public origin used for host, origin, and secure-cookie checks")
+	flags.BoolVar(&cfg.AllowInsecureHTTP, "allow-insecure-http", false, "allow an explicit HTTP public URL for local development")
 	if err := flags.Parse(args); err != nil {
 		return Config{}, err
 	}
@@ -62,8 +64,15 @@ func ParseServe(args []string, getenv func(string) string, output io.Writer) (Co
 		if cfg.PublicURL == "" {
 			return Config{}, errors.New("public URL is required when listening beyond loopback")
 		}
-		if !strings.HasPrefix(cfg.PublicURL, "https://") {
+		if !strings.HasPrefix(cfg.PublicURL, "https://") && !cfg.AllowInsecureHTTP {
 			return Config{}, errors.New("public URL must use HTTPS when listening beyond loopback")
+		}
+		if strings.HasPrefix(cfg.PublicURL, "http://") {
+			parsed, _ := url.Parse(cfg.PublicURL)
+			publicIP := net.ParseIP(parsed.Hostname())
+			if !cfg.AllowInsecureHTTP || (parsed.Hostname() != "localhost" && (publicIP == nil || !publicIP.IsLoopback())) {
+				return Config{}, errors.New("insecure HTTP is limited to an explicit loopback public URL")
+			}
 		}
 	}
 

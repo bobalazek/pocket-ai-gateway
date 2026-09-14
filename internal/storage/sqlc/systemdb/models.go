@@ -65,6 +65,12 @@ type Attempt struct {
 	UpstreamModelRecordID string         `json:"upstream_model_record_id"`
 	UpstreamModelID       string         `json:"upstream_model_id"`
 	ConnectionRevision    int64          `json:"connection_revision"`
+	TargetDialect         string         `json:"target_dialect"`
+	TargetOperation       string         `json:"target_operation"`
+	TranslationApplied    int64          `json:"translation_applied"`
+	RequestToolCount      int64          `json:"request_tool_count"`
+	ResponseToolCallCount int64          `json:"response_tool_call_count"`
+	ToolCallStatus        string         `json:"tool_call_status"`
 }
 
 type AuditEvent struct {

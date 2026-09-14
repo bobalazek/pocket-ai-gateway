@@ -4,7 +4,7 @@ Pocket AI Gateway is an open-source, local-first AI gateway packaged as one Go e
 
 ## Current implementation
 
-- Phases 1–4 provide the local runtime, secure owner setup/recovery, users and sessions, scoped rotating API keys, limits/accounting, provider and public model configuration, native inference, request history, instance locking, and paired snapshot/restore.
+- The current runtime provides secure owner setup/recovery, users and sessions, scoped rotating API keys, limits/accounting, provider and public model configuration, inference, request history, instance locking, and paired snapshot/restore.
 - `GET /healthz` returns process liveness.
 - `GET /_/` opens the embedded dashboard.
 - `GET /_/status/` shows the local runtime readiness screen.
@@ -12,7 +12,7 @@ Pocket AI Gateway is an open-source, local-first AI gateway packaged as one Go e
 - Implemented management endpoints cover `/api/v1/admin/users`, owner transfer, one-time activation/recovery codes, and owned `/api/v1/keys` lifecycle/rotation.
 - Implemented usage endpoints cover `/api/v1/usage`, unresolved accounting, key effective limits, policy management, price versions, repricing, adjustments, and projection status.
 - A new instance prints the setup URL and the path to an owner-only `setup-code` file. Never expose that file's contents in agent output.
-- Native OpenAI Chat/embeddings/models, Anthropic Messages/count_tokens/models, and Gemini generation/count/embedding/models are implemented. Cross-protocol translation and OpenAI Responses arrive in Phase 5.
+- Native OpenAI Chat/Responses/embeddings/models, Anthropic Messages/count_tokens/models, and Gemini generation/count/embedding/models are implemented. Shared generation, tools, image input, structured output, usage, and supported streams translate across the three provider families when semantics can be preserved. Anthropic streaming requires an Anthropic-compatible target because its first event needs input usage.
 
 ## Stable namespace plan
 
@@ -41,6 +41,7 @@ The server listens on `127.0.0.1:8080` and stores data in `pocket_gateway_data` 
 - Architecture: `docs/architecture/README.md`
 - API boundaries: `docs/reference/api.md`
 - Operations and recovery: `docs/guides/operations.md`
+- Deployment: `docs/guides/deployment.md`
 - Delivery phases: `docs/plan/README.md`
 - Decisions: `docs/project/decisions/README.md`
 

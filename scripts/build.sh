@@ -4,6 +4,7 @@ set -euo pipefail
 root=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
 export GOCACHE=${GOCACHE:-${TMPDIR:-/tmp}/pocket-ai-gateway-go-cache}
 gateway_version=${VERSION:-dev}
+export NEXT_TELEMETRY_DISABLED=1
 
 cd "$root"
 if [[ ! -x web/node_modules/.bin/next || ! -x web/node_modules/.bin/tsc ]]; then
