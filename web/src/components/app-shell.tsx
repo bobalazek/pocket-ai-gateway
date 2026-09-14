@@ -1,24 +1,24 @@
 "use client";
 
 import Link from "next/link";
-import { ActivityIcon, KeyRoundIcon, LayoutDashboardIcon, MenuIcon, UserRoundIcon, UsersIcon, XIcon } from "lucide-react";
+import { ActivityIcon, BoxesIcon, ChartNoAxesCombinedIcon, FileClockIcon, KeyRoundIcon, LayoutDashboardIcon, MenuIcon, ScrollTextIcon, ServerIcon, SettingsIcon, UserRoundIcon, UsersIcon, XIcon } from "lucide-react";
 import type { ReactNode } from "react";
 
 import { useGatewayUser } from "@/components/setup-gate";
 
-export type AppSection = "Overview" | "Status" | "Users" | "API keys" | "Account";
+export type AppSection = "Overview" | "Status" | "Users" | "API keys" | "Usage" | "Account";
 
 const navigation: { label: string; href?: string; icon?: typeof LayoutDashboardIcon; admin?: boolean }[] = [
   { label: "Overview", href: "/", icon: LayoutDashboardIcon },
   { label: "Status", href: "/status/", icon: ActivityIcon },
   { label: "Users", href: "/users/", icon: UsersIcon, admin: true },
-	{ label: "Providers", admin: true },
-	{ label: "Models" },
+	{ label: "Providers", icon: ServerIcon, admin: true },
+	{ label: "Models", icon: BoxesIcon },
   { label: "API keys", href: "/keys/", icon: KeyRoundIcon },
-	{ label: "Requests" },
-	{ label: "Usage" },
-	{ label: "Audit", admin: true },
-	{ label: "Settings", admin: true },
+	{ label: "Requests", icon: FileClockIcon },
+	{ label: "Usage", href: "/usage/", icon: ChartNoAxesCombinedIcon },
+	{ label: "Audit", icon: ScrollTextIcon, admin: true },
+	{ label: "Settings", icon: SettingsIcon, admin: true },
 ];
 
 function Navigation({ active }: { active: AppSection }) {
@@ -29,7 +29,7 @@ function Navigation({ active }: { active: AppSection }) {
 			<Link className={`nav-item${active === label ? " active" : ""}`} href={href} key={label}>
 				{Icon && <Icon aria-hidden="true" size={17} />}{label}
 			</Link>
-		) : <span className="nav-item disabled" aria-disabled="true" key={label}>{label}</span>)}
+		) : <span className="nav-item disabled" aria-disabled="true" key={label}>{Icon && <Icon aria-hidden="true" size={17} />}{label}</span>)}
     </nav>
   );
 }

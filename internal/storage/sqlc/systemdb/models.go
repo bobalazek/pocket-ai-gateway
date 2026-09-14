@@ -16,6 +16,12 @@ type ActivationToken struct {
 	CreatedAt int64  `json:"created_at"`
 }
 
+type AdmissionClock struct {
+	Singleton       int64  `json:"singleton"`
+	LastEffectiveAt int64  `json:"last_effective_at"`
+	ProcessEpoch    string `json:"process_epoch"`
+}
+
 type ApiKey struct {
 	ID                string        `json:"id"`
 	OwnerUserID       string        `json:"owner_user_id"`
@@ -39,6 +45,25 @@ type ApiKeySecret struct {
 	RevokedAt sql.NullInt64 `json:"revoked_at"`
 }
 
+type Attempt struct {
+	ID                  string         `json:"id"`
+	RequestID           string         `json:"request_id"`
+	Ordinal             int64          `json:"ordinal"`
+	ConnectionID        string         `json:"connection_id"`
+	ModelID             string         `json:"model_id"`
+	PriceVersionID      sql.NullString `json:"price_version_id"`
+	State               string         `json:"state"`
+	UsageStatus         string         `json:"usage_status"`
+	EstimatedTokens     int64          `json:"estimated_tokens"`
+	InputTokens         sql.NullInt64  `json:"input_tokens"`
+	OutputTokens        sql.NullInt64  `json:"output_tokens"`
+	EstimatedCostNanos  sql.NullInt64  `json:"estimated_cost_nanos"`
+	AsRecordedCostNanos sql.NullInt64  `json:"as_recorded_cost_nanos"`
+	RestatedCostNanos   sql.NullInt64  `json:"restated_cost_nanos"`
+	StartedAt           int64          `json:"started_at"`
+	FinishedAt          sql.NullInt64  `json:"finished_at"`
+}
+
 type AuditEvent struct {
 	ID           string         `json:"id"`
 	ActorUserID  sql.NullString `json:"actor_user_id"`
@@ -49,10 +74,67 @@ type AuditEvent struct {
 	CreatedAt    int64          `json:"created_at"`
 }
 
+type BucketState struct {
+	PolicyID        string `json:"policy_id"`
+	RemainingUnits  int64  `json:"remaining_units"`
+	RefillRemainder int64  `json:"refill_remainder"`
+	LastRefillAt    int64  `json:"last_refill_at"`
+	LastEffectiveAt int64  `json:"last_effective_at"`
+}
+
+type ConcurrencyLease struct {
+	PolicyID     string         `json:"policy_id"`
+	LeaseKind    string         `json:"lease_kind"`
+	LeaseID      string         `json:"lease_id"`
+	RequestID    string         `json:"request_id"`
+	AttemptID    sql.NullString `json:"attempt_id"`
+	ProcessEpoch string         `json:"process_epoch"`
+	CreatedAt    int64          `json:"created_at"`
+}
+
+type CostAssessment struct {
+	ID                 string `json:"id"`
+	AttemptID          string `json:"attempt_id"`
+	PriceVersionID     string `json:"price_version_id"`
+	CalculationVersion int64  `json:"calculation_version"`
+	Kind               string `json:"kind"`
+	AmountNanos        int64  `json:"amount_nanos"`
+	DeltaNanos         int64  `json:"delta_nanos"`
+	CreatedAt          int64  `json:"created_at"`
+}
+
+type EventOutbox struct {
+	Sequence    int64          `json:"sequence"`
+	ID          string         `json:"id"`
+	EventType   string         `json:"event_type"`
+	RequestID   sql.NullString `json:"request_id"`
+	AttemptID   sql.NullString `json:"attempt_id"`
+	PayloadJson string         `json:"payload_json"`
+	CreatedAt   int64          `json:"created_at"`
+	DeliveredAt sql.NullInt64  `json:"delivered_at"`
+}
+
 type GatewayMetadatum struct {
 	Key       string `json:"key"`
 	Value     string `json:"value"`
 	UpdatedAt string `json:"updated_at"`
+}
+
+type LimitPolicy struct {
+	ID               string `json:"id"`
+	ScopeKind        string `json:"scope_kind"`
+	ScopeID          string `json:"scope_id"`
+	Metric           string `json:"metric"`
+	Algorithm        string `json:"algorithm"`
+	Period           string `json:"period"`
+	WindowSeconds    int64  `json:"window_seconds"`
+	LimitUnits       int64  `json:"limit_units"`
+	RefillUnits      int64  `json:"refill_units"`
+	RefillIntervalMs int64  `json:"refill_interval_ms"`
+	Enabled          int64  `json:"enabled"`
+	Revision         int64  `json:"revision"`
+	CreatedAt        int64  `json:"created_at"`
+	UpdatedAt        int64  `json:"updated_at"`
 }
 
 type LoginThrottle struct {
@@ -62,11 +144,84 @@ type LoginThrottle struct {
 	BlockedUntil    int64  `json:"blocked_until"`
 }
 
+type PriceVersion struct {
+	ID                    string         `json:"id"`
+	ConnectionID          string         `json:"connection_id"`
+	ModelID               string         `json:"model_id"`
+	InputNanosPerMillion  int64          `json:"input_nanos_per_million"`
+	OutputNanosPerMillion int64          `json:"output_nanos_per_million"`
+	Source                string         `json:"source"`
+	EffectiveFrom         int64          `json:"effective_from"`
+	EffectiveTo           sql.NullInt64  `json:"effective_to"`
+	CreatedBy             sql.NullString `json:"created_by"`
+	CreatedAt             int64          `json:"created_at"`
+}
+
+type PricingJob struct {
+	ID               string         `json:"id"`
+	IdempotencyKey   string         `json:"idempotency_key"`
+	ActorUserID      sql.NullString `json:"actor_user_id"`
+	ModelID          string         `json:"model_id"`
+	ConnectionID     string         `json:"connection_id"`
+	FromTime         int64          `json:"from_time"`
+	ToTime           int64          `json:"to_time"`
+	State            string         `json:"state"`
+	AffectedAttempts int64          `json:"affected_attempts"`
+	MissingPrices    int64          `json:"missing_prices"`
+	DeltaNanos       int64          `json:"delta_nanos"`
+	CreatedAt        int64          `json:"created_at"`
+	CompletedAt      sql.NullInt64  `json:"completed_at"`
+}
+
+type QuotaPeriod struct {
+	PolicyID        string        `json:"policy_id"`
+	PeriodStart     int64         `json:"period_start"`
+	PeriodEnd       sql.NullInt64 `json:"period_end"`
+	ConsumedUnits   int64         `json:"consumed_units"`
+	ReservedUnits   int64         `json:"reserved_units"`
+	LastEffectiveAt int64         `json:"last_effective_at"`
+}
+
+type Request struct {
+	ID          string        `json:"id"`
+	OwnerUserID string        `json:"owner_user_id"`
+	KeyID       string        `json:"key_id"`
+	Operation   string        `json:"operation"`
+	Dialect     string        `json:"dialect"`
+	ModelID     string        `json:"model_id"`
+	State       string        `json:"state"`
+	StartedAt   int64         `json:"started_at"`
+	FinishedAt  sql.NullInt64 `json:"finished_at"`
+}
+
+type Reservation struct {
+	ID            string        `json:"id"`
+	AttemptID     string        `json:"attempt_id"`
+	PolicyID      string        `json:"policy_id"`
+	PeriodStart   sql.NullInt64 `json:"period_start"`
+	ReservedUnits int64         `json:"reserved_units"`
+	State         string        `json:"state"`
+	CreatedAt     int64         `json:"created_at"`
+	SettledAt     sql.NullInt64 `json:"settled_at"`
+}
+
 type SetupToken struct {
 	Singleton     int64          `json:"singleton"`
 	Verifier      []byte         `json:"verifier"`
 	ExpiresAt     int64          `json:"expires_at"`
 	ClaimedUserID sql.NullString `json:"claimed_user_id"`
+}
+
+type UsageLedger struct {
+	ID             string         `json:"id"`
+	AttemptID      string         `json:"attempt_id"`
+	EntryType      string         `json:"entry_type"`
+	TokenUnits     sql.NullInt64  `json:"token_units"`
+	CostNanos      sql.NullInt64  `json:"cost_nanos"`
+	IdempotencyKey string         `json:"idempotency_key"`
+	ActorUserID    sql.NullString `json:"actor_user_id"`
+	Reason         string         `json:"reason"`
+	CreatedAt      int64          `json:"created_at"`
 }
 
 type User struct {

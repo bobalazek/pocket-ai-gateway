@@ -1,6 +1,6 @@
 # Phase 3 — Admission, buckets, quotas, and spend accounting
 
-Status: planned; no implementation evidence yet. [Plan index](README.md)
+Status: implementation complete; verification evidence recorded below. [Plan index](README.md)
 
 Depends on phase 2 identity and phase 1 transactional storage. Use deterministic mock attempts; no paid provider is required.
 
@@ -13,10 +13,18 @@ Depends on phase 2 identity and phase 1 transactional storage. Use deterministic
 | C3.5 Historical pricing | N/A usage capture, effective-dated prices, preview/reprice jobs, idempotent ledger deltas, original/restated costs and original-period updates | COST-02, DATA-01 |
 | C3.6 Store projection | Bounded transactional system outbox to data-store events; idempotent replay, visible lag/full behavior, no accounting loss | DATA-02 |
 
-Frontend: Keys/User policy tabs, usage known/estimated/unknown indicators, limit-denial explanations. Demonstrate with synthetic data clearly labelled as test data.
+Frontend: one Usage workspace with visible policy scopes, effective-limit inspection, known/estimated/unknown indicators, and structured limit-denial explanations.
 
-Dashboard charts use the source-owned shadcn Chart component with Recharts v3, accessible chart layers, tabular summaries, and non-color-only legends. Do not add ApexCharts as a second chart stack.
+The initial repricing operation is synchronous and rejects ranges over 10,000 attempts. A resumable background cursor is deferred until operating evidence shows the bounded operation is insufficient.
+
+Dashboard charts use a small source-owned shadcn-style wrapper around Recharts v3, with an accessible label and tabular summary. Do not add ApexCharts as a second chart stack.
 
 **Exit gate:** concurrent callers cannot over-admit; denial changes no sibling policy; repeated settlement charges once; month/week transitions and restart preserve allowance; unknown billable work remains reserved; lowering a cap blocks new admissions.
 
 **Blast radius:** costs and access for every future adapter. This phase is a hard dependency of live dispatch, not post-launch hardening.
+
+## Verification evidence
+
+- Unit/integration: checked money arithmetic, bucket carry, period boundaries, concurrent admission, atomic denial, idempotent settlement/repricing/reconciliation, restart recovery, and outbox replay.
+- Contract/UI: OpenAPI validation, typed client tests, production dashboard build, embedded-asset smoke test, and desktop/mobile responsive review in the live preview.
+- Release gates: `scripts/verify.sh` plus a clean generated-code diff and race-enabled accounting/storage/server test run.

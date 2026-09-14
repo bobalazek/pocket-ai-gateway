@@ -2,6 +2,7 @@ package app
 
 import (
 	"context"
+	"database/sql"
 	"encoding/json"
 	"errors"
 	"flag"
@@ -17,6 +18,7 @@ import (
 
 	"github.com/bobalazek/pocket-ai-gateway/internal/credentials"
 	"github.com/bobalazek/pocket-ai-gateway/internal/features/auth"
+	"github.com/bobalazek/pocket-ai-gateway/internal/features/usage"
 	"github.com/bobalazek/pocket-ai-gateway/internal/server"
 	"github.com/bobalazek/pocket-ai-gateway/internal/storage"
 )
@@ -131,6 +133,10 @@ func serve(ctx context.Context, version string, cfg Config, logOutput io.Writer)
 		publicOrigin = "http://" + listener.Addr().String()
 	}
 	authService := auth.New(stores.SystemDB())
+	usageService := usage.New(stores.SystemDB())
+	if err := usageService.Recover(ctx); err != nil {
+		return fmt.Errorf("recover usage accounting: %w", err)
+	}
 	setupCode, setupRequired, err := authService.PrepareSetup(ctx)
 	if err != nil {
 		return fmt.Errorf("prepare owner setup: %w", err)
@@ -147,8 +153,12 @@ func serve(ctx context.Context, version string, cfg Config, logOutput io.Writer)
 	}
 
 	logger := slog.New(slog.NewTextHandler(logOutput, &slog.HandlerOptions{Level: slog.LevelInfo}))
+	workerContext, stopWorker := context.WithCancel(ctx)
+	workerDone := make(chan struct{})
+	go projectUsage(workerContext, stores.SystemDB(), stores.DataDB(), logger, workerDone)
+	defer func() { stopWorker(); <-workerDone }()
 	httpServer := &http.Server{
-		Handler:           server.NewWithOrigin(stores.SystemDB(), publicOrigin),
+		Handler:           server.NewWithUsage(stores.SystemDB(), publicOrigin, usageService),
 		ReadHeaderTimeout: 5 * time.Second,
 		IdleTimeout:       60 * time.Second,
 	}
@@ -174,6 +184,22 @@ func serve(ctx context.Context, version string, cfg Config, logOutput io.Writer)
 	}
 	logger.Info("gateway stopped")
 	return nil
+}
+
+func projectUsage(ctx context.Context, system, data *sql.DB, logger *slog.Logger, done chan<- struct{}) {
+	defer close(done)
+	ticker := time.NewTicker(time.Second)
+	defer ticker.Stop()
+	for {
+		if _, err := usage.ProjectOutbox(ctx, system, data, 100); err != nil && !errors.Is(err, context.Canceled) {
+			logger.Error("usage projection delayed", "error", err)
+		}
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+		}
+	}
 }
 
 func setupURL(publicOrigin string) string { return strings.TrimRight(publicOrigin, "/") + "/_/setup/" }

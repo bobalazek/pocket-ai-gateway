@@ -7,7 +7,7 @@ description: Inspect a Pocket AI Gateway instance, explain its current health an
 
 Resolve the instance URL from the user or local configuration; otherwise use `http://127.0.0.1:8080`. Read the instance's `/llms.txt` before assuming an endpoint exists.
 
-For a health question, call `GET /healthz` and distinguish process liveness from storage, provider, or authorization readiness. Phase 1 exposes only liveness and the dashboard status page. If a requested statistic has no implemented management endpoint, say that plainly and point to the phase that owns it instead of estimating it.
+For a health question, call `GET /healthz` and distinguish process liveness from storage, projection, provider, or authorization readiness. Use authenticated `GET /api/v1/usage` for totals, `/api/v1/usage/unresolved` for uncertain attempts, and `/api/v1/admin/usage/outbox` for projection lag. If a requested statistic has no implemented endpoint, say that plainly instead of estimating it.
 
 When authenticated management APIs are available, use the documented `/api/v1/` endpoints and preserve their scope, period, currency, provenance, and timestamp in the answer. Treat missing prices as unknown rather than free. Separate accepted requests from upstream attempts and provider-reported usage from estimates.
 

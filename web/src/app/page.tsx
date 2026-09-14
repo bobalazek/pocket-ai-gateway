@@ -12,7 +12,7 @@ export default function OverviewPage() {
           <div>
             <p className="context">Dashboard</p>
             <h1>Your gateway is ready to configure.</h1>
-            <p className="lede">Manage people, issue scoped application keys, and review the local runtime before connecting providers.</p>
+            <p className="lede">Manage access, enforce usage limits, and review local accounting before connecting providers.</p>
           </div>
           <a className={buttonVariants()} href="/healthz">Check health</a>
         </header>
@@ -26,7 +26,7 @@ export default function OverviewPage() {
             <dl className="facts">
               <div><dt>Identity</dt><dd>Owner, admin, and member roles</dd></div>
               <div><dt>API keys</dt><dd>Scoped, rotating secrets</dd></div>
-              <div><dt>Data</dt><dd>Local and protected by default</dd></div>
+              <div><dt>Accounting</dt><dd>Atomic limits and local usage</dd></div>
             </dl>
           </CardContent>
         </Card>
@@ -34,9 +34,9 @@ export default function OverviewPage() {
         <section className="next-step" aria-labelledby="next-step-title">
           <div>
             <h2 id="next-step-title">Continue setup</h2>
-            <p>Add users and application keys now. Provider connections, routing, and live traffic arrive after the limits and accounting layer.</p>
+            <p>Add users and application keys, then configure limits and model prices. Provider connections and live traffic arrive in the next phase.</p>
           </div>
-          <div className="row-actions"><Link className="text-link" href="/keys/">Manage API keys <span aria-hidden="true">→</span></Link><Link className="text-link" href="/status/">View status</Link></div>
+          <div className="row-actions"><Link className="text-link" href="/usage/">Configure usage <span aria-hidden="true">→</span></Link><Link className="text-link" href="/keys/">Manage API keys</Link></div>
         </section>
       </main>
     </AppShell>

@@ -1,8 +1,8 @@
 openapi: 3.1.0
 info:
   title: Pocket AI Gateway Management API
-  version: 0.2.0
-  description: Implemented Phase 2 management surface. Compatible inference APIs are specified separately when implemented.
+  version: 0.3.0
+  description: Implemented identity, limits, usage accounting, and pricing management surface. Compatible inference APIs are specified separately when implemented.
 servers:
   - url: /api/v1
 security:
@@ -454,6 +454,240 @@ paths:
         "428": { $ref: "#/components/responses/PreconditionRequired" }
         "503": { $ref: "#/components/responses/ServiceUnavailable" }
         default: { $ref: "#/components/responses/Error" }
+  /admin/policies:
+    get:
+      operationId: listLimitPolicies
+      parameters: [{ $ref: "#/components/parameters/Cursor" }]
+      responses:
+        "200":
+          description: Role-scoped limit policies
+          content: { application/json: { schema: { allOf: [{ $ref: "#/components/schemas/Page" }, { type: object, properties: { data: { type: array, maxItems: 50, items: { $ref: "#/components/schemas/LimitPolicy" } } } }] } } }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "503": { $ref: "#/components/responses/ServiceUnavailable" }
+        default: { $ref: "#/components/responses/Error" }
+    post:
+      operationId: createLimitPolicy
+      parameters: [{ $ref: "#/components/parameters/CSRF" }]
+      requestBody:
+        required: true
+        content: { application/json: { schema: { $ref: "#/components/schemas/LimitPolicyInput" } } }
+      responses:
+        "201": { description: Policy created, content: { application/json: { schema: { type: object, required: [policy], properties: { policy: { $ref: "#/components/schemas/LimitPolicy" } } } } } }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "409": { $ref: "#/components/responses/Conflict" }
+        "413": { $ref: "#/components/responses/PayloadTooLarge" }
+        "415": { $ref: "#/components/responses/UnsupportedMediaType" }
+        "503": { $ref: "#/components/responses/ServiceUnavailable" }
+        default: { $ref: "#/components/responses/Error" }
+  /admin/policies/{id}:
+    patch:
+      operationId: updateLimitPolicy
+      parameters:
+        - { $ref: "#/components/parameters/ID" }
+        - { $ref: "#/components/parameters/Revision" }
+        - { $ref: "#/components/parameters/CSRF" }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [limit_units, limit_usd, enabled]
+              properties:
+                limit_units: { type: integer, minimum: 1, maximum: 9007199254740991 }
+                limit_usd: { type: string }
+                enabled: { type: boolean }
+      responses:
+        "200": { description: Policy updated, content: { application/json: { schema: { type: object, required: [policy], properties: { policy: { $ref: "#/components/schemas/LimitPolicy" } } } } } }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "409": { $ref: "#/components/responses/Conflict" }
+        "413": { $ref: "#/components/responses/PayloadTooLarge" }
+        "415": { $ref: "#/components/responses/UnsupportedMediaType" }
+        "428": { $ref: "#/components/responses/PreconditionRequired" }
+        "503": { $ref: "#/components/responses/ServiceUnavailable" }
+        default: { $ref: "#/components/responses/Error" }
+  /keys/{id}/effective-limits:
+    get:
+      operationId: effectiveKeyLimits
+      parameters:
+        - { $ref: "#/components/parameters/ID" }
+        - { name: connection_id, in: query, schema: { type: string } }
+      responses:
+        "200": { description: Intersected effective limit state, content: { application/json: { schema: { type: object, required: [data], properties: { data: { type: array, items: { $ref: "#/components/schemas/EffectiveLimit" } } } } } } }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "503": { $ref: "#/components/responses/ServiceUnavailable" }
+        default: { $ref: "#/components/responses/Error" }
+  /usage:
+    get:
+      operationId: usageSummary
+      parameters:
+        - { name: user_id, in: query, schema: { type: string } }
+        - { name: from, in: query, schema: { type: string, format: date-time } }
+        - { name: to, in: query, schema: { type: string, format: date-time } }
+        - { name: key_id, in: query, schema: { type: string } }
+        - { name: model_id, in: query, schema: { type: string } }
+        - { name: connection_id, in: query, schema: { type: string } }
+      responses:
+        "200": { description: Role-scoped usage summary, content: { application/json: { schema: { type: object, required: [usage], properties: { usage: { $ref: "#/components/schemas/UsageSummary" } } } } } }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "503": { $ref: "#/components/responses/ServiceUnavailable" }
+        default: { $ref: "#/components/responses/Error" }
+  /usage/unresolved:
+    get:
+      operationId: unresolvedUsage
+      parameters:
+        - { name: user_id, in: query, schema: { type: string } }
+        - { name: from, in: query, schema: { type: string, format: date-time } }
+        - { name: to, in: query, schema: { type: string, format: date-time } }
+        - { name: key_id, in: query, schema: { type: string } }
+        - { name: model_id, in: query, schema: { type: string } }
+        - { name: connection_id, in: query, schema: { type: string } }
+        - { $ref: "#/components/parameters/Cursor" }
+      responses:
+        "200": { description: Attempts with unknown or uncertain accounting, content: { application/json: { schema: { allOf: [{ $ref: "#/components/schemas/Page" }, { type: object, properties: { data: { type: array, maxItems: 50, items: { $ref: "#/components/schemas/UnresolvedAttempt" } } } }] } } } }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "503": { $ref: "#/components/responses/ServiceUnavailable" }
+        default: { $ref: "#/components/responses/Error" }
+  /admin/usage/outbox:
+    get:
+      operationId: usageOutboxStatus
+      responses:
+        "200": { description: Durable projection backlog, content: { application/json: { schema: { type: object, required: [outbox], properties: { outbox: { $ref: "#/components/schemas/OutboxStatus" } } } } } }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "503": { $ref: "#/components/responses/ServiceUnavailable" }
+        default: { $ref: "#/components/responses/Error" }
+  /admin/prices:
+    get:
+      operationId: listPrices
+      parameters: [{ $ref: "#/components/parameters/Cursor" }]
+      responses:
+        "200": { description: Effective-dated prices, content: { application/json: { schema: { allOf: [{ $ref: "#/components/schemas/Page" }, { type: object, properties: { data: { type: array, maxItems: 50, items: { $ref: "#/components/schemas/PriceVersion" } } } }] } } } }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "503": { $ref: "#/components/responses/ServiceUnavailable" }
+        default: { $ref: "#/components/responses/Error" }
+    post:
+      operationId: createPrice
+      parameters: [{ $ref: "#/components/parameters/CSRF" }]
+      requestBody:
+        required: true
+        content: { application/json: { schema: { $ref: "#/components/schemas/PriceInput" } } }
+      responses:
+        "201": { description: Price version created, content: { application/json: { schema: { type: object, required: [price], properties: { price: { $ref: "#/components/schemas/PriceVersion" } } } } } }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "413": { $ref: "#/components/responses/PayloadTooLarge" }
+        "415": { $ref: "#/components/responses/UnsupportedMediaType" }
+        "503": { $ref: "#/components/responses/ServiceUnavailable" }
+        default: { $ref: "#/components/responses/Error" }
+  /admin/usage/reprice-preview:
+    post:
+      operationId: previewUsageRepricing
+      parameters: [{ $ref: "#/components/parameters/CSRF" }]
+      requestBody: { required: true, content: { application/json: { schema: { $ref: "#/components/schemas/RepricePreviewInput" } } } }
+      responses:
+        "200": { $ref: "#/components/responses/RepricePreview" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "413": { $ref: "#/components/responses/PayloadTooLarge" }
+        "415": { $ref: "#/components/responses/UnsupportedMediaType" }
+        "503": { $ref: "#/components/responses/ServiceUnavailable" }
+        default: { $ref: "#/components/responses/Error" }
+  /admin/usage/reprice:
+    post:
+      operationId: applyUsageRepricing
+      parameters: [{ $ref: "#/components/parameters/CSRF" }]
+      requestBody: { required: true, content: { application/json: { schema: { $ref: "#/components/schemas/RepriceApplyInput" } } } }
+      responses:
+        "200": { $ref: "#/components/responses/RepriceApplied" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "409": { $ref: "#/components/responses/Conflict" }
+        "413": { $ref: "#/components/responses/PayloadTooLarge" }
+        "415": { $ref: "#/components/responses/UnsupportedMediaType" }
+        "503": { $ref: "#/components/responses/ServiceUnavailable" }
+        default: { $ref: "#/components/responses/Error" }
+  /admin/usage/reconciliations:
+    post:
+      operationId: reconcileUnknownUsage
+      parameters: [{ $ref: "#/components/parameters/CSRF" }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [attempt_id, input_tokens, output_tokens, usage_status, reason, idempotency_key]
+              properties:
+                attempt_id: { type: string }
+                input_tokens: { type: integer, minimum: 0, maximum: 9007199254740991 }
+                output_tokens: { type: integer, minimum: 0, maximum: 9007199254740991 }
+                cost_usd: { type: string }
+                usage_status: { type: string, enum: [provider_reported, estimated] }
+                reason: { type: string, minLength: 3, maxLength: 500 }
+                idempotency_key: { type: string, minLength: 1, maxLength: 200 }
+      responses:
+        "200": { description: Unknown attempt reconciled, content: { application/json: { schema: { type: object, required: [reconciled], properties: { reconciled: { type: boolean, const: true } } } } } }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "409": { $ref: "#/components/responses/Conflict" }
+        "413": { $ref: "#/components/responses/PayloadTooLarge" }
+        "415": { $ref: "#/components/responses/UnsupportedMediaType" }
+        "503": { $ref: "#/components/responses/ServiceUnavailable" }
+        default: { $ref: "#/components/responses/Error" }
+  /admin/usage/adjustments:
+    post:
+      operationId: adjustUsageCost
+      parameters: [{ $ref: "#/components/parameters/CSRF" }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [attempt_id, delta_usd, reason, idempotency_key]
+              properties:
+                attempt_id: { type: string }
+                delta_usd: { type: string }
+                reason: { type: string, minLength: 3, maxLength: 500 }
+                idempotency_key: { type: string, minLength: 1, maxLength: 200 }
+      responses:
+        "200": { description: Restated cost, content: { application/json: { schema: { type: object, required: [restated_cost_usd], properties: { restated_cost_usd: { type: string } } } } } }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "409": { $ref: "#/components/responses/Conflict" }
+        "413": { $ref: "#/components/responses/PayloadTooLarge" }
+        "415": { $ref: "#/components/responses/UnsupportedMediaType" }
+        "503": { $ref: "#/components/responses/ServiceUnavailable" }
+        default: { $ref: "#/components/responses/Error" }
 components:
   securitySchemes:
     sessionCookie: { type: apiKey, in: cookie, name: pocket_ai_gateway_session }
@@ -562,6 +796,24 @@ components:
               - type: object
                 properties:
                   data: { type: array, items: { $ref: "#/components/schemas/APIKey" } }
+    RepricePreview:
+      description: Repricing preview
+      content:
+        application/json:
+          schema:
+            type: object
+            required: [preview]
+            properties:
+              preview: { $ref: "#/components/schemas/RepriceResult" }
+    RepriceApplied:
+      description: Applied repricing result
+      content:
+        application/json:
+          schema:
+            type: object
+            required: [result]
+            properties:
+              result: { $ref: "#/components/schemas/RepriceResult" }
   schemas:
     OwnerClaim:
       type: object
@@ -643,6 +895,159 @@ components:
       properties:
         next_cursor: { type: string }
         has_more: { type: boolean }
+    LimitPolicyInput:
+      type: object
+      additionalProperties: false
+      required: [scope_kind, scope_id, metric, algorithm, period, window_seconds, limit_units, limit_usd, refill_units, refill_interval_ms]
+      properties:
+        scope_kind: { type: string, enum: [instance, user, key, connection] }
+        scope_id: { type: string }
+        metric: { type: string, enum: [requests, tokens, spend, concurrency, body_bytes, output_tokens, batch_items] }
+        algorithm: { type: string, enum: [token_bucket, fixed_window, quota, concurrency, ceiling] }
+        period: { type: string, enum: ["", hour, day, week, month, lifetime] }
+        window_seconds: { type: integer, minimum: 0, maximum: 9007199254740991 }
+        limit_units: { type: integer, minimum: 1, maximum: 9007199254740991 }
+        limit_usd: { type: string }
+        refill_units: { type: integer, minimum: 0, maximum: 9007199254740991 }
+        refill_interval_ms: { type: integer, minimum: 0, maximum: 9007199254740991 }
+        enabled: { type: boolean, default: true }
+    LimitPolicy:
+      type: object
+      required: [id, scope_kind, scope_id, metric, algorithm, period, window_seconds, limit_units, refill_units, refill_interval_ms, enabled, revision, created_at, updated_at]
+      properties:
+        id: { type: string }
+        scope_kind: { type: string, enum: [instance, user, key, connection] }
+        scope_id: { type: string }
+        metric: { type: string, enum: [requests, tokens, spend, concurrency, body_bytes, output_tokens, batch_items] }
+        algorithm: { type: string, enum: [token_bucket, fixed_window, quota, concurrency, ceiling] }
+        period: { type: string, enum: ["", hour, day, week, month, lifetime] }
+        window_seconds: { type: integer, minimum: 0, maximum: 9007199254740991 }
+        limit_units: { type: integer, minimum: 1, maximum: 9007199254740991 }
+        limit_usd: { type: string }
+        refill_units: { type: integer, minimum: 0, maximum: 9007199254740991 }
+        refill_interval_ms: { type: integer, minimum: 0, maximum: 9007199254740991 }
+        enabled: { type: boolean }
+        revision: { type: integer, minimum: 1 }
+        created_at: { type: string, format: date-time }
+        updated_at: { type: string, format: date-time }
+    EffectiveLimit:
+      type: object
+      required: [policy_id, scope_kind, metric, algorithm, period, limit_units, consumed_units, reserved_units, remaining_units]
+      properties:
+        policy_id: { type: string }
+        scope_kind: { type: string }
+        metric: { type: string }
+        algorithm: { type: string }
+        period: { type: string }
+        limit_units: { type: integer }
+        limit_usd: { type: string }
+        consumed_units: { type: integer }
+        consumed_usd: { type: string }
+        reserved_units: { type: integer }
+        reserved_usd: { type: string }
+        remaining_units: { type: integer }
+        remaining_usd: { type: string }
+        resets_at: { type: [string, "null"], format: date-time }
+    UsagePoint:
+      type: object
+      required: [date, requests, input_tokens, output_tokens, known_cost_usd, unknown_attempts]
+      properties:
+        date: { type: string, format: date }
+        requests: { type: integer }
+        input_tokens: { type: integer }
+        output_tokens: { type: integer }
+        known_cost_usd: { type: string }
+        unknown_attempts: { type: integer }
+    UsageSummary:
+      type: object
+      required: [from, to, requests, attempts, input_tokens, output_tokens, known_cost_usd, estimated_cost_usd, as_recorded_cost_usd, restatement_delta_usd, unknown_attempts, points]
+      properties:
+        from: { type: string, format: date-time }
+        to: { type: string, format: date-time }
+        requests: { type: integer }
+        attempts: { type: integer }
+        input_tokens: { type: integer }
+        output_tokens: { type: integer }
+        known_cost_usd: { type: string }
+        estimated_cost_usd: { type: string }
+        as_recorded_cost_usd: { type: string }
+        restatement_delta_usd: { type: string }
+        unknown_attempts: { type: integer }
+        points: { type: array, items: { $ref: "#/components/schemas/UsagePoint" } }
+    UnresolvedAttempt:
+      type: object
+      required: [id, request_id, owner_user_id, key_id, model_id, connection_id, state, usage_status, started_at]
+      properties:
+        id: { type: string }
+        request_id: { type: string }
+        owner_user_id: { type: string }
+        key_id: { type: string }
+        model_id: { type: string }
+        connection_id: { type: string }
+        state: { type: string }
+        usage_status: { type: string }
+        estimated_cost_usd: { type: string }
+        started_at: { type: string, format: date-time }
+    OutboxStatus:
+      type: object
+      required: [pending_events, reserved_events, pending_bytes, oldest_event_at, full]
+      properties:
+        pending_events: { type: integer }
+        reserved_events: { type: integer }
+        pending_bytes: { type: integer }
+        oldest_event_at: { type: [string, "null"], format: date-time }
+        full: { type: boolean }
+    PriceInput:
+      type: object
+      additionalProperties: false
+      required: [connection_id, model_id, input_usd_per_million, output_usd_per_million, source, effective_from, effective_to]
+      properties:
+        connection_id: { type: string }
+        model_id: { type: string }
+        input_usd_per_million: { type: string }
+        output_usd_per_million: { type: string }
+        source: { type: string, minLength: 1, maxLength: 500 }
+        effective_from: { type: string, format: date-time }
+        effective_to: { oneOf: [{ type: string, format: date-time }, { type: string, maxLength: 0 }] }
+    PriceVersion:
+      type: object
+      required: [id, connection_id, model_id, input_usd_per_million, output_usd_per_million, source, effective_from, effective_to, created_at]
+      properties:
+        id: { type: string }
+        connection_id: { type: string }
+        model_id: { type: string }
+        input_usd_per_million: { type: string }
+        output_usd_per_million: { type: string }
+        source: { type: string }
+        effective_from: { type: string, format: date-time }
+        effective_to: { type: [string, "null"], format: date-time }
+        created_at: { type: string, format: date-time }
+    RepricePreviewInput:
+      type: object
+      additionalProperties: false
+      required: [connection_id, model_id, from, to]
+      properties:
+        connection_id: { type: string }
+        model_id: { type: string }
+        from: { type: string, format: date-time }
+        to: { type: string, format: date-time }
+    RepriceApplyInput:
+      type: object
+      additionalProperties: false
+      required: [connection_id, model_id, from, to, idempotency_key]
+      properties:
+        connection_id: { type: string }
+        model_id: { type: string }
+        from: { type: string, format: date-time }
+        to: { type: string, format: date-time }
+        idempotency_key: { type: string, minLength: 1, maxLength: 200 }
+    RepriceResult:
+      type: object
+      required: [affected_attempts, missing_prices, delta_usd]
+      properties:
+        affected_attempts: { type: integer }
+        missing_prices: { type: integer }
+        delta_usd: { type: string }
     Error:
       type: object
       required: [error]

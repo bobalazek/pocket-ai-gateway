@@ -4,8 +4,34 @@
 
 package datadb
 
+import (
+	"database/sql"
+)
+
 type ProjectionMetadatum struct {
 	Key       string `json:"key"`
 	Value     string `json:"value"`
 	UpdatedAt string `json:"updated_at"`
+}
+
+type UsageDaily struct {
+	Date            string `json:"date"`
+	OwnerUserID     string `json:"owner_user_id"`
+	KeyID           string `json:"key_id"`
+	ModelID         string `json:"model_id"`
+	ConnectionID    string `json:"connection_id"`
+	Requests        int64  `json:"requests"`
+	InputTokens     int64  `json:"input_tokens"`
+	OutputTokens    int64  `json:"output_tokens"`
+	KnownCostNanos  int64  `json:"known_cost_nanos"`
+	UnknownAttempts int64  `json:"unknown_attempts"`
+}
+
+type UsageEvent struct {
+	EventID     string         `json:"event_id"`
+	EventType   string         `json:"event_type"`
+	RequestID   sql.NullString `json:"request_id"`
+	AttemptID   sql.NullString `json:"attempt_id"`
+	PayloadJson string         `json:"payload_json"`
+	CreatedAt   int64          `json:"created_at"`
 }

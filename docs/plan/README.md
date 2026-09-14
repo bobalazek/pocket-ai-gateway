@@ -1,6 +1,6 @@
 # Implementation phases
 
-Status: Phases 1 and 2 are complete. Later phases remain planned.
+Status: Phases 1 through 3 are complete. Later phases remain planned.
 
 ## Build order
 
@@ -41,7 +41,7 @@ Each phase file contains backend work items, frontend scope, requirements, depen
 | --- | --- | --- |
 | 1 | [Executable, storage, and recovery foundation](phase-01-runtime-storage.md) | Complete |
 | 2 | [Auth, users, sessions, grants, and API keys](phase-02-auth-users-keys.md) | Complete |
-| 3 | [Admission, buckets, quotas, and spend accounting](phase-03-limits-usage-pricing.md) | Planned |
+| 3 | [Admission, buckets, quotas, and spend accounting](phase-03-limits-usage-pricing.md) | Complete |
 | 4 | [First native gateway](phase-04-native-protocol-features.md) | Planned |
 | 5 | [Compatibility, translation, and usable alpha](phase-05-cross-protocol-compatibility.md) | Planned |
 | 6 | [Routing strategies and provider catalog](phase-06-routing-provider-catalog.md) | Planned |
@@ -98,4 +98,4 @@ Normal CI never needs paid providers. Live tests are isolated, explicitly enable
 
 Implement one bounded work item at a time in this repository. Update its status and evidence after checks pass. Review financial/security/data-loss boundaries before declaring the containing phase complete. Do not generate all future directories, tables, interfaces, or placeholder endpoints upfront.
 
-The next action after Phase 2 review is Phase 3 admission, limits, and accounting. Provider traffic still waits for the shared enforcement path.
+The next action is Phase 4 native protocol features. Provider traffic now has the shared enforcement and accounting path it depends on.

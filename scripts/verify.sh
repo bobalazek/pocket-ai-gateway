@@ -24,7 +24,7 @@ diff -ru "$scratch/sqlc" internal/storage/sqlc
 
 go vet ./...
 go test ./...
-go test -race ./internal/storage ./internal/server ./internal/app ./internal/features/auth ./internal/features/users ./internal/features/keys
+go test -race ./internal/storage ./internal/server ./internal/app ./internal/features/auth ./internal/features/users ./internal/features/keys ./internal/features/usage
 pnpm --dir web typecheck
 pnpm --dir web test
 ./scripts/cross-build.sh

@@ -1,8 +1,8 @@
 # API namespaces and compatibility contract
 
-Proposed implementation contract. No compatibility test has run yet. The product targets OpenAI, Anthropic, and native Gemini clients with request/response translation to the selected capable upstream.
+Management implementation contract and planned compatibility contract. No inference compatibility test has run yet. The product targets OpenAI, Anthropic, and native Gemini clients with request/response translation to the selected capable upstream.
 
-The implemented Phase 2 management slice is machine-readable in [openapi.yaml](openapi.yaml). Inference routes below remain planned.
+The implemented Phase 3 management slice is machine-readable in [openapi.yaml](openapi.yaml). Inference routes below remain planned.
 
 ## Route hierarchy
 
@@ -140,7 +140,8 @@ Base path /api/v1/. Server-side session cookies authorize browser operations; se
 | Requests/attempts | GET /requests, GET /requests/{id} | Server ownership filter; metadata by default |
 | Captured content | GET /requests/{id}/content | Separate opt-in permission and audit |
 | Usage/unknowns | GET /usage, GET /usage/unresolved, POST /admin/usage/adjustments | Scoped reads; audited privileged adjustments |
-| Repricing | POST /admin/usage/reprice-preview, POST /admin/usage/reprice, GET /admin/usage/pricing-jobs/{id} | Versioned price selection, preview, idempotent historical adjustments |
+| Repricing | POST /admin/usage/reprice-preview, POST /admin/usage/reprice | Bounded synchronous preview and idempotent historical adjustments |
+| Unknown reconciliation | POST /admin/usage/reconciliations | Audited token/cost facts that release uncertain reservations |
 | Catalog refresh | POST /admin/catalog/refresh, GET /admin/catalog/status | Configured GitHub source, bounded data only, diff before publication |
 | Audit/settings | GET /admin/audit, GET/PATCH /admin/settings | Privileged views; owner-only secret/backup/security policy fields |
 | Import/export | POST /admin/config/preview, POST /admin/config/import, GET /admin/config/export | Owner; versioned, redacted, transactional |

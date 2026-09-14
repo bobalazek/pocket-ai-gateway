@@ -16,6 +16,7 @@ import (
 	"github.com/bobalazek/pocket-ai-gateway/internal/credentials"
 	"github.com/bobalazek/pocket-ai-gateway/internal/features/auth"
 	"github.com/bobalazek/pocket-ai-gateway/internal/features/keys"
+	"github.com/bobalazek/pocket-ai-gateway/internal/features/usage"
 	"github.com/bobalazek/pocket-ai-gateway/internal/features/users"
 	dashboard "github.com/bobalazek/pocket-ai-gateway/web"
 )
@@ -25,11 +26,16 @@ func New(systemDatabase *sql.DB) http.Handler {
 }
 
 func NewWithOrigin(systemDatabase *sql.DB, publicOrigin string) http.Handler {
+	return NewWithUsage(systemDatabase, publicOrigin, usage.New(systemDatabase))
+}
+
+func NewWithUsage(systemDatabase *sql.DB, publicOrigin string, usageService *usage.Service) http.Handler {
 	mux := http.NewServeMux()
 	authHandler := auth.NewHandler(auth.New(systemDatabase), publicOrigin)
 	authHandler.Register(mux)
 	users.NewHandler(users.New(systemDatabase), authHandler).Register(mux)
 	keys.NewHandler(keys.New(systemDatabase), authHandler).Register(mux)
+	usage.NewHandler(usageService, authHandler).Register(mux)
 	mux.HandleFunc("GET /healthz", func(response http.ResponseWriter, _ *http.Request) {
 		writeJSON(response, http.StatusOK, map[string]string{"status": "ok"})
 	})

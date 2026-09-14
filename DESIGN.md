@@ -25,7 +25,7 @@ Usage charts use the shadcn Chart component with Recharts v3. Every chart needs 
 
 ## Interaction and content
 
-The URL is the source of truth for selected records, filters, and pagination. Forms have persistent labels, field-level errors, safe retry behavior, visible focus, and 44-pixel minimum targets. Setup is resumable; destructive or billable actions state their effect before execution.
+The URL is the source of truth for selected records and filters. Primary page pagination is URL-backed; independent secondary lists use explicit load-more controls. Forms have persistent labels, field-level errors, safe retry behavior, visible focus, and 44-pixel minimum targets. Setup is resumable; destructive or billable actions state their effect before execution.
 
 Never display provider secrets, API key plaintext after the one-time issue step, raw captured request content by default, or health as proof of authorization/provider readiness. Planned screens must be marked unavailable until their APIs exist.
 

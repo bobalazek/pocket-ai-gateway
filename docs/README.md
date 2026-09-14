@@ -9,7 +9,7 @@ Updated September 14, 2026. Phase files separate recorded implementation evidenc
 | [Architecture](architecture/README.md) | Runtime, module ownership, request flow, concurrency, and dependencies |
 | [Data model](architecture/data-model.md) | Persistence, ownership, state transitions, accounting, and retention |
 | [API contract](reference/api.md) | Client dialects, compatibility limits, management API, and provider coverage |
-| [Phase 2 OpenAPI](reference/openapi.yaml) | Machine-readable implemented auth, user, session, and API-key surface |
+| [Management OpenAPI](reference/openapi.yaml) | Machine-readable implemented auth, identity, key, limit, usage, and pricing surface |
 | [Feature contracts](features/README.md) | Separate OpenAI, Anthropic, Gemini, and auth ownership with example schemas |
 | [Dashboard](design/dashboard.md) | Roles, screens, flows, structural wireframes, and responsive behavior |
 | [Design system](../DESIGN.md) | Implemented dashboard tokens, shell, components, and interaction rules |
@@ -25,4 +25,4 @@ The layout follows the nearby personal SaaS template's docs/project conventions:
 
 The supplied AI-Gateway-PRD.md was treated as reference material. Its single-administrator scope and narrower limits were superseded by the user's request for users, broader quotas, and routing strategies. The original file in Downloads was left untouched. There is no second, competing PRD in this repository.
 
-Phase 1 is complete with evidence in its phase file. Later phases are scoped work packages; expand each into bounded tasks shortly before implementation rather than freezing speculative file-level tickets now.
+Phases 1–3 are complete. Later phases remain scoped work packages.

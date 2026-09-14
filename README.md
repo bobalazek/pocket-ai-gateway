@@ -4,7 +4,7 @@ An open-source, local-first foundation for an AI gateway: one executable, an emb
 
 The dashboard foundation uses Next.js, Tailwind CSS, and source-owned shadcn components. See [DESIGN.md](DESIGN.md) for its interface rules, [llms.txt](llms.txt) for concise agent-readable help, and the [operator skill](skills/pocket-ai-gateway-ops/SKILL.md) for agent-assisted health and usage checks.
 
-**Status: Phase 2 complete. The local runtime includes owner onboarding, login and recovery, multiple administrators, member lifecycle, active-session controls, and scoped rotating API keys. Provider traffic, limits, and inference remain planned. There is no published release yet.**
+**Status: Phase 3 complete. The local runtime includes onboarding, users, scoped keys, atomic limits, durable usage accounting, effective-dated pricing, and a Usage dashboard. Provider traffic and inference remain planned. There is no published release yet.**
 
 Start with the [product requirements](docs/project/prd.md) and [implementation phases](docs/plan/README.md). The [documentation index](docs/README.md) links the architecture, API boundaries, data model, dashboard, and recovery design.
 

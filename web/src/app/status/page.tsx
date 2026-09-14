@@ -19,8 +19,9 @@ export default function StatusPage() {
           <div><span>HTTP server</span><strong>Ready</strong></div>
           <div><span>Dashboard assets</span><strong>Embedded</strong></div>
           <div><span>Local SQLite stores</span><strong>Ready</strong></div>
+		  <div><span>Limits and accounting</span><strong>Ready</strong></div>
         </section>
-		<p className="fine-print">Identity, user grants, and API keys are ready. Provider connections, limits, and inference arrive in the next phases.</p>
+		<p className="fine-print">Identity, user grants, API keys, limits, and usage accounting are ready. Provider connections and inference arrive next.</p>
         <a className={buttonVariants()} href="/healthz">Open health response</a>
       </main>
     </AppShell>

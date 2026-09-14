@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 
-import { effectiveKeyState, GatewayAPIClient, GatewayAPIError, type GatewayKey } from "./api-client";
+import { effectiveKeyState, GatewayAPIClient, GatewayAPIError, type GatewayKey, type LimitPolicy } from "./api-client";
 
 describe("GatewayAPIClient", () => {
   it("reports an expired active key by its effective state", () => {
@@ -65,6 +65,17 @@ describe("GatewayAPIClient", () => {
 
     await expect(new GatewayAPIClient(fetcher).request("/api/v1/me/"))
       .rejects.toEqual(new GatewayAPIError("Access denied", 403, "denied", "request-test"));
+  });
+
+  it("uses the documented usage namespace and revision precondition", async () => {
+    const fetcher = vi.fn<typeof fetch>()
+      .mockResolvedValueOnce(new Response(JSON.stringify({ usage: {} }), { status: 200 }))
+      .mockResolvedValueOnce(new Response(JSON.stringify({ policy: {} }), { status: 200 }));
+    const client = new GatewayAPIClient(fetcher);
+		await client.usage({ from: "2026-01-01T00:00:00Z", to: "2026-02-01T00:00:00Z" });
+    await client.updatePolicy({ id: "pol_test", revision: 3 } as LimitPolicy, { limit_units: 10, limit_usd: "", enabled: true });
+    expect(fetcher.mock.calls[0][0]).toBe("/api/v1/usage?from=2026-01-01T00%3A00%3A00Z&to=2026-02-01T00%3A00%3A00Z");
+    expect((fetcher.mock.calls[1][1]?.headers as Headers).get("If-Match")).toBe('"3"');
   });
 
   it.each([null, { error: "wrong shape" }, ["unexpected"]])("normalizes malformed JSON errors: %j", async (body) => {

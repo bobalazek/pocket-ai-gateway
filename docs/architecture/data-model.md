@@ -47,7 +47,7 @@ Unless marked below, the following tables live in the system store. Minimal requ
 | backup_jobs | id, state, artifact metadata/checksum, key version, timestamps/error category | Owner-scoped local job status; no passphrase or remote secret |
 | event_outbox | monotonic event ID, request/attempt IDs, redacted bounded payload, delivery status | System store; transactional with required state, replayable |
 | request_details / attempt_events / tool_events | unique event ID, request/attempt/user snapshots, event/timing fields | Data store; idempotent projections, redacted rich observability |
-| pricing_jobs | range/model/filter, selected price versions, preview totals, cursor, status | System store; resumable audited repricing jobs |
+| pricing_jobs | range/model/filter, selected price versions, totals, status | System store; audited idempotent bounded repricing runs |
 | cost_assessments | attempt ID, price version, assessment kind, amount/delta, effective time, idempotency key | System store; original and restated cost history |
 
 Both stores have their own schema_migrations table. No authoritative counter exists only in data.db.
@@ -140,7 +140,7 @@ Default audit retention is 365 days with an explicit count/size cap; quota-reset
 
 Usage and price are independent facts. Persist normalized and raw usage with provider/model/time even when no price exists. An observational request can complete with N/A cost; a strict cap cannot admit it without a conservative provisional/known estimate.
 
-Price versions have effective intervals and provenance. Reject overlapping authoritative intervals unless the owner explicitly selects a correction version. Do not apply today's price retrospectively simply because it is available.
+Price versions have effective intervals and provenance. A new open-ended successor atomically closes an unused prior interval; retroactive changes that would invalidate a snapshotted attempt are rejected. Historical corrections use explicit preview and repricing. Do not apply today's price retrospectively simply because it is available.
 
 Repricing first previews affected attempts and cap/period impact. Apply a unique assessment per attempt + pricing version + calculation version, append a delta to the ledger, and update the original policy periods and lifetime totals transactionally in system.db. Repeated jobs resume by cursor and cannot double-count.
 

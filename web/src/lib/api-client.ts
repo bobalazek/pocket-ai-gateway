@@ -2,6 +2,8 @@ export type GatewayErrorBody = {
   error?: {
     code?: string;
     message?: string;
+		policy_id?: string;
+		metric?: string;
   };
 };
 
@@ -18,6 +20,14 @@ export type GatewayGrants = { unrestricted: boolean; scopes: string[]; model_pat
 export type ManagedUser = GatewayUser & { revision: number; created_at: string; updated_at: string; grants: GatewayGrants };
 export type GatewaySession = { id: string; current: boolean; created_at: string; last_seen_at: string; expires_at: string; authenticated_at: string; user_agent: string };
 export type GatewayKey = { id: string; label: string; state: "active" | "disabled" | "revoked"; scopes: string[]; model_patterns: string[]; connection_ids: string[]; expires_at: string | null; revision: number; created_at: string; updated_at: string };
+export type LimitPolicy = { id: string; scope_kind: "instance" | "user" | "key" | "connection"; scope_id: string; metric: "requests" | "tokens" | "spend" | "concurrency" | "body_bytes" | "output_tokens" | "batch_items"; algorithm: "token_bucket" | "fixed_window" | "quota" | "concurrency" | "ceiling"; period: "" | "hour" | "day" | "week" | "month" | "lifetime"; window_seconds: number; limit_units: number; limit_usd?: string; refill_units: number; refill_interval_ms: number; enabled: boolean; revision: number; created_at: string; updated_at: string };
+export type UsagePoint = { date: string; requests: number; input_tokens: number; output_tokens: number; known_cost_usd: string; unknown_attempts: number };
+export type UsageSummary = { from: string; to: string; requests: number; attempts: number; input_tokens: number; output_tokens: number; known_cost_usd: string; estimated_cost_usd: string; as_recorded_cost_usd: string; restatement_delta_usd: string; unknown_attempts: number; points: UsagePoint[] };
+export type UnresolvedAttempt = { id: string; request_id: string; owner_user_id: string; key_id: string; model_id: string; connection_id: string; state: string; usage_status: string; estimated_cost_usd?: string; started_at: string };
+export type PriceVersion = { id: string; connection_id: string; model_id: string; input_usd_per_million: string; output_usd_per_million: string; source: string; effective_from: string; effective_to: string | null; created_at: string };
+export type OutboxStatus = { pending_events: number; reserved_events: number; pending_bytes: number; oldest_event_at: string | null; full: boolean };
+export type EffectiveLimit = { policy_id: string; scope_kind: string; metric: string; algorithm: string; period: string; limit_units: number; limit_usd?: string; consumed_units: number; consumed_usd?: string; reserved_units: number; reserved_usd?: string; remaining_units: number; remaining_usd?: string; resets_at: string | null };
+export type UsageFilters = { from?: string; to?: string; user_id?: string; key_id?: string; model_id?: string; connection_id?: string };
 
 export function effectiveKeyState(key: GatewayKey, now = Date.now()) {
   return key.state !== "revoked" && key.expires_at && Date.parse(key.expires_at) <= now ? "expired" : key.state;
@@ -29,6 +39,9 @@ export class GatewayAPIError extends Error {
     readonly status: number,
     readonly code: string,
     readonly requestID: string | null,
+		readonly policyID: string | null = null,
+		readonly metric: string | null = null,
+		readonly retryAfter: number | null = null,
   ) {
     super(message);
     this.name = "GatewayAPIError";
@@ -93,6 +106,20 @@ export class GatewayAPIClient {
   rotateKey(id: string, revision: number) { return this.request<{ key: GatewayKey; secret: string }>(`/api/v1/keys/${encodeURIComponent(id)}/rotate`, { method: "POST", revision }); }
   revokeKey(id: string, revision: number) { return this.request<void>(`/api/v1/keys/${encodeURIComponent(id)}`, { method: "DELETE", revision }); }
 
+  usage(filters: UsageFilters = {}) { const query = new URLSearchParams(); for (const [key, value] of Object.entries(filters)) if (value) query.set(key, value); return this.request<{ usage: UsageSummary }>(`/api/v1/usage${query.size ? `?${query}` : ""}`); }
+  unresolvedUsage(filters: UsageFilters = {}, cursor = "") { const query = new URLSearchParams(); for (const [key, value] of Object.entries(filters)) if (value) query.set(key, value); if (cursor) query.set("cursor", cursor); return this.request<{ data: UnresolvedAttempt[]; next_cursor: string; has_more: boolean }>(`/api/v1/usage/unresolved${query.size ? `?${query}` : ""}`); }
+  policies(cursor = "") { return this.request<{ data: LimitPolicy[]; next_cursor: string; has_more: boolean }>(`/api/v1/admin/policies${cursor ? `?cursor=${encodeURIComponent(cursor)}` : ""}`); }
+	effectiveLimits(keyID: string, connectionID = "") { const query = connectionID ? `?connection_id=${encodeURIComponent(connectionID)}` : ""; return this.request<{ data: EffectiveLimit[] }>(`/api/v1/keys/${encodeURIComponent(keyID)}/effective-limits${query}`); }
+  createPolicy(input: Omit<LimitPolicy, "id" | "revision" | "created_at" | "updated_at" | "limit_usd"> & { limit_usd?: string }) { return this.request<{ policy: LimitPolicy }>("/api/v1/admin/policies", { method: "POST", body: input }); }
+  updatePolicy(policy: LimitPolicy, input: { limit_units: number; limit_usd: string; enabled: boolean }) { return this.request<{ policy: LimitPolicy }>(`/api/v1/admin/policies/${encodeURIComponent(policy.id)}`, { method: "PATCH", revision: policy.revision, body: input }); }
+  prices(cursor = "") { return this.request<{ data: PriceVersion[]; next_cursor: string; has_more: boolean }>(`/api/v1/admin/prices${cursor ? `?cursor=${encodeURIComponent(cursor)}` : ""}`); }
+  createPrice(input: { connection_id: string; model_id: string; input_usd_per_million: string; output_usd_per_million: string; source: string; effective_from: string; effective_to: string }) { return this.request<{ price: PriceVersion }>("/api/v1/admin/prices", { method: "POST", body: input }); }
+  usageOutbox() { return this.request<{ outbox: OutboxStatus }>("/api/v1/admin/usage/outbox"); }
+  previewReprice(input: { connection_id: string; model_id: string; from: string; to: string }) { return this.request<{ preview: { affected_attempts: number; missing_prices: number; delta_usd: string } }>("/api/v1/admin/usage/reprice-preview", { method: "POST", body: input }); }
+  applyReprice(input: { connection_id: string; model_id: string; from: string; to: string; idempotency_key: string }) { return this.request<{ result: { affected_attempts: number; missing_prices: number; delta_usd: string } }>("/api/v1/admin/usage/reprice", { method: "POST", body: input }); }
+  adjustUsage(input: { attempt_id: string; delta_usd: string; reason: string; idempotency_key: string }) { return this.request<{ restated_cost_usd: string }>("/api/v1/admin/usage/adjustments", { method: "POST", body: input }); }
+	reconcileUsage(input: { attempt_id: string; input_tokens: number; output_tokens: number; cost_usd?: string; usage_status: "provider_reported" | "estimated"; reason: string; idempotency_key: string }) { return this.request<{ reconciled: boolean }>("/api/v1/admin/usage/reconciliations", { method: "POST", body: input }); }
+
   async request<T>(path: string, options: RequestOptions = {}): Promise<T> {
     assertSameOriginGatewayPath(path);
     const method = options.method ?? "GET";
@@ -146,6 +173,9 @@ async function gatewayError(response: Response, path: string, redirectOnUnauthor
     response.status,
     body.error?.code ?? "request_failed",
     response.headers.get("X-Request-ID"),
+		body.error?.policy_id ?? null,
+		body.error?.metric ?? null,
+		response.headers.has("Retry-After") ? Number(response.headers.get("Retry-After")) : null,
   );
 	if (redirectOnUnauthorized && response.status === 401 && typeof window !== "undefined" && !["/api/v1/auth/login", "/api/v1/auth/activate", "/api/v1/auth/setup/claim"].includes(path)) {
 		window.location.replace("/_/login/?reason=session-expired");
@@ -158,7 +188,9 @@ function isGatewayErrorBody(value: unknown): value is GatewayErrorBody {
   const error = value.error;
   if (typeof error !== "object" || error === null) return false;
   return (!("code" in error) || typeof error.code === "string")
-    && (!("message" in error) || typeof error.message === "string");
+    && (!("message" in error) || typeof error.message === "string")
+		&& (!("policy_id" in error) || typeof error.policy_id === "string")
+		&& (!("metric" in error) || typeof error.metric === "string");
 }
 
 export const gatewayAPI = new GatewayAPIClient();

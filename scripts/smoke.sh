@@ -61,6 +61,7 @@ expect_status 200 "$base/_/activate/"
 expect_status 200 "$base/_/account/"
 expect_status 200 "$base/_/users/"
 expect_status 200 "$base/_/keys/"
+expect_status 200 "$base/_/usage/"
 expect_status 404 "$base/_/missing/"
 expect_status 404 "$base/api/openai/v1/missing"
 expect_status 404 "$base/api/anthropic/v1/missing"
@@ -83,6 +84,10 @@ curl --silent "$base/api/v1/auth/setup/status" | rg --quiet '"setup_required":fa
 curl --silent --cookie "$scratch/cookies" "$base/api/v1/auth/session" | rg --quiet '"email":"owner@example.test"'
 csrf=$(awk '$6 == "pocket_ai_gateway_csrf" { print $7 }' "$scratch/cookies")
 [[ -n "$csrf" ]]
+curl --silent --fail --cookie "$scratch/cookies" "$base/api/v1/usage" | rg --quiet '"known_cost_usd":"0"'
+curl --silent --fail --cookie "$scratch/cookies" --header "Content-Type: application/json" --header "Origin: $base" --header "X-CSRF-Token: $csrf" \
+  --data '{"scope_kind":"instance","scope_id":"","metric":"requests","algorithm":"quota","period":"day","window_seconds":0,"limit_units":100,"limit_usd":"","refill_units":0,"refill_interval_ms":0}' \
+  "$base/api/v1/admin/policies" | rg --quiet '"metric":"requests"'
 user_response=$(curl --silent --fail --cookie "$scratch/cookies" --header "Content-Type: application/json" --header "Origin: $base" --header "X-CSRF-Token: $csrf" \
   --data '{"display_name":"Smoke Member","email":"member@example.test","role":"member"}' "$base/api/v1/admin/users")
 activation_code=$(printf '%s' "$user_response" | rg -o '"activation_code":"[^"]+"' | cut -d'"' -f4)
