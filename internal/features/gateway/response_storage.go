@@ -65,13 +65,13 @@ func rewriteResponse(id, modelID string, background bool, createdAt time.Time, b
 	return json.Marshal(value)
 }
 
-func (handler *Handler) storeResponse(ctx context.Context, ownerID, keyID, modelID string, requestBody []byte, value preparedResponse, attachment *conversationAttachment) error {
+func (handler *Handler) storeResponse(ctx context.Context, requestID, ownerID, keyID, modelID string, requestBody []byte, value preparedResponse, attachment *conversationAttachment) error {
 	tx, err := handler.database.BeginTx(ctx, nil)
 	if err != nil {
 		return err
 	}
 	defer tx.Rollback()
-	if err := checkRetainedResponseCapacity(ctx, tx, ownerID, keyID, int64(len(requestBody)+len(value.body))); err != nil {
+	if err := checkRetainedResponseCapacity(ctx, tx, ownerID, keyID, 1, int64(len(requestBody)+len(value.body))); err != nil {
 		return err
 	}
 	if _, err := tx.ExecContext(ctx, `INSERT INTO stored_responses(id,owner_user_id,key_id,model_id,body_json,created_at,expires_at,request_json) VALUES(?,?,?,?,?,?,?,?)`, value.id, ownerID, keyID, modelID, value.body, value.createdAt.UnixMilli(), value.createdAt.Add(storedResponseLifetime).UnixMilli(), requestBody); err != nil {
@@ -82,6 +82,9 @@ func (handler *Handler) storeResponse(ctx context.Context, ownerID, keyID, model
 			return err
 		}
 	}
+	if err := handler.usage.FinalizeRequestTx(ctx, tx, requestID, "succeeded"); err != nil {
+		return err
+	}
 	return tx.Commit()
 }
 
@@ -89,16 +92,20 @@ type responseQueryer interface {
 	QueryRowContext(context.Context, string, ...any) *sql.Row
 }
 
-func checkRetainedResponseCapacity(ctx context.Context, query responseQueryer, ownerID, keyID string, incoming int64) error {
+func checkRetainedResponseCapacity(ctx context.Context, query responseQueryer, ownerID, keyID string, incomingCount, incomingBytes int64) error {
 	var count, size, ownerCount, ownerSize, keyCount, keySize int64
-	err := query.QueryRowContext(ctx, `SELECT COUNT(*),COALESCE(SUM(COALESCE(length(request_json),0)+length(body_json)+COALESCE(length(conversation_items_json),0)+CASE WHEN state IN ('queued','running') THEN ? ELSE 0 END),0),
-		COALESCE(SUM(CASE WHEN owner_user_id=? THEN 1 ELSE 0 END),0),COALESCE(SUM(CASE WHEN owner_user_id=? THEN COALESCE(length(request_json),0)+length(body_json)+COALESCE(length(conversation_items_json),0)+CASE WHEN state IN ('queued','running') THEN ? ELSE 0 END ELSE 0 END),0),
-		COALESCE(SUM(CASE WHEN key_id=? THEN 1 ELSE 0 END),0),COALESCE(SUM(CASE WHEN key_id=? THEN COALESCE(length(request_json),0)+length(body_json)+COALESCE(length(conversation_items_json),0)+CASE WHEN state IN ('queued','running') THEN ? ELSE 0 END ELSE 0 END),0)
-		FROM stored_responses WHERE expires_at>?`, maxInferenceBody, ownerID, ownerID, maxInferenceBody, keyID, keyID, maxInferenceBody, time.Now().UnixMilli()).Scan(&count, &size, &ownerCount, &ownerSize, &keyCount, &keySize)
+	err := query.QueryRowContext(ctx, `SELECT COUNT(*),COALESCE(SUM(size),0),
+		COALESCE(SUM(CASE WHEN owner_user_id=? THEN 1 ELSE 0 END),0),COALESCE(SUM(CASE WHEN owner_user_id=? THEN size ELSE 0 END),0),
+		COALESCE(SUM(CASE WHEN key_id=? THEN 1 ELSE 0 END),0),COALESCE(SUM(CASE WHEN key_id=? THEN size ELSE 0 END),0)
+		FROM (
+			SELECT owner_user_id,key_id,COALESCE(length(request_json),0)+length(body_json)+COALESCE(length(conversation_items_json),0)+CASE WHEN state IN ('queued','running') THEN ? ELSE 0 END AS size FROM stored_responses WHERE expires_at>?
+			UNION ALL
+			SELECT owner_user_id,key_id,length(request_json)+length(body_json)+length(metadata_json) AS size FROM stored_chat_completions WHERE expires_at>?
+		)`, ownerID, ownerID, keyID, keyID, maxInferenceBody, time.Now().UnixMilli(), time.Now().UnixMilli()).Scan(&count, &size, &ownerCount, &ownerSize, &keyCount, &keySize)
 	if err != nil {
 		return err
 	}
-	if count >= retainedResponseJobs || size+incoming > retainedResponseBytes || ownerCount >= retainedOwnerJobs || ownerSize+incoming > retainedOwnerBytes || keyCount >= retainedKeyJobs || keySize+incoming > retainedKeyBytes {
+	if count+incomingCount > retainedResponseJobs || size+incomingBytes > retainedResponseBytes || ownerCount+incomingCount > retainedOwnerJobs || ownerSize+incomingBytes > retainedOwnerBytes || keyCount+incomingCount > retainedKeyJobs || keySize+incomingBytes > retainedKeyBytes {
 		return errStoredResponseLimit
 	}
 	return nil

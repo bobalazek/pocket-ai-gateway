@@ -39,7 +39,9 @@ Unless marked below, the following tables live in the system store. Minimal requ
 | concurrency_leases | request_id/attempt_id, scope, process_epoch | Request leases for user/key/instance; attempt leases for connection |
 | requests | id, owner_user_id, key_id, operation/dialect, public_model_id + name snapshot, config revision, timing/outcome | One logical inbound operation; terminal summary can survive target archive |
 | attempts | id, request_id, ordinal, target/connection/model snapshots, price_version, state, timings, usage provenance | One upstream dispatch intent; unique request + ordinal |
-| stored_responses | gateway response ID, creating key/user, model, request/result JSON, queue state, lease epoch, timestamps | Creating key; 30-day retention; queued → running → completed/failed/cancelled, with interrupted work terminal and never replayed |
+| stored_responses | gateway response ID, creating key/user, model, request/result JSON, queue state, lease epoch, associated usage request ID, timestamps | Creating key; 30-day retention; queued → running → completed/failed/cancelled, with interrupted work terminal and never replayed |
+| stored_chat_completions | gateway completion ID, creating key/user, public model, request/result/metadata JSON, timestamps | Creating key; 30-day retention; shares global, owner, and key count/byte ceilings with stored Responses |
+| stored_chat_completion_metadata | completion ID, metadata key/value | Normalized predicate index for bounded stored Chat Completion list filters; cascades with its parent resource |
 | conversations | gateway conversation ID, creating key/user, metadata, created/deleted timestamps | Creating key; active until explicit deletion; deleted rows and items are retained for 30 days |
 | conversation_items | conversation ID, gateway item ID, ordinal, item JSON, created timestamp | Parent conversation and creating key; 20 items per append, with global, owner, key, and per-conversation storage bounds |
 | usage_ledger | id, attempt_id, entry type, measured units/cost, adjustment link, idempotency key | Append-only settlements/adjustments; unique reconciliation event |

@@ -19,7 +19,8 @@ Base URL: `/api/openai/v1`.
 | Resource or operation | Status | Boundary |
 | --- | --- | --- |
 | `GET /models`, `GET /models/{id}` | Implemented, gateway-owned | Returns only public models visible to the key owner |
-| `POST /chat/completions` | Implemented | JSON and SSE; shared text, image, structured-output, tool, refusal, stop, and usage semantics translate across capable families |
+| `POST /chat/completions` | Constrained | JSON and SSE generation across capable families; `store:true` uses gateway-owned 30-day persistence, disables upstream storage, rejects streaming before dispatch, and accepts string or text/image_url-array message content |
+| Stored Chat Completion list/retrieve/update/delete/messages | Constrained, gateway-owned | Creating-key ownership, SQL keyset metadata/model filters, bounded cursor bytes, metadata-only updates, original-message pagination, shared retained-result ceilings, and automatic/manual expiry cleanup |
 | `POST /responses` | Constrained | Non-streaming responses are gateway-stored for the creating API key by default for 30 days; `background:true` runs through the durable local queue; `store:false` supports JSON and lifecycle SSE; synchronous JSON, background jobs, and bounded buffered streams can atomically attach gateway Conversations; hosted tools are rejected |
 | `POST /responses/compact` | Native OpenAI preset only | Inline model/input requests are forwarded; response/conversation/item/file/container references and cross-provider approximations are rejected |
 | `POST /responses/input_tokens` | Native target only | Counts direct model/input requests; provider-owned response, conversation, item, file, and container references are rejected |

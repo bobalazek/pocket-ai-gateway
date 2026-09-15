@@ -208,7 +208,7 @@ func serve(ctx context.Context, version string, cfg Config, logOutput io.Writer)
 	logger := slog.New(slog.NewTextHandler(logOutput, &slog.HandlerOptions{Level: slog.LevelInfo}))
 	workerContext, stopWorker := context.WithCancel(ctx)
 	workerDone := make(chan struct{})
-	go projectUsage(workerContext, stores, logger, workerDone)
+	go projectUsage(workerContext, stores, usageService, logger, workerDone)
 	catalogDone := make(chan struct{})
 	go func() { defer close(catalogDone); providerService.RunCatalogRefresh(workerContext) }()
 	operationsDone := make(chan struct{})
@@ -262,10 +262,12 @@ func runOperations(ctx context.Context, service *operations.Service, logger *slo
 	}
 }
 
-func projectUsage(ctx context.Context, stores *storage.Store, logger *slog.Logger, done chan<- struct{}) {
+func projectUsage(ctx context.Context, stores *storage.Store, service *usage.Service, logger *slog.Logger, done chan<- struct{}) {
 	defer close(done)
 	ticker := time.NewTicker(time.Second)
 	defer ticker.Stop()
+	repairTicker := time.NewTicker(time.Minute)
+	defer repairTicker.Stop()
 	for {
 		if _, err := usage.ProjectOutbox(ctx, stores, 100); err != nil && !errors.Is(err, context.Canceled) {
 			logger.Error("usage projection delayed", "error", err)
@@ -274,6 +276,12 @@ func projectUsage(ctx context.Context, stores *storage.Store, logger *slog.Logge
 		case <-ctx.Done():
 			return
 		case <-ticker.C:
+		case <-repairTicker.C:
+			if repaired, err := service.RepairStaleRequests(ctx); err != nil && !errors.Is(err, context.Canceled) {
+				logger.Error("usage request repair delayed", "error", err)
+			} else if repaired > 0 {
+				logger.Info("repaired stale usage requests", "count", repaired)
+			}
 		}
 	}
 }

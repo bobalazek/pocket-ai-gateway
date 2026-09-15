@@ -41,9 +41,12 @@ func New(database *sql.DB, keyService *keys.Service, providerService *providers.
 func (handler *Handler) Register(mux *http.ServeMux) {
 	mux.HandleFunc("GET /api/openai/v1/models", handler.openAIModels)
 	mux.HandleFunc("GET /api/openai/v1/models/{model}", handler.openAIModel)
-	mux.HandleFunc("POST /api/openai/v1/chat/completions", func(w http.ResponseWriter, r *http.Request) {
-		handler.forward(w, r, "openai", "chat:generate", "chat/completions", "", nil)
-	})
+	mux.HandleFunc("POST /api/openai/v1/chat/completions", handler.chatCompletions)
+	mux.HandleFunc("GET /api/openai/v1/chat/completions", handler.listChatCompletions)
+	mux.HandleFunc("GET /api/openai/v1/chat/completions/{completion_id}", handler.getChatCompletion)
+	mux.HandleFunc("POST /api/openai/v1/chat/completions/{completion_id}", handler.updateChatCompletion)
+	mux.HandleFunc("DELETE /api/openai/v1/chat/completions/{completion_id}", handler.deleteChatCompletion)
+	mux.HandleFunc("GET /api/openai/v1/chat/completions/{completion_id}/messages", handler.listChatCompletionMessages)
 	mux.HandleFunc("POST /api/openai/v1/responses", handler.responses)
 	mux.HandleFunc("POST /api/openai/v1/responses/compact", handler.compactResponse)
 	mux.HandleFunc("POST /api/openai/v1/responses/input_tokens", handler.responseInputTokens)
