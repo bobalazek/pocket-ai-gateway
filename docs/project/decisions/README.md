@@ -24,6 +24,7 @@ Each record states status/source, context, decision, and consequences. A recomme
 | ADR-016 | [Gateway-owned Conversations and attached streams](2026-09-15-conversation-resources.md) | Technical choice extending ADR-015 |
 | ADR-017 | [Browser-first owner setup](2026-09-15-browser-first-owner-setup.md) | Accepted user decision superseding ADR-010 onboarding protection |
 | ADR-018 | [Gateway-owned stored Chat Completions](2026-09-15-stored-chat-completions.md) | Technical choice extending Phase 8 compatibility |
+| ADR-019 | [Bounded native OpenAI Responses web search](2026-09-15-native-openai-web-search.md) | Accepted bounded Phase 8 contract |
 
 Historical: [initial proposal](2026-09-14-initial-proposal.md), superseded by the records above where they differ. Its A/P/D/M identifiers are historical references only; current documents use ADR IDs.
 

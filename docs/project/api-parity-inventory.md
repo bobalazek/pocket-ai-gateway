@@ -21,7 +21,8 @@ Base URL: `/api/openai/v1`.
 | `GET /models`, `GET /models/{id}` | Implemented, gateway-owned | Returns only public models visible to the key owner |
 | `POST /chat/completions` | Constrained | JSON and SSE generation across capable families; `store:true` uses gateway-owned 30-day persistence, disables upstream storage, rejects streaming before dispatch, and accepts string or text/image_url-array message content |
 | Stored Chat Completion list/retrieve/update/delete/messages | Constrained, gateway-owned | Creating-key ownership, SQL keyset metadata/model filters, bounded cursor bytes, metadata-only updates, original-message pagination, shared retained-result ceilings, and automatic/manual expiry cleanup |
-| `POST /responses` | Constrained | Non-streaming responses are gateway-stored for the creating API key by default for 30 days; `background:true` runs through the durable local queue; `store:false` supports JSON and lifecycle SSE; synchronous JSON, background jobs, and bounded buffered streams can atomically attach gateway Conversations; hosted tools are rejected |
+| `POST /responses` | Constrained | Non-streaming responses are gateway-stored for the creating API key by default for 30 days; `background:true` runs through the durable local queue; `store:false` supports JSON and lifecycle SSE; synchronous JSON, background jobs, and bounded buffered streams can atomically attach gateway Conversations |
+| Responses `web_search` tool | Constrained, native OpenAI preset only | One `web_search` plus function tools; public/upstream `chat` and `web_search`; `responses:web_search`; explicit 1–4 `max_tool_calls` and positive `max_output_tokens`; buffered JSON for stateless, stored, or background Responses; optional context size, live/cache access, approximate location, allowed/blocked domains, bounded `return_token_budget: "default"`, and `web_search_call.action.sources`; no Conversations/provider references, preview/image search, unlimited search-token return, translation, post-dispatch fallback, free-only/lowest-cost/spend policies, or known search cost |
 | `POST /responses/compact` | Native OpenAI preset only | Inline model/input requests are forwarded; response/conversation/item/file/container references and cross-provider approximations are rejected |
 | `POST /responses/input_tokens` | Native target only | Counts direct model/input requests; provider-owned response, conversation, item, file, and container references are rejected |
 | `POST /embeddings` | Native target only | Preserves order, dimensions, encoding, and usage; no cross-model fallback |
@@ -55,7 +56,7 @@ Base URL: `/api/anthropic/v1`.
 | Message Batches | Pending | Requires durable jobs, result ownership, cancellation, retention, and charging |
 | Files | Pending | Requires encrypted object storage and provider-resource affinity |
 | Prompt caching controls | Implemented for native Anthropic Messages | Fixed Anthropic preset plus public/upstream `prompt_cache`; bounded ephemeral controls; JSON/SSE cache-token accounting; no translated or post-dispatch fallback; cache content is never persisted; cost remains unknown until cache rates are versioned |
-| Hosted web search, code execution, computer use, and connectors | Pending | Provider-hosted tools require explicit capability and billing contracts |
+| Anthropic hosted web search, code execution, computer use, and connectors | Pending | Anthropic provider-hosted tools require their own capability and billing contracts; OpenAI Responses web search does not imply Anthropic support |
 | Extended thinking and opaque signatures | Pending across translated paths | Requests are rejected when signatures or reasoning semantics cannot be preserved |
 
 ## Gemini client namespace

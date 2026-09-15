@@ -3,6 +3,7 @@ package operations
 import (
 	"context"
 	"crypto/rand"
+	"database/sql"
 	"encoding/base64"
 	"errors"
 	"io"
@@ -101,16 +102,17 @@ func TestConfigPreviewRejectsUnsafeProviderAndRetentionPreservesEnforcement(t *t
 	}
 	defer store.Close()
 	now := time.Now().UnixMilli()
+	oldRequest := time.Now().AddDate(0, 0, -45).UnixMilli()
 	if _, err := store.SystemDB().ExecContext(ctx, `INSERT INTO users(id,email,display_name,password_hash,role,status,inference_unrestricted,created_at,updated_at) VALUES('usr_owner','owner@example.test','Owner','hash','owner','active',1,?,?)`, now, now); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := store.SystemDB().ExecContext(ctx, `INSERT INTO api_keys(id,owner_user_id,label,state,scopes_json,created_at,updated_at) VALUES('key_old','usr_owner','Old','active','[]',0,0)`); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := store.SystemDB().ExecContext(ctx, `INSERT INTO requests(id,owner_user_id,key_id,operation,dialect,model_id,state,started_at,finished_at) VALUES('req_old','usr_owner','key_old','chat/completions','openai','public-model','succeeded',0,1)`); err != nil {
+	if _, err := store.SystemDB().ExecContext(ctx, `INSERT INTO requests(id,owner_user_id,key_id,operation,dialect,model_id,state,started_at,finished_at) VALUES('req_old','usr_owner','key_old','chat/completions','openai','public-model','succeeded',?,?)`, oldRequest, oldRequest+1); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := store.SystemDB().ExecContext(ctx, `INSERT INTO attempts(id,request_id,ordinal,connection_id,model_id,state,usage_status,started_at,finished_at,upstream_model_id,target_dialect,target_operation,selection_reason,rejected_candidates_json) VALUES('att_old','req_old',1,'con_old','provider-model','succeeded','provider_reported',0,1,'secret-upstream','anthropic','messages','lowest_latency','[{"id":"candidate"}]')`); err != nil {
+	if _, err := store.SystemDB().ExecContext(ctx, `INSERT INTO attempts(id,request_id,ordinal,connection_id,model_id,state,usage_status,started_at,finished_at,upstream_model_id,target_dialect,target_operation,web_search_max_calls,web_search_call_count,selection_reason,rejected_candidates_json) VALUES('att_old','req_old',1,'con_old','provider-model','succeeded','provider_reported',?,?,'secret-upstream','anthropic','messages',2,1,'lowest_latency','[{"id":"candidate"}]')`, oldRequest, oldRequest+1); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := store.SystemDB().ExecContext(ctx, `INSERT INTO limit_policies(id,scope_kind,scope_id,metric,algorithm,period,window_seconds,limit_units,refill_units,refill_interval_ms,enabled,created_at,updated_at) VALUES('pol_quota','instance','','requests','quota','day',0,100,0,0,1,?,?)`, now, now); err != nil {
@@ -137,6 +139,9 @@ func TestConfigPreviewRejectsUnsafeProviderAndRetentionPreservesEnforcement(t *t
 	if _, err := store.DataDB().ExecContext(ctx, `INSERT INTO usage_events(event_id,event_type,payload_json,created_at) VALUES('evt_old','test','{"secret":true}',0)`); err != nil {
 		t.Fatal(err)
 	}
+	if _, err := store.DataDB().ExecContext(ctx, `INSERT INTO usage_daily(date,owner_user_id,key_id,model_id,connection_id,web_search_calls) VALUES('2026-01-01','usr_owner','key_old','public-model','con_old',1)`); err != nil {
+		t.Fatal(err)
+	}
 	service := New(store, providers.New(store.SystemDB(), make([]byte, 32)), "test", func(string) string { return "" })
 	if _, err := store.SystemDB().ExecContext(ctx, `UPDATE operation_settings SET request_retention_days=30 WHERE singleton=1`); err != nil {
 		t.Fatal(err)
@@ -154,8 +159,17 @@ func TestConfigPreviewRejectsUnsafeProviderAndRetentionPreservesEnforcement(t *t
 	}
 	var retained int64
 	var operation, upstream string
-	if err := store.SystemDB().QueryRowContext(ctx, `SELECT requests.retained_at,requests.operation,attempts.upstream_model_id FROM requests JOIN attempts ON attempts.request_id=requests.id WHERE requests.id='req_old'`).Scan(&retained, &operation, &upstream); err != nil || retained == 0 || operation != "" || upstream != "" {
-		t.Fatalf("retained request = %d/%q/%q, error = %v", retained, operation, upstream, err)
+	var webSearchMax, webSearchCount sql.NullInt64
+	if err := store.SystemDB().QueryRowContext(ctx, `SELECT requests.retained_at,requests.operation,attempts.upstream_model_id,attempts.web_search_max_calls,attempts.web_search_call_count FROM requests JOIN attempts ON attempts.request_id=requests.id WHERE requests.id='req_old'`).Scan(&retained, &operation, &upstream, &webSearchMax, &webSearchCount); err != nil || retained == 0 || operation != "" || upstream != "" || !webSearchMax.Valid || webSearchMax.Int64 != 2 || !webSearchCount.Valid || webSearchCount.Int64 != 1 {
+		t.Fatalf("retained request = %d/%q/%q web search=%v/%v, error = %v", retained, operation, upstream, webSearchMax, webSearchCount, err)
+	}
+	summary, err := usage.New(store.SystemDB()).Summary(ctx, auth.User{ID: "usr_owner", Role: "owner"}, usage.UsageQuery{From: time.UnixMilli(oldRequest - 1).UTC().Format(time.RFC3339), To: time.Now().Add(time.Hour).UTC().Format(time.RFC3339)})
+	if err != nil || summary.WebSearchCalls != 1 {
+		t.Fatalf("retained web search summary = %#v, error = %v", summary, err)
+	}
+	var retainedWebSearchCalls int64
+	if err := store.DataDB().QueryRowContext(ctx, `SELECT web_search_calls FROM usage_daily WHERE owner_user_id='usr_owner'`).Scan(&retainedWebSearchCalls); err != nil || retainedWebSearchCalls != 1 {
+		t.Fatalf("retained web search calls = %d, error = %v", retainedWebSearchCalls, err)
 	}
 	var storedResponses int
 	if err := store.SystemDB().QueryRowContext(ctx, `SELECT COUNT(*) FROM stored_responses`).Scan(&storedResponses); err != nil || storedResponses != 0 {

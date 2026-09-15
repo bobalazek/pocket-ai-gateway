@@ -18,11 +18,6 @@ import (
 
 const codeLifetime = 24 * time.Hour
 
-var allowedScopes = map[string]bool{
-	"chat:generate": true, "responses:generate": true, "embeddings:generate": true,
-	"models:read": true, "tokens:count": true, "moderations:classify": true, "images:generate": true, "images:edit": true, "images:variation": true, "audio:speech": true, "audio:transcribe": true, "audio:translate": true,
-}
-
 var (
 	ErrDenied   = errors.New("operation denied")
 	ErrNotFound = errors.New("user not found")
@@ -532,7 +527,7 @@ func insertCode(ctx context.Context, tx *sql.Tx, userID, purpose, code string, n
 
 func validateGrants(grants Grants) error {
 	for _, scope := range grants.Scopes {
-		if !allowedScopes[scope] {
+		if !auth.ValidInferenceScope(scope) {
 			return &auth.InputError{Message: "Unsupported inference scope: " + scope}
 		}
 	}

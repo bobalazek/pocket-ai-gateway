@@ -1,6 +1,6 @@
 import type { ProviderConnection, ProviderPreset } from "@/features/providers/types/providers.types";
 
-export const providerCapabilities = ["chat", "embeddings", "moderations", "count_tokens", "images", "image_edit", "image_variation", "audio_speech", "audio_transcription", "audio_translation", "prompt_cache"] as const;
+export const providerCapabilities = ["chat", "embeddings", "moderations", "count_tokens", "images", "image_edit", "image_variation", "audio_speech", "audio_transcription", "audio_translation", "prompt_cache", "web_search"] as const;
 type Capability = (typeof providerCapabilities)[number];
 
 const adapterCapabilities: Record<ProviderConnection["adapter"], Capability[]> = {
@@ -22,11 +22,16 @@ const capabilityOperations: Record<Capability, string[]> = {
   audio_transcription: ["audio/transcriptions"],
   audio_translation: ["audio/translations"],
   prompt_cache: ["messages"],
+  web_search: ["responses"],
 };
 
 export function availableCapabilities(connection: ProviderConnection, presets: ProviderPreset[]) {
   const supported = adapterCapabilities[connection.adapter];
-  if (connection.preset === "custom") return supported.filter((capability) => capability !== "prompt_cache");
+  if (connection.preset === "custom") return supported.filter((capability) => capability !== "prompt_cache" && capability !== "web_search");
   const operations = presets.find((preset) => preset.id === connection.preset)?.operations ?? [];
-  return supported.filter((capability) => capability === "prompt_cache" ? connection.preset === "anthropic" : capabilityOperations[capability].some((operation) => operations.includes(operation)));
+  return supported.filter((capability) => {
+    if (capability === "prompt_cache") return connection.preset === "anthropic";
+    if (capability === "web_search") return connection.preset === "openai" && operations.includes("responses");
+    return capabilityOperations[capability].some((operation) => operations.includes(operation));
+  });
 }

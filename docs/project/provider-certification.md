@@ -36,7 +36,7 @@ Ordinary verification covers:
 
 - immutable preset-to-adapter and preset-to-base-URL mappings;
 - bearer, `x-api-key`, and `x-goog-api-key` credential replacement;
-- OpenAI Chat, stateless Responses, input-token counting, embeddings, moderations, non-streaming image generation, buffered speech, and streaming against local upstreams;
+- OpenAI Chat, stateless/stored/background Responses including bounded native web search, input-token counting, embeddings, moderations, non-streaming image generation, buffered speech, and streaming against local upstreams;
 - native Anthropic Messages/token counting and Gemini generation/counting/embeddings;
 - cross-protocol request, response, tool, refusal, usage, and stream mappings;
 - key grants, limits, request accounting, fallback attempts, cancellation, response bounds, and safe provider errors.

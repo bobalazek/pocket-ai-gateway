@@ -113,6 +113,12 @@ func PresetSupportsCapabilities(presetID string, capabilities []string) bool {
 			}
 			return false
 		}
+		if capability == "web_search" {
+			if presetID == "openai" {
+				continue
+			}
+			return false
+		}
 		supported := false
 		for _, operation := range []string{"chat/completions", "messages", "generateContent", "responses", "responses/compact", "responses/input_tokens", "embeddings", "embedContent", "batchEmbedContents", "moderations", "images/generations", "images/edits", "images/variations", "audio/speech", "audio/transcriptions", "audio/translations", "messages/count_tokens", "countTokens"} {
 			if operationCapability(operation) == capability && PresetSupports(presetID, operation) {

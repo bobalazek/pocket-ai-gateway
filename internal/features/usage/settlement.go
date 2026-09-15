@@ -22,6 +22,7 @@ type SettlementInput struct {
 	CacheCreation5mTokens    *int64
 	CacheCreation1hTokens    *int64
 	CostNanos                *int64
+	WebSearchCallCount       *int64
 	ResponseToolCallCount    int64
 	ToolCallStatus           string
 	FinalRequest             bool
@@ -99,7 +100,7 @@ func (service *Service) Settle(ctx context.Context, attemptID string, input Sett
 	if input.ResponseToolCallCount < 0 || !contains([]string{"none", "completed", "incomplete"}, input.ToolCallStatus) || input.ResponseToolCallCount == 0 && input.ToolCallStatus != "none" || input.ResponseToolCallCount > 0 && input.ToolCallStatus == "none" {
 		return errors.New("invalid tool call settlement")
 	}
-	if input.InputTokens != nil && (*input.InputTokens < 0 || *input.InputTokens > maxSafeInteger) || input.OutputTokens != nil && (*input.OutputTokens < 0 || *input.OutputTokens > maxSafeInteger) || input.CacheCreationInputTokens != nil && (*input.CacheCreationInputTokens < 0 || *input.CacheCreationInputTokens > maxSafeInteger) || input.CacheReadInputTokens != nil && (*input.CacheReadInputTokens < 0 || *input.CacheReadInputTokens > maxSafeInteger) || input.CacheCreation5mTokens != nil && (*input.CacheCreation5mTokens < 0 || *input.CacheCreation5mTokens > maxSafeInteger) || input.CacheCreation1hTokens != nil && (*input.CacheCreation1hTokens < 0 || *input.CacheCreation1hTokens > maxSafeInteger) || input.CostNanos != nil && *input.CostNanos < 0 {
+	if input.InputTokens != nil && (*input.InputTokens < 0 || *input.InputTokens > maxSafeInteger) || input.OutputTokens != nil && (*input.OutputTokens < 0 || *input.OutputTokens > maxSafeInteger) || input.CacheCreationInputTokens != nil && (*input.CacheCreationInputTokens < 0 || *input.CacheCreationInputTokens > maxSafeInteger) || input.CacheReadInputTokens != nil && (*input.CacheReadInputTokens < 0 || *input.CacheReadInputTokens > maxSafeInteger) || input.CacheCreation5mTokens != nil && (*input.CacheCreation5mTokens < 0 || *input.CacheCreation5mTokens > maxSafeInteger) || input.CacheCreation1hTokens != nil && (*input.CacheCreation1hTokens < 0 || *input.CacheCreation1hTokens > maxSafeInteger) || input.CostNanos != nil && *input.CostNanos < 0 || input.WebSearchCallCount != nil && (*input.WebSearchCallCount < 0 || *input.WebSearchCallCount > 4) {
 		return errors.New("settlement values cannot be negative")
 	}
 	hasCacheUsage := input.CacheCreationInputTokens != nil || input.CacheReadInputTokens != nil || input.CacheCreation5mTokens != nil || input.CacheCreation1hTokens != nil
@@ -126,11 +127,23 @@ func (service *Service) Settle(ctx context.Context, attemptID string, input Sett
 		return err
 	}
 	defer tx.Rollback()
+	var webSearchMax sql.NullInt64
+	if err := tx.QueryRowContext(ctx, "SELECT web_search_max_calls FROM attempts WHERE id = ?", attemptID).Scan(&webSearchMax); err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return ErrNotFound
+		}
+		return err
+	}
+	hasWebSearch := webSearchMax.Valid
+	knownWebSearch := input.State == "succeeded" && input.UsageStatus != "unknown"
+	if !hasWebSearch && input.WebSearchCallCount != nil || hasWebSearch && !knownWebSearch && input.WebSearchCallCount != nil || hasWebSearch && knownWebSearch && (input.WebSearchCallCount == nil || *input.WebSearchCallCount > webSearchMax.Int64) {
+		return errors.New("invalid web search settlement")
+	}
 	var settledAttemptID, entryType, signature string
 	var settledTokens, settledCost sql.NullInt64
 	err = tx.QueryRowContext(ctx, "SELECT attempt_id, entry_type, token_units, cost_nanos, reason FROM usage_ledger WHERE idempotency_key = ?", input.IdempotencyKey).Scan(&settledAttemptID, &entryType, &settledTokens, &settledCost, &signature)
 	if err == nil {
-		if input.CostNanos == nil && !hasCacheUsage {
+		if input.CostNanos == nil && !hasCacheUsage && !hasWebSearch {
 			input.CostNanos, _ = calculatedAttemptCost(ctx, tx, attemptID, input.InputTokens, input.OutputTokens)
 		}
 		tokens, sumErr := nullableInt64Sum(input.InputTokens, input.OutputTokens)
@@ -158,7 +171,7 @@ func (service *Service) Settle(ctx context.Context, attemptID string, input Sett
 	if !contains([]string{"reserved", "dispatching", "streaming"}, state) {
 		return ErrConflict
 	}
-	if input.CostNanos == nil && priceVersionID.Valid && !hasCacheUsage {
+	if input.CostNanos == nil && priceVersionID.Valid && !hasCacheUsage && !hasWebSearch {
 		input.CostNanos, err = calculatedPriceCost(ctx, tx, priceVersionID.String, input.InputTokens, input.OutputTokens)
 		if err != nil {
 			return err
@@ -231,8 +244,8 @@ func (service *Service) Settle(ctx context.Context, attemptID string, input Sett
 			return err
 		}
 	}
-	_, err = tx.ExecContext(ctx, `UPDATE attempts SET state = ?, usage_status = ?, input_tokens = ?, output_tokens = ?, cache_creation_input_tokens = ?, cache_read_input_tokens = ?, cache_creation_5m_input_tokens = ?, cache_creation_1h_input_tokens = ?, as_recorded_cost_nanos = ?, restated_cost_nanos = ?, response_tool_call_count = ?, tool_call_status = ?, finished_at = ? WHERE id = ?`,
-		input.State, input.UsageStatus, input.InputTokens, input.OutputTokens, input.CacheCreationInputTokens, input.CacheReadInputTokens, input.CacheCreation5mTokens, input.CacheCreation1hTokens, input.CostNanos, input.CostNanos, input.ResponseToolCallCount, input.ToolCallStatus, now, attemptID)
+	_, err = tx.ExecContext(ctx, `UPDATE attempts SET state = ?, usage_status = ?, input_tokens = ?, output_tokens = ?, cache_creation_input_tokens = ?, cache_read_input_tokens = ?, cache_creation_5m_input_tokens = ?, cache_creation_1h_input_tokens = ?, as_recorded_cost_nanos = ?, restated_cost_nanos = ?, web_search_call_count = ?, response_tool_call_count = ?, tool_call_status = ?, finished_at = ? WHERE id = ?`,
+		input.State, input.UsageStatus, input.InputTokens, input.OutputTokens, input.CacheCreationInputTokens, input.CacheReadInputTokens, input.CacheCreation5mTokens, input.CacheCreation1hTokens, input.CostNanos, input.CostNanos, input.WebSearchCallCount, input.ResponseToolCallCount, input.ToolCallStatus, now, attemptID)
 	if err != nil {
 		return err
 	}
@@ -259,7 +272,7 @@ func (service *Service) Settle(ctx context.Context, attemptID string, input Sett
 	} else if _, err := tx.ExecContext(ctx, "UPDATE requests SET state = 'in_progress' WHERE id = ?", requestID); err != nil {
 		return err
 	}
-	if err := appendOutbox(ctx, tx, "attempt.settled", requestID, attemptID, map[string]any{"owner_user_id": ownerID, "key_id": keyID, "model_id": modelID, "connection_id": connectionID, "started_at": startedAt, "state": input.State, "usage_status": input.UsageStatus, "input_tokens": input.InputTokens, "output_tokens": input.OutputTokens, "cache_creation_input_tokens": input.CacheCreationInputTokens, "cache_read_input_tokens": input.CacheReadInputTokens, "cache_creation_5m_input_tokens": input.CacheCreation5mTokens, "cache_creation_1h_input_tokens": input.CacheCreation1hTokens, "cost_nanos": input.CostNanos}, now); err != nil {
+	if err := appendOutbox(ctx, tx, "attempt.settled", requestID, attemptID, map[string]any{"owner_user_id": ownerID, "key_id": keyID, "model_id": modelID, "connection_id": connectionID, "started_at": startedAt, "state": input.State, "usage_status": input.UsageStatus, "input_tokens": input.InputTokens, "output_tokens": input.OutputTokens, "cache_creation_input_tokens": input.CacheCreationInputTokens, "cache_read_input_tokens": input.CacheReadInputTokens, "cache_creation_5m_input_tokens": input.CacheCreation5mTokens, "cache_creation_1h_input_tokens": input.CacheCreation1hTokens, "web_search_call_count": input.WebSearchCallCount, "cost_nanos": input.CostNanos}, now); err != nil {
 		return err
 	}
 	return tx.Commit()
@@ -286,7 +299,7 @@ func calculatedPriceCost(ctx context.Context, tx *sql.Tx, priceID string, inputT
 }
 
 func settlementSignature(input SettlementInput) string {
-	return fmt.Sprintf("state=%s;usage=%s;final=%t;input=%s;output=%s;cache_creation=%s;cache_read=%s;cache_5m=%s;cache_1h=%s;cost=%s;tools=%d;tool_status=%s", input.State, input.UsageStatus, input.FinalRequest, nullableValue(input.InputTokens), nullableValue(input.OutputTokens), nullableValue(input.CacheCreationInputTokens), nullableValue(input.CacheReadInputTokens), nullableValue(input.CacheCreation5mTokens), nullableValue(input.CacheCreation1hTokens), nullableValue(input.CostNanos), input.ResponseToolCallCount, input.ToolCallStatus)
+	return fmt.Sprintf("state=%s;usage=%s;final=%t;input=%s;output=%s;cache_creation=%s;cache_read=%s;cache_5m=%s;cache_1h=%s;web_search=%s;cost=%s;tools=%d;tool_status=%s", input.State, input.UsageStatus, input.FinalRequest, nullableValue(input.InputTokens), nullableValue(input.OutputTokens), nullableValue(input.CacheCreationInputTokens), nullableValue(input.CacheReadInputTokens), nullableValue(input.CacheCreation5mTokens), nullableValue(input.CacheCreation1hTokens), nullableValue(input.WebSearchCallCount), nullableValue(input.CostNanos), input.ResponseToolCallCount, input.ToolCallStatus)
 }
 
 func nullableValue(value *int64) string {
@@ -435,10 +448,10 @@ func (service *Service) ReconcileUnknown(ctx context.Context, actor auth.User, a
 	}
 	var requestID, ownerID, keyID, modelID, connectionID, state, usageStatus string
 	var priceID sql.NullString
-	var previousInput, previousOutput, previousCost, cacheCreation, cacheRead sql.NullInt64
+	var previousInput, previousOutput, previousCost, cacheCreation, cacheRead, webSearchMax sql.NullInt64
 	var startedAt int64
-	if err := tx.QueryRowContext(ctx, `SELECT attempts.request_id, requests.owner_user_id, requests.key_id, attempts.model_id, attempts.connection_id, attempts.state, attempts.usage_status, attempts.price_version_id, attempts.started_at, attempts.input_tokens, attempts.output_tokens, COALESCE(attempts.restated_cost_nanos, attempts.as_recorded_cost_nanos), attempts.cache_creation_input_tokens, attempts.cache_read_input_tokens
-		FROM attempts JOIN requests ON requests.id = attempts.request_id WHERE attempts.id = ?`, attemptID).Scan(&requestID, &ownerID, &keyID, &modelID, &connectionID, &state, &usageStatus, &priceID, &startedAt, &previousInput, &previousOutput, &previousCost, &cacheCreation, &cacheRead); err != nil {
+	if err := tx.QueryRowContext(ctx, `SELECT attempts.request_id, requests.owner_user_id, requests.key_id, attempts.model_id, attempts.connection_id, attempts.state, attempts.usage_status, attempts.price_version_id, attempts.started_at, attempts.input_tokens, attempts.output_tokens, COALESCE(attempts.restated_cost_nanos, attempts.as_recorded_cost_nanos), attempts.cache_creation_input_tokens, attempts.cache_read_input_tokens, attempts.web_search_max_calls
+		FROM attempts JOIN requests ON requests.id = attempts.request_id WHERE attempts.id = ?`, attemptID).Scan(&requestID, &ownerID, &keyID, &modelID, &connectionID, &state, &usageStatus, &priceID, &startedAt, &previousInput, &previousOutput, &previousCost, &cacheCreation, &cacheRead, &webSearchMax); err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return ErrNotFound
 		}
@@ -464,7 +477,7 @@ func (service *Service) ReconcileUnknown(ctx context.Context, actor auth.User, a
 	if priorReconciliations > 0 && (previousInput.Valid && previousInput.Int64 != *input.InputTokens || previousOutput.Valid && previousOutput.Int64 != *input.OutputTokens) {
 		return ErrConflict
 	}
-	if input.CostNanos == nil && !previousCost.Valid && priceID.Valid && !cacheCreation.Valid && !cacheRead.Valid {
+	if input.CostNanos == nil && !previousCost.Valid && priceID.Valid && !cacheCreation.Valid && !cacheRead.Valid && !webSearchMax.Valid {
 		input.CostNanos, err = calculatedPriceCost(ctx, tx, priceID.String, input.InputTokens, input.OutputTokens)
 		if err != nil {
 			return err

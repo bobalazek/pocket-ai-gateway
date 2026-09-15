@@ -32,6 +32,7 @@ type preparedResponse struct {
 	id        string
 	body      []byte
 	createdAt time.Time
+	state     string
 }
 
 func prepareStoredResponse(modelID string, body []byte) (preparedResponse, error) {
@@ -42,7 +43,7 @@ func prepareStoredResponse(modelID string, body []byte) (preparedResponse, error
 	now := time.Now()
 	id := "resp_" + token
 	encoded, err := rewriteResponse(id, modelID, false, now, body)
-	return preparedResponse{id: id, body: encoded, createdAt: now}, err
+	return preparedResponse{id: id, body: encoded, createdAt: now, state: "completed"}, err
 }
 
 func rewriteResponse(id, modelID string, background bool, createdAt time.Time, body []byte) ([]byte, error) {
@@ -65,7 +66,7 @@ func rewriteResponse(id, modelID string, background bool, createdAt time.Time, b
 	return json.Marshal(value)
 }
 
-func (handler *Handler) storeResponse(ctx context.Context, requestID, ownerID, keyID, modelID string, requestBody []byte, value preparedResponse, attachment *conversationAttachment) error {
+func (handler *Handler) storeResponse(ctx context.Context, requestID, ownerID, keyID, modelID string, requestBody []byte, value preparedResponse, attachment *conversationAttachment, requestState string) error {
 	tx, err := handler.database.BeginTx(ctx, nil)
 	if err != nil {
 		return err
@@ -74,7 +75,7 @@ func (handler *Handler) storeResponse(ctx context.Context, requestID, ownerID, k
 	if err := checkRetainedResponseCapacity(ctx, tx, ownerID, keyID, 1, int64(len(requestBody)+len(value.body))); err != nil {
 		return err
 	}
-	if _, err := tx.ExecContext(ctx, `INSERT INTO stored_responses(id,owner_user_id,key_id,model_id,body_json,created_at,expires_at,request_json) VALUES(?,?,?,?,?,?,?,?)`, value.id, ownerID, keyID, modelID, value.body, value.createdAt.UnixMilli(), value.createdAt.Add(storedResponseLifetime).UnixMilli(), requestBody); err != nil {
+	if _, err := tx.ExecContext(ctx, `INSERT INTO stored_responses(id,owner_user_id,key_id,model_id,body_json,created_at,expires_at,state,request_json) VALUES(?,?,?,?,?,?,?,?,?)`, value.id, ownerID, keyID, modelID, value.body, value.createdAt.UnixMilli(), value.createdAt.Add(storedResponseLifetime).UnixMilli(), value.state, requestBody); err != nil {
 		return err
 	}
 	if attachment != nil {
@@ -82,7 +83,7 @@ func (handler *Handler) storeResponse(ctx context.Context, requestID, ownerID, k
 			return err
 		}
 	}
-	if err := handler.usage.FinalizeRequestTx(ctx, tx, requestID, "succeeded"); err != nil {
+	if err := handler.usage.FinalizeRequestTx(ctx, tx, requestID, requestState); err != nil {
 		return err
 	}
 	return tx.Commit()

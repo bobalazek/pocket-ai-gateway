@@ -11,6 +11,7 @@ type UsageModel = ReturnType<typeof useUsage>;
 
 export function UsageOverview({ model }: { model: UsageModel }) {
   const hasCacheUsage = model.usage.cache_creation_input_tokens > 0 || model.usage.cache_read_input_tokens > 0 || model.usage.cache_creation_5m_input_tokens > 0 || model.usage.cache_creation_1h_input_tokens > 0;
+  const hasWebSearchUsage = model.usage.web_search_calls > 0;
 
   return (
     <>
@@ -43,6 +44,15 @@ export function UsageOverview({ model }: { model: UsageModel }) {
           </div>
         </Card>
       )}
+      {hasWebSearchUsage && (
+        <Card className="panel">
+          <p className="context">Hosted web search</p>
+          <div className="metric-grid">
+            <Metric label="Web-search calls" value={model.usage.web_search_calls.toLocaleString()} />
+          </div>
+          <p className="help-text">Token usage is included above. Search-call cost remains unknown because the gateway has no provider search price contract.</p>
+        </Card>
+      )}
       <Card className="panel">
         <p className="context">Cost provenance</p>
         <div className="metric-grid">
@@ -62,6 +72,7 @@ export function UsageOverview({ model }: { model: UsageModel }) {
                   <tr>
                     <th>Date</th><th>Requests</th><th>Input</th><th>Output</th>
                     {hasCacheUsage && <><th>Cache writes</th><th>Cache reads</th><th>5m writes</th><th>1h writes</th></>}
+                    {hasWebSearchUsage && <th>Web search</th>}
                     <th>Cost</th><th>Unknown</th>
                   </tr>
                 </thead>
@@ -70,6 +81,7 @@ export function UsageOverview({ model }: { model: UsageModel }) {
                     <tr key={point.date}>
                       <td>{point.date}</td><td>{point.requests}</td><td>{point.input_tokens}</td><td>{point.output_tokens}</td>
                       {hasCacheUsage && <><td>{point.cache_creation_input_tokens}</td><td>{point.cache_read_input_tokens}</td><td>{point.cache_creation_5m_input_tokens}</td><td>{point.cache_creation_1h_input_tokens}</td></>}
+                      {hasWebSearchUsage && <td>{point.web_search_calls}</td>}
                       <td>${point.known_cost_usd}</td><td>{point.unknown_attempts}</td>
                     </tr>
                   ))}

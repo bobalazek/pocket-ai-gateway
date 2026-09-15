@@ -24,6 +24,7 @@ export function PublishModelPanel({ model }: { model: ModelsModel }) {
           <legend>Published capabilities</legend>
           {modelCapabilities.filter((value) => model.publishCapabilities.includes(value)).map((value) => <label key={value}><input name="capabilities" type="checkbox" value={value} /><span>{value.replaceAll("_", " ")}</span></label>)}
         </fieldset>
+        {model.publishCapabilities.includes("web_search") && <p className="help-text">Web search requires both <code>chat</code> and <code>web_search</code>.</p>}
         <Button disabled={model.busy}>Publish model</Button>
       </form>
     </Card>

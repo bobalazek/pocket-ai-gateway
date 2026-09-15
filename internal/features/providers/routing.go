@@ -367,21 +367,23 @@ func (item RouteTarget) Target() Target         { return item.target }
 func (item RouteTarget) PriceVersionID() string { return item.priceVersionID }
 
 func (service *Service) HasAvailableRouteTarget(ctx context.Context, publicID string, allowed func(string) bool, eligible func(Target) bool) bool {
-	rows, err := service.database.QueryContext(ctx, `SELECT DISTINCT provider_connections.id,provider_connections.preset,provider_connections.adapter,upstream_models.capabilities_json,provider_credentials.ciphertext,provider_credentials.external_ref FROM public_model_targets JOIN upstream_models ON upstream_models.id=public_model_targets.upstream_model_id JOIN provider_connections ON provider_connections.id=upstream_models.connection_id LEFT JOIN provider_credentials ON provider_credentials.connection_id=provider_connections.id WHERE public_model_targets.public_model_id=? AND public_model_targets.enabled=1 AND upstream_models.active=1 AND provider_connections.enabled=1`, publicID)
+	rows, err := service.database.QueryContext(ctx, `SELECT DISTINCT provider_connections.id,provider_connections.preset,provider_connections.adapter,public_models.capabilities_json,upstream_models.capabilities_json,public_models.routing_strategy,public_models.free_only,provider_credentials.ciphertext,provider_credentials.external_ref FROM public_model_targets JOIN public_models ON public_models.id=public_model_targets.public_model_id JOIN upstream_models ON upstream_models.id=public_model_targets.upstream_model_id JOIN provider_connections ON provider_connections.id=upstream_models.connection_id LEFT JOIN provider_credentials ON provider_credentials.connection_id=provider_connections.id WHERE public_model_targets.public_model_id=? AND public_models.active=1 AND public_model_targets.enabled=1 AND upstream_models.active=1 AND provider_connections.enabled=1`, publicID)
 	if err != nil {
 		return false
 	}
 	defer rows.Close()
 	for rows.Next() {
-		var id, preset, adapter, capabilitiesJSON string
+		var id, preset, adapter, publicCapabilitiesJSON, upstreamCapabilitiesJSON, routingStrategy string
+		var freeOnly bool
 		var ciphertext []byte
 		var external sql.NullString
-		if rows.Scan(&id, &preset, &adapter, &capabilitiesJSON, &ciphertext, &external) != nil || !allowed(id) {
+		if rows.Scan(&id, &preset, &adapter, &publicCapabilitiesJSON, &upstreamCapabilitiesJSON, &routingStrategy, &freeOnly, &ciphertext, &external) != nil || !allowed(id) {
 			continue
 		}
-		var capabilities []string
-		_ = json.Unmarshal([]byte(capabilitiesJSON), &capabilities)
-		if eligible != nil && !eligible(Target{PublicModel: PublicModel{TargetConnectionID: id, Adapter: adapter}, UpstreamCapabilities: capabilities, Preset: preset}) {
+		var publicCapabilities, upstreamCapabilities []string
+		_ = json.Unmarshal([]byte(publicCapabilitiesJSON), &publicCapabilities)
+		_ = json.Unmarshal([]byte(upstreamCapabilitiesJSON), &upstreamCapabilities)
+		if eligible != nil && !eligible(Target{PublicModel: PublicModel{TargetConnectionID: id, Adapter: adapter, Capabilities: publicCapabilities, RoutingStrategy: routingStrategy, FreeOnly: freeOnly}, UpstreamCapabilities: upstreamCapabilities, Preset: preset}) {
 			continue
 		}
 		if preset == "ollama" || len(ciphertext) > 0 || external.Valid && os.Getenv(strings.TrimPrefix(external.String, "env:")) != "" {

@@ -387,7 +387,7 @@ func (service *Service) repriceItems(ctx context.Context, queryer interface {
 		COALESCE((SELECT SUM(cost_nanos) FROM usage_ledger WHERE usage_ledger.attempt_id = attempts.id AND entry_type = 'adjustment'), 0),
 		attempts.usage_status, attempts.restated_cost_nanos IS NULL AND attempts.as_recorded_cost_nanos IS NULL
 		FROM attempts JOIN requests ON requests.id = attempts.request_id
-		WHERE attempts.connection_id = ? AND attempts.model_id = ? AND attempts.started_at >= ? AND attempts.started_at < ? AND attempts.input_tokens IS NOT NULL AND attempts.output_tokens IS NOT NULL AND attempts.cache_creation_input_tokens IS NULL AND attempts.cache_read_input_tokens IS NULL AND attempts.cache_creation_5m_input_tokens IS NULL AND attempts.cache_creation_1h_input_tokens IS NULL AND attempts.usage_status != 'unknown' ORDER BY attempts.started_at, attempts.id LIMIT 10001`, connectionID, modelID, from, to)
+		WHERE attempts.connection_id = ? AND attempts.model_id = ? AND attempts.started_at >= ? AND attempts.started_at < ? AND attempts.input_tokens IS NOT NULL AND attempts.output_tokens IS NOT NULL AND attempts.cache_creation_input_tokens IS NULL AND attempts.cache_read_input_tokens IS NULL AND attempts.cache_creation_5m_input_tokens IS NULL AND attempts.cache_creation_1h_input_tokens IS NULL AND attempts.web_search_max_calls IS NULL AND attempts.usage_status != 'unknown' ORDER BY attempts.started_at, attempts.id LIMIT 10001`, connectionID, modelID, from, to)
 	if err != nil {
 		return nil, 0, err
 	}

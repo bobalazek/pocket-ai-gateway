@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"github.com/bobalazek/pocket-ai-gateway/internal/credentials"
+	"github.com/bobalazek/pocket-ai-gateway/internal/features/auth"
 )
 
 var (
@@ -23,11 +24,6 @@ var (
 	ErrDenied   = errors.New("key grants exceed the user grants")
 	ErrExpired  = errors.New("api key expired")
 )
-
-var allowedScopes = map[string]bool{
-	"chat:generate": true, "responses:generate": true, "embeddings:generate": true,
-	"models:read": true, "tokens:count": true, "moderations:classify": true, "images:generate": true, "images:edit": true, "images:variation": true, "audio:speech": true, "audio:transcribe": true, "audio:translate": true,
-}
 
 type Service struct{ database *sql.DB }
 
@@ -404,7 +400,7 @@ func validateInput(input Input) (Input, any, error) {
 		return Input{}, nil, fmt.Errorf("state must be active or disabled")
 	}
 	for _, scope := range input.Scopes {
-		if !allowedScopes[scope] {
+		if !auth.ValidInferenceScope(scope) {
 			return Input{}, nil, fmt.Errorf("unsupported scope %q", scope)
 		}
 	}
