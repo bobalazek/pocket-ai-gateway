@@ -106,12 +106,12 @@ func createSnapshotFromStore(ctx context.Context, store *Store, outputPath, gate
 	if err != nil {
 		return SnapshotManifest{}, fmt.Errorf("read data schema version: %w", err)
 	}
-	var storedCredentials int
-	if err := store.SystemDB().QueryRowContext(ctx, "SELECT COUNT(*) FROM provider_credentials WHERE ciphertext IS NOT NULL").Scan(&storedCredentials); err != nil && !strings.Contains(err.Error(), "no such table") {
-		return SnapshotManifest{}, fmt.Errorf("inspect provider credentials: %w", err)
+	requiresKey, err := encryptedDataExists(ctx, store.SystemDB())
+	if err != nil {
+		return SnapshotManifest{}, fmt.Errorf("inspect encrypted storage: %w", err)
 	}
-	if _, err := os.Lstat(filepath.Join(store.DataDir(), "master.key")); storedCredentials > 0 && errors.Is(err, os.ErrNotExist) {
-		return SnapshotManifest{}, errors.New("cannot snapshot stored provider credentials without master.key")
+	if _, err := os.Lstat(filepath.Join(store.DataDir(), "master.key")); requiresKey && errors.Is(err, os.ErrNotExist) {
+		return SnapshotManifest{}, errors.New("cannot snapshot stored encrypted data without master.key")
 	} else if err != nil && !errors.Is(err, os.ErrNotExist) {
 		return SnapshotManifest{}, fmt.Errorf("inspect master.key: %w", err)
 	}
@@ -179,6 +179,28 @@ func createSnapshotFromStore(ctx context.Context, store *Store, outputPath, gate
 		return SnapshotManifest{}, fmt.Errorf("sync snapshot parent: %w", err)
 	}
 	return manifest, nil
+}
+
+func encryptedDataExists(ctx context.Context, database *sql.DB) (bool, error) {
+	for _, item := range []struct {
+		table string
+		where string
+	}{{"provider_credentials", "ciphertext IS NOT NULL"}, {"openai_files", "1"}} {
+		var exists int
+		if err := database.QueryRowContext(ctx, `SELECT EXISTS(SELECT 1 FROM sqlite_schema WHERE type='table' AND name=?)`, item.table).Scan(&exists); err != nil {
+			return false, err
+		}
+		if exists == 0 {
+			continue
+		}
+		if err := database.QueryRowContext(ctx, "SELECT EXISTS(SELECT 1 FROM "+item.table+" WHERE "+item.where+")").Scan(&exists); err != nil {
+			return false, err
+		}
+		if exists != 0 {
+			return true, nil
+		}
+	}
+	return false, nil
 }
 
 func vacuumInto(ctx context.Context, database *sql.DB, filename string) error {

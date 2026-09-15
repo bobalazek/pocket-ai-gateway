@@ -106,7 +106,7 @@ func (handler *Handler) createMessageBatch(response http.ResponseWriter, request
 		err = checkMessageBatchQueueCapacity(request.Context(), tx, principal.OwnerUserID, principal.KeyID, int64(len(requests)), queueBytes)
 	}
 	if err == nil {
-		err = checkRetainedResponseCapacity(request.Context(), tx, principal.OwnerUserID, principal.KeyID, int64(len(requests)), incomingBytes)
+		err = checkRetainedResourceCapacity(request.Context(), tx, principal.OwnerUserID, principal.KeyID, int64(len(requests)), incomingBytes)
 	}
 	if err == nil {
 		_, err = tx.ExecContext(request.Context(), `INSERT INTO message_batches(id,owner_user_id,key_id,processing_status,cancel_requested,created_at,expires_at) VALUES(?,?,?,'in_progress',0,?,?)`, batch.id, principal.OwnerUserID, principal.KeyID, batch.createdAt, batch.retentionExpiresAt)
@@ -123,7 +123,7 @@ func (handler *Handler) createMessageBatch(response http.ResponseWriter, request
 		_ = tx.Rollback()
 	}
 	if err != nil {
-		if errors.Is(err, errStoredResponseLimit) || errors.Is(err, errMessageBatchQueueLimit) {
+		if errors.Is(err, errRetainedResourceLimit) || errors.Is(err, errMessageBatchQueueLimit) {
 			handler.writeError(response, "anthropic", http.StatusTooManyRequests, "rate_limit_error", "Message Batch capacity is exhausted")
 			return
 		}

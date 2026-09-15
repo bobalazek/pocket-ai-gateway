@@ -44,6 +44,10 @@ func (handler *Handler) chatCompletions(response http.ResponseWriter, request *h
 		handler.writeError(response, "openai", http.StatusBadRequest, "invalid_request", "Request body must be a JSON object")
 		return
 	}
+	if containsLocalFileReference(envelope["messages"]) {
+		handler.writeError(response, "openai", http.StatusBadRequest, "unsupported_feature", "Gateway file references are not supported by Chat Completions")
+		return
+	}
 	stored, err := jsonBoolean(envelope, "store", false)
 	if err != nil {
 		handler.writeError(response, "openai", http.StatusBadRequest, "invalid_request", err.Error())
@@ -222,7 +226,7 @@ func (handler *Handler) storeChatCompletion(ctx context.Context, requestID strin
 		return err
 	}
 	defer tx.Rollback()
-	if err := checkRetainedResponseCapacity(ctx, tx, principal.OwnerUserID, principal.KeyID, 1, int64(len(request.request)+len(value.body)+len(request.metadata))); err != nil {
+	if err := checkRetainedResourceCapacity(ctx, tx, principal.OwnerUserID, principal.KeyID, 1, int64(len(request.request)+len(value.body)+len(request.metadata))); err != nil {
 		return err
 	}
 	_, err = tx.ExecContext(ctx, `INSERT INTO stored_chat_completions(id,owner_user_id,key_id,model_id,body_json,request_json,metadata_json,created_at,expires_at) VALUES(?,?,?,?,?,?,?,?,?)`, value.id, principal.OwnerUserID, principal.KeyID, modelID, value.body, request.request, request.metadata, value.created*1000, value.storedAt.Add(storedResponseLifetime).UnixMilli())

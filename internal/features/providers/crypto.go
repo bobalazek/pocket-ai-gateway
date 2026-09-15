@@ -1,14 +1,14 @@
 package providers
 
 import (
-	"crypto/aes"
-	"crypto/cipher"
 	"crypto/rand"
 	"errors"
 	"fmt"
 	"io"
 	"os"
 	"path/filepath"
+
+	"github.com/bobalazek/pocket-ai-gateway/internal/credentials"
 )
 
 const masterKeySize = 32
@@ -28,7 +28,7 @@ func LoadOrCreateMasterKey(dataDir string, requireExisting ...bool) ([]byte, err
 		return nil, fmt.Errorf("inspect master.key: %w", err)
 	}
 	if len(requireExisting) > 0 && requireExisting[0] {
-		return nil, errors.New("master.key is missing for stored provider credentials")
+		return nil, errors.New("master.key is missing for stored encrypted data")
 	}
 	value := make([]byte, masterKeySize)
 	if _, err := io.ReadFull(rand.Reader, value); err != nil {
@@ -53,31 +53,11 @@ func LoadOrCreateMasterKey(dataDir string, requireExisting ...bool) ([]byte, err
 }
 
 func seal(key []byte, connectionID, plaintext string) ([]byte, []byte, error) {
-	block, err := aes.NewCipher(key)
-	if err != nil {
-		return nil, nil, err
-	}
-	gcm, err := cipher.NewGCM(block)
-	if err != nil {
-		return nil, nil, err
-	}
-	nonce := make([]byte, gcm.NonceSize())
-	if _, err := io.ReadFull(rand.Reader, nonce); err != nil {
-		return nil, nil, err
-	}
-	return gcm.Seal(nil, nonce, []byte(plaintext), []byte(connectionID)), nonce, nil
+	return credentials.Seal(key, []byte(plaintext), []byte(connectionID))
 }
 
 func openSecret(key []byte, connectionID string, ciphertext, nonce []byte) (string, error) {
-	block, err := aes.NewCipher(key)
-	if err != nil {
-		return "", err
-	}
-	gcm, err := cipher.NewGCM(block)
-	if err != nil {
-		return "", err
-	}
-	value, err := gcm.Open(nil, nonce, ciphertext, []byte(connectionID))
+	value, err := credentials.Open(key, ciphertext, nonce, []byte(connectionID))
 	if err != nil {
 		return "", errors.New("provider credential cannot be decrypted")
 	}

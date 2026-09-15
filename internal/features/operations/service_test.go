@@ -136,6 +136,9 @@ func TestConfigPreviewRejectsUnsafeProviderAndRetentionPreservesEnforcement(t *t
 	if _, err := store.SystemDB().ExecContext(ctx, `INSERT INTO message_batch_items(batch_id,ordinal,custom_id,params_json,reserved_result_bytes) VALUES('msgbatch_old',1,'old_item','{"messages":[]}',1024)`); err != nil {
 		t.Fatal(err)
 	}
+	if _, err := store.SystemDB().ExecContext(ctx, `INSERT INTO openai_files(id,owner_user_id,key_id,filename,purpose,bytes,ciphertext,nonce,created_at,expires_at) VALUES('file_old','usr_owner','key_old','old.jsonl','batch',0,?,?,0,3600000)`, make([]byte, 16), make([]byte, 12)); err != nil {
+		t.Fatal(err)
+	}
 	if _, err := store.SystemDB().ExecContext(ctx, `INSERT INTO conversations(id,owner_user_id,key_id,metadata_json,created_at,deleted_at) VALUES('conv_old','usr_owner','key_old','{}',0,0)`); err != nil {
 		t.Fatal(err)
 	}
@@ -158,6 +161,9 @@ func TestConfigPreviewRejectsUnsafeProviderAndRetentionPreservesEnforcement(t *t
 	}
 	if retentionCounts["message_batches"] != 1 {
 		t.Fatalf("retained message batch count = %d", retentionCounts["message_batches"])
+	}
+	if retentionCounts["openai_files"] != 1 {
+		t.Fatalf("retained OpenAI file count = %d", retentionCounts["openai_files"])
 	}
 	var consumed, reserved int64
 	if err := store.SystemDB().QueryRowContext(ctx, `SELECT consumed_units,reserved_units FROM quota_periods WHERE policy_id='pol_quota'`).Scan(&consumed, &reserved); err != nil || consumed != 20 || reserved != 3 {
@@ -194,6 +200,10 @@ func TestConfigPreviewRejectsUnsafeProviderAndRetentionPreservesEnforcement(t *t
 	_ = store.SystemDB().QueryRowContext(ctx, `SELECT COUNT(*) FROM message_batch_items`).Scan(&batchItems)
 	if batches != 0 || batchItems != 0 {
 		t.Fatalf("expired message batches left batches=%d items=%d", batches, batchItems)
+	}
+	var files int
+	if err := store.SystemDB().QueryRowContext(ctx, `SELECT COUNT(*) FROM openai_files`).Scan(&files); err != nil || files != 0 {
+		t.Fatalf("expired OpenAI files = %d, error = %v", files, err)
 	}
 	var conversations, conversationItems int
 	_ = store.SystemDB().QueryRowContext(ctx, `SELECT COUNT(*) FROM conversations WHERE id='conv_old'`).Scan(&conversations)
@@ -238,6 +248,9 @@ func TestConfigPreviewRejectsUnsafeProviderAndRetentionPreservesEnforcement(t *t
 	if _, err := store.SystemDB().ExecContext(ctx, `INSERT INTO message_batch_items(batch_id,ordinal,custom_id,params_json,reserved_result_bytes) VALUES('msgbatch_due',1,'due_item','{"messages":[]}',1024)`); err != nil {
 		t.Fatal(err)
 	}
+	if _, err := store.SystemDB().ExecContext(ctx, `INSERT INTO openai_files(id,owner_user_id,key_id,filename,purpose,bytes,ciphertext,nonce,created_at,expires_at) VALUES('file_due','usr_owner','key_old','due.jsonl','batch',0,?,?,0,3600000)`, make([]byte, 16), make([]byte, 12)); err != nil {
+		t.Fatal(err)
+	}
 	if _, err := store.SystemDB().ExecContext(ctx, `INSERT INTO conversations(id,owner_user_id,key_id,metadata_json,created_at,deleted_at) VALUES('conv_due','usr_owner','key_old','{}',0,0)`); err != nil {
 		t.Fatal(err)
 	}
@@ -257,6 +270,9 @@ func TestConfigPreviewRejectsUnsafeProviderAndRetentionPreservesEnforcement(t *t
 	_ = store.SystemDB().QueryRowContext(ctx, `SELECT COUNT(*) FROM message_batch_items`).Scan(&batchItems)
 	if batches != 0 || batchItems != 0 {
 		t.Fatalf("scheduled message batch retention left batches=%d items=%d", batches, batchItems)
+	}
+	if err := store.SystemDB().QueryRowContext(ctx, `SELECT COUNT(*) FROM openai_files`).Scan(&files); err != nil || files != 0 {
+		t.Fatalf("scheduled OpenAI file retention left files=%d error=%v", files, err)
 	}
 	_ = store.SystemDB().QueryRowContext(ctx, `SELECT COUNT(*) FROM conversations WHERE id='conv_due'`).Scan(&conversations)
 	_ = store.SystemDB().QueryRowContext(ctx, `SELECT COUNT(*) FROM conversation_items WHERE id='citem_due'`).Scan(&conversationItems)

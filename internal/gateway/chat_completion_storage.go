@@ -74,7 +74,7 @@ func (handler *Handler) updateChatCompletion(response http.ResponseWriter, reque
 		}
 		growth := storedChatMetadataGrowth(oldBodyBytes, oldMetadataBytes, stored, metadata)
 		if err == nil && growth > 0 {
-			err = checkRetainedResponseCapacity(request.Context(), tx, principal.OwnerUserID, principal.KeyID, 0, growth)
+			err = checkRetainedResourceCapacity(request.Context(), tx, principal.OwnerUserID, principal.KeyID, 0, growth)
 		}
 		if err == nil {
 			var result sql.Result
@@ -102,7 +102,7 @@ func (handler *Handler) updateChatCompletion(response http.ResponseWriter, reque
 		handler.writeError(response, "openai", http.StatusNotFound, "not_found", "Chat Completion not found")
 		return
 	}
-	if errors.Is(err, errStoredResponseLimit) {
+	if errors.Is(err, errRetainedResourceLimit) {
 		handler.writeError(response, "openai", http.StatusTooManyRequests, "rate_limit_exceeded", "Stored inference result retention limit reached")
 		return
 	}

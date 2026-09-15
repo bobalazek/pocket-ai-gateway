@@ -18,22 +18,32 @@ import (
 const maxInferenceBody = 16 << 20
 
 type Handler struct {
-	database     *sql.DB
-	keys         *keys.Service
-	providers    *providers.Service
-	usage        *usage.Service
-	wake         chan struct{}
-	epoch        string
-	activeMu     sync.Mutex
-	active       map[string]context.CancelFunc
-	uploads      chan struct{}
-	lastOwner    string
-	lastKey      string
-	publicOrigin string
-	preferBatch  bool
+	database      *sql.DB
+	keys          *keys.Service
+	providers     *providers.Service
+	usage         *usage.Service
+	wake          chan struct{}
+	epoch         string
+	activeMu      sync.Mutex
+	active        map[string]context.CancelFunc
+	uploads       chan struct{}
+	fileTransfers chan struct{}
+	lastOwner     string
+	lastKey       string
+	publicOrigin  string
+	preferBatch   bool
+	masterKey     []byte
 }
 
 func New(database *sql.DB, keyService *keys.Service, providerService *providers.Service, usageService *usage.Service, publicOrigin ...string) *Handler {
+	return newHandler(database, keyService, providerService, usageService, nil, publicOrigin...)
+}
+
+func NewWithMasterKey(database *sql.DB, keyService *keys.Service, providerService *providers.Service, usageService *usage.Service, masterKey []byte, publicOrigin ...string) *Handler {
+	return newHandler(database, keyService, providerService, usageService, masterKey, publicOrigin...)
+}
+
+func newHandler(database *sql.DB, keyService *keys.Service, providerService *providers.Service, usageService *usage.Service, masterKey []byte, publicOrigin ...string) *Handler {
 	epoch, err := credentials.RandomToken(12)
 	if err != nil {
 		epoch = strconv.FormatInt(time.Now().UnixNano(), 10)
@@ -42,12 +52,17 @@ func New(database *sql.DB, keyService *keys.Service, providerService *providers.
 	if len(publicOrigin) > 0 {
 		origin = strings.TrimRight(publicOrigin[0], "/")
 	}
-	return &Handler{database: database, keys: keyService, providers: providerService, usage: usageService, wake: make(chan struct{}, 1), epoch: epoch, active: map[string]context.CancelFunc{}, uploads: make(chan struct{}, 1), publicOrigin: origin}
+	return &Handler{database: database, keys: keyService, providers: providerService, usage: usageService, wake: make(chan struct{}, 1), epoch: epoch, active: map[string]context.CancelFunc{}, uploads: make(chan struct{}, 1), fileTransfers: make(chan struct{}, 1), publicOrigin: origin, masterKey: append([]byte(nil), masterKey...)}
 }
 
 func (handler *Handler) Register(mux *http.ServeMux) {
 	mux.HandleFunc("GET /api/openai/v1/models", handler.openAIModels)
 	mux.HandleFunc("GET /api/openai/v1/models/{model}", handler.openAIModel)
+	mux.HandleFunc("POST /api/openai/v1/files", handler.createFile)
+	mux.HandleFunc("GET /api/openai/v1/files", handler.listFiles)
+	mux.HandleFunc("GET /api/openai/v1/files/{file_id}", handler.getFile)
+	mux.HandleFunc("DELETE /api/openai/v1/files/{file_id}", handler.deleteFile)
+	mux.HandleFunc("GET /api/openai/v1/files/{file_id}/content", handler.fileContent)
 	mux.HandleFunc("POST /api/openai/v1/chat/completions", handler.chatCompletions)
 	mux.HandleFunc("GET /api/openai/v1/chat/completions", handler.listChatCompletions)
 	mux.HandleFunc("GET /api/openai/v1/chat/completions/{completion_id}", handler.getChatCompletion)

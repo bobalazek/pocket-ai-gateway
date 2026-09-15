@@ -345,6 +345,9 @@ func (service *Service) RunDue(ctx context.Context) error {
 	if _, err := service.store.SystemDB().ExecContext(ctx, `DELETE FROM message_batches WHERE expires_at < ?`, time.Now().UnixMilli()); err != nil {
 		return err
 	}
+	if _, err := service.store.SystemDB().ExecContext(ctx, `DELETE FROM openai_files WHERE expires_at < ?`, time.Now().UnixMilli()); err != nil {
+		return err
+	}
 	if _, _, err := purgeDeletedConversations(ctx, service.store.SystemDB(), time.Now().Add(-30*24*time.Hour).UnixMilli()); err != nil {
 		return err
 	}
@@ -407,6 +410,11 @@ func (service *Service) RunRetention(ctx context.Context, actor string) (map[str
 		return nil, err
 	}
 	counts["message_batches"] = rowsAffected(result)
+	result, err = tx.ExecContext(ctx, `DELETE FROM openai_files WHERE expires_at < ?`, time.Now().UnixMilli())
+	if err != nil {
+		return nil, err
+	}
+	counts["openai_files"] = rowsAffected(result)
 	items, conversations, err := purgeDeletedConversations(ctx, tx, time.Now().Add(-30*24*time.Hour).UnixMilli())
 	if err != nil {
 		return nil, err

@@ -592,7 +592,7 @@ func (handler *Handler) forwardAuthorized(response http.ResponseWriter, request 
 			}
 			cancelFinalize()
 			attemptWriter.Reset()
-			if errors.Is(storageErr, errStoredResponseLimit) {
+			if errors.Is(storageErr, errRetainedResourceLimit) {
 				handler.writeError(attemptWriter, dialect, http.StatusTooManyRequests, "rate_limit_exceeded", "Stored inference result retention limit reached")
 			} else if errors.Is(storageErr, errConversationLimit) || errors.Is(storageErr, errConversationItemLimit) {
 				handler.writeError(attemptWriter, dialect, http.StatusTooManyRequests, "rate_limit_exceeded", "Conversation retention limit reached")
