@@ -1,8 +1,8 @@
 openapi: 3.1.0
 info:
   title: Pocket AI Gateway Management API
-  version: 0.6.0
-  description: Implemented identity, limits, usage, pricing, provider, model, and request-history management surface. Compatible inference APIs have separate protocol specifications.
+  version: 0.7.0
+  description: Implemented identity, limits, usage, pricing, provider, model, request-history, backup, audit, configuration, and diagnostics management surface. Compatible inference APIs have separate protocol specifications.
 servers:
   - url: /api/v1
 security:
@@ -926,6 +926,120 @@ paths:
         "415": { $ref: "#/components/responses/UnsupportedMediaType" }
         "503": { $ref: "#/components/responses/ServiceUnavailable" }
         default: { $ref: "#/components/responses/Error" }
+  /admin/settings:
+    get:
+      operationId: getOperationSettings
+      responses:
+        "200": { description: Operations settings, content: { application/json: { schema: { type: object, required: [settings], properties: { settings: { $ref: "#/components/schemas/OperationSettings" } } } } } }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "503": { $ref: "#/components/responses/ServiceUnavailable" }
+        default: { $ref: "#/components/responses/Error" }
+    patch:
+      operationId: updateOperationSettings
+      parameters: [{ $ref: "#/components/parameters/Revision" }, { $ref: "#/components/parameters/CSRF" }]
+      requestBody: { required: true, content: { application/json: { schema: { $ref: "#/components/schemas/OperationSettings" } } } }
+      responses:
+        "200": { description: Updated operations settings, content: { application/json: { schema: { type: object, required: [settings], properties: { settings: { $ref: "#/components/schemas/OperationSettings" } } } } } }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "413": { $ref: "#/components/responses/PayloadTooLarge" }
+        "415": { $ref: "#/components/responses/UnsupportedMediaType" }
+        "428": { $ref: "#/components/responses/PreconditionRequired" }
+        "503": { $ref: "#/components/responses/ServiceUnavailable" }
+        default: { $ref: "#/components/responses/Error" }
+  /admin/backups:
+    get:
+      operationId: listBackups
+      responses:
+        "200": { description: Recent backup jobs, content: { application/json: { schema: { type: object, required: [data], properties: { data: { type: array, items: { $ref: "#/components/schemas/BackupJob" } } } } } } }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "503": { $ref: "#/components/responses/ServiceUnavailable" }
+        default: { $ref: "#/components/responses/Error" }
+    post:
+      operationId: createBackup
+      parameters: [{ $ref: "#/components/parameters/CSRF" }]
+      responses:
+        "201": { description: Encrypted backup created }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "503": { $ref: "#/components/responses/ServiceUnavailable" }
+        default: { $ref: "#/components/responses/Error" }
+  /admin/retention:
+    post:
+      operationId: runRetention
+      parameters: [{ $ref: "#/components/parameters/CSRF" }]
+      responses:
+        "200": { description: Deleted record counts }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "503": { $ref: "#/components/responses/ServiceUnavailable" }
+        default: { $ref: "#/components/responses/Error" }
+  /admin/audit:
+    get:
+      operationId: listAuditEvents
+      parameters:
+        - { $ref: "#/components/parameters/Limit" }
+        - { $ref: "#/components/parameters/Cursor" }
+        - { name: actor_user_id, in: query, schema: { type: string } }
+        - { name: action, in: query, schema: { type: string } }
+        - { name: resource_type, in: query, schema: { type: string } }
+        - { name: from, in: query, schema: { type: string, format: date-time } }
+        - { name: to, in: query, schema: { type: string, format: date-time } }
+      responses:
+        "200": { description: Filtered local audit events, content: { application/json: { schema: { type: object, required: [data, next_cursor, has_more], properties: { data: { type: array, items: { $ref: "#/components/schemas/AuditEvent" } }, next_cursor: { type: string }, has_more: { type: boolean } } } } } }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "503": { $ref: "#/components/responses/ServiceUnavailable" }
+        default: { $ref: "#/components/responses/Error" }
+  /admin/diagnostics:
+    get:
+      operationId: getDiagnostics
+      responses:
+        "200": { description: Safe local runtime diagnostics }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "503": { $ref: "#/components/responses/ServiceUnavailable" }
+        default: { $ref: "#/components/responses/Error" }
+  /admin/config/export:
+    get:
+      operationId: exportConfiguration
+      responses:
+        "200": { description: Portable non-secret configuration document }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "503": { $ref: "#/components/responses/ServiceUnavailable" }
+        default: { $ref: "#/components/responses/Error" }
+  /admin/config/preview:
+    post:
+      operationId: previewConfigurationImport
+      parameters: [{ $ref: "#/components/parameters/CSRF" }]
+      requestBody: { required: true, content: { application/json: { schema: { type: object } } } }
+      responses:
+        "200": { description: Validated import counts and warnings }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "413": { $ref: "#/components/responses/PayloadTooLarge" }
+        "415": { $ref: "#/components/responses/UnsupportedMediaType" }
+        "503": { $ref: "#/components/responses/ServiceUnavailable" }
+        default: { $ref: "#/components/responses/Error" }
+  /admin/config/import:
+    post:
+      operationId: importConfiguration
+      parameters: [{ $ref: "#/components/parameters/CSRF" }]
+      requestBody: { required: true, content: { application/json: { schema: { type: object } } } }
+      responses:
+        "200": { description: Configuration applied transactionally }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "413": { $ref: "#/components/responses/PayloadTooLarge" }
+        "415": { $ref: "#/components/responses/UnsupportedMediaType" }
+        "503": { $ref: "#/components/responses/ServiceUnavailable" }
+        default: { $ref: "#/components/responses/Error" }
 components:
   securitySchemes:
     sessionCookie: { type: apiKey, in: cookie, name: pocket_ai_gateway_session }
@@ -1053,6 +1167,52 @@ components:
             properties:
               result: { $ref: "#/components/schemas/RepriceResult" }
   schemas:
+    OperationSettings:
+      type: object
+      additionalProperties: false
+      required: [backup_enabled, backup_interval_hours, backup_retention_count, backup_destination, local_directory, s3_endpoint, s3_region, s3_bucket, s3_prefix, s3_access_key_env, s3_secret_key_env, request_retention_days, audit_retention_days]
+      properties:
+        backup_enabled: { type: boolean }
+        backup_interval_hours: { type: integer, minimum: 1, maximum: 720 }
+        backup_retention_count: { type: integer, minimum: 1, maximum: 365 }
+        backup_destination: { type: string, enum: [local, s3] }
+        local_directory: { type: string }
+        s3_endpoint: { type: string }
+        s3_region: { type: string }
+        s3_bucket: { type: string }
+        s3_prefix: { type: string }
+        s3_access_key_env: { type: string }
+        s3_secret_key_env: { type: string }
+        request_retention_days: { type: integer, minimum: 1, maximum: 3650 }
+        audit_retention_days: { type: integer, minimum: 30, maximum: 3650 }
+        revision: { type: integer, readOnly: true }
+        updated_at: { type: string, format: date-time, readOnly: true }
+        backup_key_configured: { type: boolean, readOnly: true }
+    BackupJob:
+      type: object
+      required: [id, state, destination, archive_name, checksum, size_bytes, snapshot_generation, error, started_at]
+      properties:
+        id: { type: string }
+        state: { type: string, enum: [running, succeeded, failed] }
+        destination: { type: string, enum: [local, s3] }
+        archive_name: { type: string }
+        checksum: { type: string }
+        size_bytes: { type: integer, minimum: 0 }
+        snapshot_generation: { type: string }
+        error: { type: string }
+        started_at: { type: string, format: date-time }
+        finished_at: { type: string, format: date-time }
+    AuditEvent:
+      type: object
+      required: [id, action, resource_type, resource_id, detail_json, created_at]
+      properties:
+        id: { type: string }
+        actor_user_id: { type: string }
+        action: { type: string }
+        resource_type: { type: string }
+        resource_id: { type: string }
+        detail_json: { type: string, description: Redacted structured audit detail }
+        created_at: { type: string, format: date-time }
     ProviderPreset:
       type: object
       required: [id, label, adapter, base_url, credential_required, private_network]

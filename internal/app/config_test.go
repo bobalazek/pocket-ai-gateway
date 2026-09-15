@@ -3,6 +3,8 @@ package app
 import (
 	"bytes"
 	"context"
+	"crypto/rand"
+	"encoding/base64"
 	"io"
 	"os"
 	"path/filepath"
@@ -127,4 +129,40 @@ func TestSetupURLUsesPublicOrigin(t *testing.T) {
 	if got := setupURL("https://gateway.example.test"); got != "https://gateway.example.test/_/setup/" {
 		t.Fatalf("setup URL = %q", got)
 	}
+}
+
+func TestEncryptedBackupCommandsRoundTrip(t *testing.T) {
+	ctx := context.Background()
+	root := t.TempDir()
+	source := filepath.Join(root, "source")
+	store, err := storage.Open(ctx, source)
+	if err != nil {
+		t.Fatal(err)
+	}
+	store.Close()
+	key := make([]byte, 32)
+	if _, err := rand.Read(key); err != nil {
+		t.Fatal(err)
+	}
+	getenv := func(name string) string {
+		if name == "POCKET_AI_GATEWAY_BACKUP_KEY" {
+			return base64.StdEncoding.EncodeToString(key)
+		}
+		return ""
+	}
+	archive := filepath.Join(root, "backup.pagbak")
+	var output bytes.Buffer
+	if status := Execute(ctx, "test", []string{"backup", "--data-dir", source, "--output", archive}, getenv, &output, &output); status != 0 {
+		t.Fatalf("backup status = %d: %s", status, output.String())
+	}
+	restored := filepath.Join(root, "restored")
+	output.Reset()
+	if status := Execute(ctx, "test", []string{"restore-backup", "--data-dir", restored, "--archive", archive}, getenv, &output, &output); status != 0 {
+		t.Fatalf("restore status = %d: %s", status, output.String())
+	}
+	restoredStore, err := storage.Open(ctx, restored)
+	if err != nil {
+		t.Fatal(err)
+	}
+	restoredStore.Close()
 }

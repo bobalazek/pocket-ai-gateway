@@ -320,12 +320,16 @@ func (handler *Handler) sameOrigin(request *http.Request) bool {
 }
 
 func DecodeJSON(response http.ResponseWriter, request *http.Request, destination any) bool {
+	return DecodeJSONMax(response, request, destination, 64<<10)
+}
+
+func DecodeJSONMax(response http.ResponseWriter, request *http.Request, destination any, limit int64) bool {
 	mediaType, _, err := mime.ParseMediaType(request.Header.Get("Content-Type"))
 	if err != nil || mediaType != "application/json" {
 		WriteError(response, http.StatusUnsupportedMediaType, "invalid_content_type", "Content-Type must be application/json")
 		return false
 	}
-	request.Body = http.MaxBytesReader(response, request.Body, 64<<10)
+	request.Body = http.MaxBytesReader(response, request.Body, limit)
 	decoder := json.NewDecoder(request.Body)
 	decoder.DisallowUnknownFields()
 	if err := decoder.Decode(destination); err != nil {

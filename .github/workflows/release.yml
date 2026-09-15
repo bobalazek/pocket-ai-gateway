@@ -1,0 +1,98 @@
+name: Release
+
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: write
+  id-token: write
+  attestations: write
+  packages: write
+
+jobs:
+  artifacts:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-go@v6
+        with: { go-version: 1.27.1, cache: true }
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 22
+          cache: pnpm
+          cache-dependency-path: web/pnpm-lock.yaml
+      - uses: pnpm/action-setup@v4
+        with: { version: 10.30.3, run_install: false }
+      - run: ./scripts/verify.sh
+      - run: ./scripts/package.sh "$GITHUB_REF_NAME"
+      - uses: anchore/sbom-action@v0.24.2
+        with:
+          path: dist/release
+          format: spdx-json
+          output-file: dist/release/pocket-ai-gateway-${{ github.ref_name }}.spdx.json
+      - name: Refresh checksums with SBOM
+        run: cd dist/release && sha256sum ./* | grep -v ' SHA256SUMS$' > SHA256SUMS
+      - uses: actions/attest@v4
+        with: { subject-path: "dist/release/*" }
+      - uses: actions/upload-artifact@v5
+        with:
+          name: release-artifacts
+          path: dist/release/*
+          if-no-files-found: error
+          retention-days: 1
+
+  image:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    outputs:
+      digest: ${{ steps.build.outputs.digest }}
+    steps:
+      - uses: actions/checkout@v5
+      - uses: docker/login-action@v4
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - uses: docker/setup-qemu-action@v4
+      - uses: docker/setup-buildx-action@v4
+      - id: build
+        uses: docker/build-push-action@v7
+        with:
+          context: .
+          platforms: linux/amd64,linux/arm64
+          outputs: type=image,name=ghcr.io/${{ github.repository }},push-by-digest=true,name-canonical=true,push=true
+          provenance: mode=max
+          sbom: true
+          build-args: VERSION=${{ github.ref_name }}
+      - uses: actions/attest@v4
+        with:
+          subject-name: ghcr.io/${{ github.repository }}
+          subject-digest: ${{ steps.build.outputs.digest }}
+          push-to-registry: true
+
+  publish:
+    needs: [artifacts, image]
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/download-artifact@v6
+        with:
+          name: release-artifacts
+          path: dist/release
+      - uses: docker/login-action@v4
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - uses: docker/setup-buildx-action@v4
+      - name: Stage draft release
+        env: { GH_TOKEN: "${{ github.token }}" }
+        run: gh release create "$GITHUB_REF_NAME" dist/release/* --draft --verify-tag --generate-notes --title "$GITHUB_REF_NAME"
+      - name: Promote container image
+        run: docker buildx imagetools create --tag "ghcr.io/${{ github.repository }}:${GITHUB_REF_NAME}" --tag "ghcr.io/${{ github.repository }}:latest" "ghcr.io/${{ github.repository }}@${{ needs.image.outputs.digest }}"
+      - name: Publish release
+        env: { GH_TOKEN: "${{ github.token }}" }
+        run: gh release edit "$GITHUB_REF_NAME" --draft=false

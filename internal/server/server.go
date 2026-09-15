@@ -17,6 +17,7 @@ import (
 	"github.com/bobalazek/pocket-ai-gateway/internal/features/auth"
 	"github.com/bobalazek/pocket-ai-gateway/internal/features/gateway"
 	"github.com/bobalazek/pocket-ai-gateway/internal/features/keys"
+	"github.com/bobalazek/pocket-ai-gateway/internal/features/operations"
 	"github.com/bobalazek/pocket-ai-gateway/internal/features/providers"
 	"github.com/bobalazek/pocket-ai-gateway/internal/features/usage"
 	"github.com/bobalazek/pocket-ai-gateway/internal/features/users"
@@ -36,6 +37,14 @@ func NewWithUsage(systemDatabase *sql.DB, publicOrigin string, usageService *usa
 }
 
 func NewWithServices(systemDatabase *sql.DB, publicOrigin string, usageService *usage.Service, providerService *providers.Service) http.Handler {
+	return newHandler(systemDatabase, publicOrigin, usageService, providerService, nil)
+}
+
+func NewRuntime(systemDatabase *sql.DB, publicOrigin string, usageService *usage.Service, providerService *providers.Service, operationService *operations.Service) http.Handler {
+	return newHandler(systemDatabase, publicOrigin, usageService, providerService, operationService)
+}
+
+func newHandler(systemDatabase *sql.DB, publicOrigin string, usageService *usage.Service, providerService *providers.Service, operationService *operations.Service) http.Handler {
 	mux := http.NewServeMux()
 	authHandler := auth.NewHandler(auth.New(systemDatabase), publicOrigin)
 	keyService := keys.New(systemDatabase)
@@ -44,6 +53,16 @@ func NewWithServices(systemDatabase *sql.DB, publicOrigin string, usageService *
 	keys.NewHandler(keyService, authHandler).Register(mux)
 	usage.NewHandler(usageService, authHandler).Register(mux)
 	providers.NewHandler(providerService, authHandler).Register(mux)
+	if operationService != nil {
+		operations.NewHandler(operationService, authHandler).Register(mux)
+		mux.HandleFunc("GET /readyz", func(response http.ResponseWriter, request *http.Request) {
+			if err := operationService.Ready(request.Context()); err != nil {
+				writeJSON(response, http.StatusServiceUnavailable, map[string]string{"status": "unavailable"})
+				return
+			}
+			writeJSON(response, http.StatusOK, map[string]string{"status": "ready"})
+		})
+	}
 	gateway.New(keyService, providerService, usageService).Register(mux)
 	mux.HandleFunc("GET /healthz", func(response http.ResponseWriter, _ *http.Request) {
 		writeJSON(response, http.StatusOK, map[string]string{"status": "ok"})
@@ -155,7 +174,7 @@ func dashboardHandler() http.Handler {
 }
 
 func isAPIPath(value string) bool {
-	return value == "/api" || strings.HasPrefix(value, "/api/") || value == "/v1" || strings.HasPrefix(value, "/v1/")
+	return value == "/api" || strings.HasPrefix(value, "/api/") || value == "/v1" || strings.HasPrefix(value, "/v1/") || value == "/readyz"
 }
 
 func writeJSON(response http.ResponseWriter, status int, value any) {

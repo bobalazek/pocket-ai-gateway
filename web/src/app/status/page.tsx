@@ -21,8 +21,8 @@ export default function StatusPage() {
           <div><span>Local SQLite stores</span><strong>Ready</strong></div>
 		  <div><span>Limits and accounting</span><strong>Ready</strong></div>
         </section>
-		<p className="fine-print">Identity, user grants, API keys, limits, and usage accounting are ready. Provider connections and inference arrive next.</p>
-        <a className={buttonVariants()} href="/healthz">Open health response</a>
+		<p className="fine-print">Identity, API keys, limits, accounting, provider routing, encrypted backups, and local diagnostics are available.</p>
+		<div className="row-actions"><a className={buttonVariants()} href="/healthz">Open health response</a><a className={buttonVariants({ variant: "outline" })} href="/readyz">Open readiness response</a></div>
       </main>
     </AppShell>
   );

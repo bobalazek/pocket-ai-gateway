@@ -342,6 +342,14 @@ func catalogURL(value string) (*url.URL, error) {
 	}
 	return parsed, nil
 }
+
+func ValidateCatalogURL(value string) error {
+	if value == "" {
+		return nil
+	}
+	_, err := catalogURL(value)
+	return err
+}
 func truncate(value string, limit int) string {
 	if len(value) > limit {
 		return value[:limit]

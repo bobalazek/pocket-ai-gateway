@@ -104,10 +104,10 @@ func TestAdmissionIsAtomicAndSettlementIsIdempotent(t *testing.T) {
 	if !foundSpend {
 		t.Fatal("effective spend policy missing")
 	}
-	if delivered, err := ProjectOutbox(ctx, store.SystemDB(), store.DataDB(), 100); err != nil || delivered == 0 {
+	if delivered, err := ProjectOutbox(ctx, store, 100); err != nil || delivered == 0 {
 		t.Fatalf("project outbox = %d, %v", delivered, err)
 	}
-	if _, err := ProjectOutbox(ctx, store.SystemDB(), store.DataDB(), 100); err != nil {
+	if _, err := ProjectOutbox(ctx, store, 100); err != nil {
 		t.Fatal(err)
 	}
 	var projectedRequests, projectedTokens, projectedCost int64
@@ -319,7 +319,7 @@ func TestFallbackCountsOneLogicalRequestAndEachAttempt(t *testing.T) {
 	if consumed, reserved, _ := service.debugCounters(ctx, tokens.ID); consumed != 10 || reserved != 0 {
 		t.Fatalf("attempt tokens = %d/%d", consumed, reserved)
 	}
-	if _, err := ProjectOutbox(ctx, store.SystemDB(), store.DataDB(), 100); err != nil {
+	if _, err := ProjectOutbox(ctx, store, 100); err != nil {
 		t.Fatal(err)
 	}
 	var projectedRequests int64
@@ -384,7 +384,7 @@ func TestRecoveryReleasesUndispatchedAndPreservesUnknownReservations(t *testing.
 	if err := service.Recover(ctx); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := ProjectOutbox(ctx, store.SystemDB(), store.DataDB(), 100); err != nil {
+	if _, err := ProjectOutbox(ctx, store, 100); err != nil {
 		t.Fatal(err)
 	}
 	var cancelledRequests int64
@@ -416,7 +416,7 @@ func TestRecoveryReleasesUndispatchedAndPreservesUnknownReservations(t *testing.
 	if err := service.database.QueryRowContext(ctx, "SELECT state FROM reservations WHERE attempt_id = ?", dispatched.AttemptID).Scan(&state); err != nil || state != "uncertain" {
 		t.Fatalf("reservation state = %q, %v", state, err)
 	}
-	if _, err := ProjectOutbox(ctx, store.SystemDB(), store.DataDB(), 100); err != nil {
+	if _, err := ProjectOutbox(ctx, store, 100); err != nil {
 		t.Fatal(err)
 	}
 	zero := int64(0)
@@ -426,7 +426,7 @@ func TestRecoveryReleasesUndispatchedAndPreservesUnknownReservations(t *testing.
 	if err := service.ReconcileUnknown(ctx, owner, dispatched.AttemptID, ReconciliationInput{InputTokens: &zero, OutputTokens: &zero, CostNanos: &zero, UsageStatus: "estimated", Reason: "confirmed unbilled", IdempotencyKey: "reconcile-unknown"}); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := ProjectOutbox(ctx, store.SystemDB(), store.DataDB(), 100); err != nil {
+	if _, err := ProjectOutbox(ctx, store, 100); err != nil {
 		t.Fatal(err)
 	}
 	var unknown int64
@@ -485,7 +485,7 @@ func TestReconciliationRepairsUnknownAndPartialSettlements(t *testing.T) {
 	if consumed, reserved, err := service.debugCounters(ctx, policy.ID); err != nil || consumed != 5 || reserved != 0 {
 		t.Fatalf("reconciled counter = %d/%d, %v", consumed, reserved, err)
 	}
-	if _, err := ProjectOutbox(ctx, store.SystemDB(), store.DataDB(), 100); err != nil {
+	if _, err := ProjectOutbox(ctx, store, 100); err != nil {
 		t.Fatal(err)
 	}
 	var unknownCount int64

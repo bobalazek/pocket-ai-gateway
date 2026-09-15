@@ -19,6 +19,7 @@ Each record states status/source, context, decision, and consequences. A recomme
 | ADR-011 | [Dashboard palette, icons, and browser API client](2026-09-14-brand-and-browser-client.md) | Accepted |
 | ADR-012 | [Concurrency and coordination](2026-09-14-concurrency-and-coordination.md) | Accepted direction |
 | ADR-013 | [Session and API-key security](2026-09-14-session-and-key-security.md) | Technical choice made under delegated authority |
+| ADR-014 | [v0.1 local SQLite authority](2026-09-15-v01-local-sqlite-authority.md) | Technical scope refining ADR-003; remote certification retained |
 
 Historical: [initial proposal](2026-09-14-initial-proposal.md), superseded by the records above where they differ. Its A/P/D/M identifiers are historical references only; current documents use ADR IDs.
 

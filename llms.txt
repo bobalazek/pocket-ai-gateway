@@ -4,8 +4,9 @@ Pocket AI Gateway is an open-source, local-first AI gateway packaged as one Go e
 
 ## Current implementation
 
-- The current runtime provides secure owner setup/recovery, users and sessions, scoped rotating API keys, limits/accounting, provider and public model configuration, inference, request history, instance locking, and paired snapshot/restore.
+- The runtime provides secure owner setup/recovery, users and sessions, scoped rotating API keys, limits/accounting, provider and public model configuration, inference, request history, audit, diagnostics, portable configuration, and encrypted backup/restore.
 - `GET /healthz` returns process liveness.
+- `GET /readyz` returns minimal database readiness.
 - `GET /_/` opens the embedded dashboard.
 - `GET /_/status/` shows the local runtime readiness screen.
 - Implemented auth endpoints cover setup, activation, login/logout, current/all owned sessions, session revocation, password change, and `PATCH /api/v1/me`.
@@ -32,6 +33,8 @@ The URL path selects the client protocol. Headers never switch a request between
 - `pocket-ai-gateway serve`
 - `pocket-ai-gateway snapshot --output <directory>`
 - `pocket-ai-gateway restore --snapshot <directory>`
+- `pocket-ai-gateway backup --output <file.pagbak>`
+- `pocket-ai-gateway restore-backup --archive <file.pagbak>`
 - `pocket-ai-gateway owner-reset --data-dir <directory>`
 - `pocket-ai-gateway version`
 

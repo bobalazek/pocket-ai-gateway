@@ -19,7 +19,7 @@ func TestHistoricalRepricingIsEffectiveDatedAndIdempotent(t *testing.T) {
 	if err := service.Settle(ctx, admission.AttemptID, SettlementInput{IdempotencyKey: "unknown-settlement", State: "succeeded", UsageStatus: "provider_reported", InputTokens: &inputTokens, OutputTokens: &outputTokens, FinalRequest: true}); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := ProjectOutbox(ctx, store.SystemDB(), store.DataDB(), 100); err != nil {
+	if _, err := ProjectOutbox(ctx, store, 100); err != nil {
 		t.Fatal(err)
 	}
 	price, err := service.CreatePrice(ctx, owner, PriceInput{ConnectionID: "conn_test", ModelID: "model_test", InputUSDPerMillion: "2", OutputUSDPerMillion: "4", Source: "operator test price", EffectiveFrom: clock.Add(-time.Hour).Format(time.RFC3339), EffectiveTo: clock.Add(time.Hour).Format(time.RFC3339)})
@@ -41,7 +41,7 @@ func TestHistoricalRepricingIsEffectiveDatedAndIdempotent(t *testing.T) {
 			t.Fatalf("apply = %#v, %v", applied, err)
 		}
 	}
-	if _, err := ProjectOutbox(ctx, store.SystemDB(), store.DataDB(), 100); err != nil {
+	if _, err := ProjectOutbox(ctx, store, 100); err != nil {
 		t.Fatal(err)
 	}
 	var cost, assessments, ledger int64

@@ -59,7 +59,20 @@ func CreateSnapshot(ctx context.Context, dataDir, outputDir, gatewayVersion stri
 	return createSnapshotFromStore(ctx, store, outputPath, gatewayVersion, "")
 }
 
+func CreateLiveSnapshot(ctx context.Context, store *Store, outputDir, gatewayVersion string) (SnapshotManifest, error) {
+	outputPath, err := filepath.Abs(outputDir)
+	if err != nil {
+		return SnapshotManifest{}, fmt.Errorf("resolve snapshot directory: %w", err)
+	}
+	if withinPath(outputPath, store.DataDir()) {
+		return SnapshotManifest{}, errors.New("snapshot directory must be outside the data directory")
+	}
+	return createSnapshotFromStore(ctx, store, outputPath, gatewayVersion, "")
+}
+
 func createSnapshotFromStore(ctx context.Context, store *Store, outputPath, gatewayVersion, generation string) (SnapshotManifest, error) {
+	unlockProjection := store.LockProjection()
+	defer unlockProjection()
 	if err := requireAbsent(outputPath, "snapshot directory"); err != nil {
 		return SnapshotManifest{}, err
 	}
@@ -81,9 +94,6 @@ func createSnapshotFromStore(ctx context.Context, store *Store, outputPath, gate
 		name   string
 		handle *sql.DB
 	}{{"system", store.SystemDB()}, {"data", store.DataDB()}} {
-		if err := checkpoint(ctx, database.handle); err != nil {
-			return SnapshotManifest{}, fmt.Errorf("checkpoint %s database: %w", database.name, err)
-		}
 		if err := integrityCheck(ctx, database.handle); err != nil {
 			return SnapshotManifest{}, fmt.Errorf("verify %s database: %w", database.name, err)
 		}
@@ -105,10 +115,6 @@ func createSnapshotFromStore(ctx context.Context, store *Store, outputPath, gate
 	} else if err != nil && !errors.Is(err, os.ErrNotExist) {
 		return SnapshotManifest{}, fmt.Errorf("inspect master.key: %w", err)
 	}
-	if closeErr := errors.Join(store.closeDatabases()...); closeErr != nil {
-		return SnapshotManifest{}, closeErr
-	}
-
 	temporary, err := os.MkdirTemp(filepath.Dir(outputPath), "."+filepath.Base(outputPath)+".tmp-")
 	if err != nil {
 		return SnapshotManifest{}, fmt.Errorf("create temporary snapshot: %w", err)
@@ -126,6 +132,16 @@ func createSnapshotFromStore(ctx context.Context, store *Store, outputPath, gate
 		CreatedAt:      time.Now().UTC().Format(time.RFC3339Nano),
 		SchemaVersions: map[string]int64{"system": systemVersion, "data": dataVersion},
 	}
+	// Projection is paused across both copies. New admissions remain queued in
+	// the outbox and are replayed idempotently after restore.
+	for _, database := range []struct {
+		name   string
+		handle *sql.DB
+	}{{"data.db", store.DataDB()}, {"system.db", store.SystemDB()}} {
+		if err := vacuumInto(ctx, database.handle, filepath.Join(temporary, database.name)); err != nil {
+			return SnapshotManifest{}, fmt.Errorf("snapshot %s: %w", database.name, err)
+		}
+	}
 	names := []string{"system.db", "data.db"}
 	if _, err := os.Lstat(filepath.Join(store.DataDir(), "master.key")); err == nil {
 		names = append(names, "master.key")
@@ -134,10 +150,14 @@ func createSnapshotFromStore(ctx context.Context, store *Store, outputPath, gate
 	}
 	for _, name := range names {
 		destination := filepath.Join(temporary, name)
-		if err := copyProtectedFile(filepath.Join(store.DataDir(), name), destination); err != nil {
+		if name == "master.key" {
+			if err := copyProtectedFile(filepath.Join(store.DataDir(), name), destination); err != nil {
+				return SnapshotManifest{}, err
+			}
+		} else if err := os.Chmod(destination, 0o600); err != nil {
 			return SnapshotManifest{}, err
 		}
-		hash, size, err := hashFile(destination)
+		hash, size, err := hashFileContext(ctx, destination)
 		if err != nil {
 			return SnapshotManifest{}, err
 		}
@@ -159,6 +179,18 @@ func createSnapshotFromStore(ctx context.Context, store *Store, outputPath, gate
 		return SnapshotManifest{}, fmt.Errorf("sync snapshot parent: %w", err)
 	}
 	return manifest, nil
+}
+
+func vacuumInto(ctx context.Context, database *sql.DB, filename string) error {
+	quoted := strings.ReplaceAll(filename, "'", "''")
+	if _, err := database.ExecContext(ctx, "VACUUM INTO '"+quoted+"'"); err != nil {
+		return err
+	}
+	snapshot, err := openDatabase(ctx, filename, "snapshot", false, true)
+	if err != nil {
+		return err
+	}
+	return errors.Join(integrityCheck(ctx, snapshot), snapshot.Close())
 }
 
 func RestoreSnapshot(ctx context.Context, snapshotDir, dataDir string) error {
@@ -200,7 +232,7 @@ func RestoreSnapshot(ctx context.Context, snapshotDir, dataDir string) error {
 			return err
 		}
 	}
-	if err := validateSnapshotFiles(temporary, manifest); err != nil {
+	if err := validateSnapshotFiles(ctx, temporary, manifest); err != nil {
 		return err
 	}
 	if err := validateSnapshotDatabases(ctx, temporary, manifest); err != nil {
@@ -334,7 +366,7 @@ func readManifest(filename string) (SnapshotManifest, error) {
 	return manifest, nil
 }
 
-func validateSnapshotFiles(directory string, manifest SnapshotManifest) error {
+func validateSnapshotFiles(ctx context.Context, directory string, manifest SnapshotManifest) error {
 	seen := map[string]bool{}
 	for _, file := range manifest.Files {
 		if file.Name != "system.db" && file.Name != "data.db" && file.Name != "master.key" {
@@ -344,7 +376,7 @@ func validateSnapshotFiles(directory string, manifest SnapshotManifest) error {
 			return fmt.Errorf("duplicate snapshot file %q", file.Name)
 		}
 		seen[file.Name] = true
-		hash, size, err := hashFile(filepath.Join(directory, file.Name))
+		hash, size, err := hashFileContext(ctx, filepath.Join(directory, file.Name))
 		if err != nil {
 			return err
 		}
@@ -434,17 +466,33 @@ func openRegularFile(filename string) (*os.File, os.FileInfo, error) {
 }
 
 func hashFile(filename string) (string, int64, error) {
+	return hashFileContext(context.Background(), filename)
+}
+
+func hashFileContext(ctx context.Context, filename string) (string, int64, error) {
 	file, _, err := openRegularFile(filename)
 	if err != nil {
 		return "", 0, fmt.Errorf("open snapshot file %s: %w", filepath.Base(filename), err)
 	}
 	defer file.Close()
 	hash := sha256.New()
-	size, err := io.Copy(hash, file)
+	size, err := io.Copy(hash, contextReader{ctx: ctx, reader: file})
 	if err != nil {
 		return "", 0, fmt.Errorf("hash snapshot file %s: %w", filepath.Base(filename), err)
 	}
 	return hex.EncodeToString(hash.Sum(nil)), size, nil
+}
+
+type contextReader struct {
+	ctx    context.Context
+	reader io.Reader
+}
+
+func (reader contextReader) Read(buffer []byte) (int, error) {
+	if err := reader.ctx.Err(); err != nil {
+		return 0, err
+	}
+	return reader.reader.Read(buffer)
 }
 
 func syncDirectory(directory string) error {

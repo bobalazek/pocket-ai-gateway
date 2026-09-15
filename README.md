@@ -14,7 +14,7 @@ Pocket AI Gateway is a self-hosted AI gateway in one executable. It embeds a Nex
 - **Durable limits** — fixed windows, quotas, token buckets, concurrency controls, request/body/batch ceilings, and spend limits at instance, user, key, and connection scope.
 - **Usage and request history** — token and cost accounting, unknown-usage reconciliation, historical repricing, protocol/target details, and a local dashboard.
 - **Local by default** — no public telemetry, no hosted account, and no prompt capture by default.
-- **Recovery tools** — protected offline snapshots, integrity-checked restore into a clean data directory, and owner recovery.
+- **Operations and recovery** — local audit and diagnostics, portable configuration, encrypted scheduled local or S3-compatible backups, integrity-checked restore, and owner recovery.
 
 ## API namespaces
 
@@ -95,19 +95,20 @@ See the [API contract](docs/reference/api.md) and protocol guides for [OpenAI](d
 
 ## Operations
 
-Create an offline snapshot while the server is stopped:
+Set a separately protected archive key, then create an encrypted backup while the server is stopped:
 
 ```sh
-./dist/pocket-ai-gateway snapshot \
+export POCKET_AI_GATEWAY_BACKUP_KEY="$(openssl rand -base64 32)"
+./dist/pocket-ai-gateway backup \
   --data-dir ./pocket_gateway_data \
-  --output ./snapshot-001
+  --output ./gateway.pagbak
 ```
 
 Restore into an absent directory:
 
 ```sh
-./dist/pocket-ai-gateway restore \
-  --snapshot ./snapshot-001 \
+./dist/pocket-ai-gateway restore-backup \
+  --archive ./gateway.pagbak \
   --data-dir ./restored_gateway_data
 ```
 
@@ -117,7 +118,7 @@ Run the complete local verification gate:
 ./scripts/verify.sh
 ```
 
-More documentation: [architecture](docs/architecture/README.md), [deployment](docs/guides/deployment.md), [security and recovery](docs/guides/operations.md), [product requirements](docs/project/prd.md), [design system](DESIGN.md), and [agent-readable help](llms.txt).
+More documentation: [architecture](docs/architecture/README.md), [deployment](docs/guides/deployment.md), [operations and recovery](docs/guides/operations.md), [compatibility](docs/project/compatibility.md), [contributing](CONTRIBUTING.md), [security](SECURITY.md), and [agent-readable help](llms.txt).
 
 ## License
 

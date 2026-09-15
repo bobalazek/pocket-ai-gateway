@@ -82,14 +82,17 @@ describe("GatewayAPIClient", () => {
     const fetcher = vi.fn<typeof fetch>()
       .mockResolvedValueOnce(new Response(JSON.stringify({ model: {}, targets: [] }), { status: 200 }))
       .mockResolvedValueOnce(new Response(JSON.stringify({ model: {} }), { status: 200 }))
-      .mockResolvedValueOnce(new Response(JSON.stringify({ data: [], state: {} }), { status: 200 }));
+			.mockResolvedValueOnce(new Response(JSON.stringify({ data: [], state: {} }), { status: 200 }))
+			.mockResolvedValueOnce(new Response(JSON.stringify({ data: [], next_cursor: "", has_more: false }), { status: 200 }));
     const client = new GatewayAPIClient(fetcher);
     await client.routeConfig("assistant/unsafe");
     await client.updateRoute({ id: "assistant", revision: 4 } as PublicModel, { strategy: "ordered_fallback", free_only: false, targets: [{ upstream_model_id: "upm_1", priority: 1, weight: 1, enabled: true }] });
     await client.catalog();
+		await client.audit({ action: "provider.update", from: "2026-01-01T00:00:00Z" });
     expect(fetcher.mock.calls[0][0]).toBe("/api/v1/admin/models/assistant%2Funsafe/route");
     expect((fetcher.mock.calls[1][1]?.headers as Headers).get("If-Match")).toBe('"4"');
     expect(fetcher.mock.calls[2][0]).toBe("/api/v1/admin/catalog");
+		expect(fetcher.mock.calls[3][0]).toBe("/api/v1/admin/audit?action=provider.update&from=2026-01-01T00%3A00%3A00Z");
   });
 
   it.each([null, { error: "wrong shape" }, ["unexpected"]])("normalizes malformed JSON errors: %j", async (body) => {

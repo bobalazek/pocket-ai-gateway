@@ -107,6 +107,11 @@ func New(database *sql.DB, key []byte) *Service {
 	return &Service{database: database, key: append([]byte(nil), key...)}
 }
 
+func (service *Service) LockConfiguration() func() {
+	service.dispatch.Lock()
+	return service.dispatch.Unlock
+}
+
 func ProviderTypes() []map[string]any {
 	names := make([]string, 0, len(adapters))
 	for name := range adapters {
@@ -536,6 +541,15 @@ func validateConnection(input ConnectionInput) (ConnectionInput, error) {
 	}
 	return input, nil
 }
+
+func ValidatePortableConnection(input ConnectionInput) (ConnectionInput, error) {
+	return validateConnection(input)
+}
+func NormalizePortableCapabilities(values []string) ([]string, bool) {
+	values = normalizeCapabilities(values)
+	return values, len(values) > 0 && validCapabilities(values)
+}
+func ValidPortableModelID(value string) bool { return validPublicID(value) }
 
 func isPrivateHost(host string) bool {
 	if strings.EqualFold(host, "localhost") || strings.HasSuffix(strings.ToLower(host), ".localhost") {

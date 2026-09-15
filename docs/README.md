@@ -9,12 +9,15 @@ Updated September 15, 2026. Phase files separate recorded implementation evidenc
 | [Architecture](architecture/README.md) | Runtime, module ownership, request flow, concurrency, and dependencies |
 | [Data model](architecture/data-model.md) | Persistence, ownership, state transitions, accounting, and retention |
 | [API contract](reference/api.md) | Client dialects, compatibility limits, management API, and provider coverage |
-| [Management OpenAPI](reference/openapi.yaml) | Machine-readable implemented auth, identity, key, limit, usage, and pricing surface |
+| [Management OpenAPI](reference/openapi.yaml) | Machine-readable management API surface |
 | [Feature contracts](features/README.md) | Separate OpenAI, Anthropic, Gemini, and auth ownership with example schemas |
 | [Dashboard](design/dashboard.md) | Roles, screens, flows, structural wireframes, and responsive behavior |
 | [Design system](../DESIGN.md) | Implemented dashboard tokens, shell, components, and interaction rules |
 | [Operations](guides/operations.md) | Security, deployment, backup/restore, maintenance, and upgrades |
 | [Deployment](guides/deployment.md) | Standalone build, Docker, systemd, TLS proxy, data volume, and upgrade examples |
+| [Provider adapters](guides/adapters.md) | Rules and evidence required for new upstream adapters |
+| [Compatibility](project/compatibility.md) | Tested client operations and explicit boundaries |
+| [Release checklist](project/release-checklist.md) | Artifact, restore, provenance, and platform release gate |
 | [Testing](project/testing.md) | Unit, integration, end-to-end, browser, and compatibility test policy |
 | [Roadmap](plan/README.md) | Backend phases, matching frontend work, dependencies, and release gates |
 | [First implementation task](plan/tasks/phase-1-foundation.md) | Bounded starting task and its verification contract |
@@ -26,4 +29,4 @@ The layout follows the nearby personal SaaS template's docs/project conventions:
 
 The supplied AI-Gateway-PRD.md was treated as reference material. Its single-administrator scope and narrower limits were superseded by the user's request for users, broader quotas, and routing strategies. The original file in Downloads was left untouched. There is no second, competing PRD in this repository.
 
-Phases 1–6 are complete. Later phases remain scoped work packages.
+Phases 1–7 are complete. Provider/API expansion remains a scoped work package.

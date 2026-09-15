@@ -150,6 +150,6 @@ States on every relevant screen: loading, empty, no results, saving, saved, vali
 
 Accessibility: visible keyboard focus, proper headings/labels/table semantics, dialog focus trapping/restoration, Escape/cancel, ≥44-pixel touch actions where practical, 200% zoom, readable contrast, reduced motion, and text labels for statuses. Announce stream completion/errors without reading every token aloud.
 
-Before shipping a screen, perform keyboard-only and 360/768/1280-pixel walkthroughs. Verify setup, key issuance, revocation, limit-denial diagnosis, and backup discovery with a new operator. Record actual confusion/fixes. These walkthroughs have not occurred yet.
+Before shipping a screen, perform keyboard-only and 360/768/1280-pixel walkthroughs. Verify setup, key issuance, revocation, limit-denial diagnosis, and backup discovery with a new operator. The 2026-09-15 release pass covered first-run setup, sign-in, Settings, Audit, desktop, and 360-pixel layout; it found and fixed a nullable empty-list crash and long-identifier wrapping. The wider key/limit journey remains part of the tagged-release checklist.
 
 The embedded About/Help view explains local data storage, capture/retention, upstream data forwarding, software version/license, and operator responsibility. No hosted billing, tracking cookie banner, or invented legal claims are added to the local app; public project policies belong in repository documentation.

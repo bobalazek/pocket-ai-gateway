@@ -10,6 +10,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/gofrs/flock"
@@ -24,6 +25,7 @@ type Store struct {
 	system        *sql.DB
 	data          *sql.DB
 	sqliteVersion string
+	projectionMu  sync.Mutex
 }
 
 func Open(ctx context.Context, dataDir string) (store *Store, err error) {
@@ -295,9 +297,13 @@ func (store *Store) closeDatabases() []error {
 	return closeErrors
 }
 
-func (store *Store) SystemDB() *sql.DB     { return store.system }
-func (store *Store) DataDB() *sql.DB       { return store.data }
-func (store *Store) DataDir() string       { return store.dataDir }
+func (store *Store) SystemDB() *sql.DB { return store.system }
+func (store *Store) DataDB() *sql.DB   { return store.data }
+func (store *Store) DataDir() string   { return store.dataDir }
+func (store *Store) LockProjection() func() {
+	store.projectionMu.Lock()
+	return store.projectionMu.Unlock
+}
 func (store *Store) SQLiteVersion() string { return store.sqliteVersion }
 func MinimumSQLiteVersion() string         { return minimumSQLiteVersion }
 

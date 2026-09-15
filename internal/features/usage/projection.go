@@ -5,9 +5,11 @@ import (
 	"database/sql"
 	"encoding/json"
 	"errors"
+	"strconv"
 	"time"
 
 	"github.com/bobalazek/pocket-ai-gateway/internal/features/auth"
+	"github.com/bobalazek/pocket-ai-gateway/internal/storage"
 )
 
 type OutboxStatus struct {
@@ -45,9 +47,19 @@ func (service *Service) OutboxStatus(ctx context.Context, actor auth.User) (Outb
 	return OutboxState(ctx, service.database)
 }
 
-func ProjectOutbox(ctx context.Context, system, data *sql.DB, limit int) (int, error) {
+func ProjectOutbox(ctx context.Context, store *storage.Store, limit int) (int, error) {
+	unlock := store.LockProjection()
+	defer unlock()
+	system, data := store.SystemDB(), store.DataDB()
 	if limit < 1 || limit > 500 {
 		limit = 100
+	}
+	var cutoff int64
+	var cutoffValue string
+	if err := data.QueryRowContext(ctx, "SELECT value FROM projection_metadata WHERE key='event_detail_cutoff'").Scan(&cutoffValue); err == nil {
+		cutoff, _ = strconv.ParseInt(cutoffValue, 10, 64)
+	} else if !errors.Is(err, sql.ErrNoRows) {
+		return 0, err
 	}
 	rows, err := system.QueryContext(ctx, "SELECT id, event_type, request_id, attempt_id, payload_json, created_at FROM event_outbox WHERE delivered_at IS NULL ORDER BY sequence LIMIT ?", limit)
 	if err != nil {
@@ -121,6 +133,12 @@ func ProjectOutbox(ctx context.Context, system, data *sql.DB, limit int) (int, e
 			}
 		} else if inserted == 1 && item.eventType == "attempt.cost_adjusted" {
 			if err := projectCostAdjustment(ctx, tx, item.payload); err != nil {
+				tx.Rollback()
+				return delivered, err
+			}
+		}
+		if inserted == 1 && cutoff > 0 && item.createdAt < cutoff {
+			if _, err := tx.ExecContext(ctx, "UPDATE usage_events SET payload_json='{}' WHERE event_id=?", item.id); err != nil {
 				tx.Rollback()
 				return delivered, err
 			}

@@ -85,6 +85,19 @@ type AuditEvent struct {
 	CreatedAt    int64          `json:"created_at"`
 }
 
+type BackupJob struct {
+	ID                 string        `json:"id"`
+	State              string        `json:"state"`
+	Destination        string        `json:"destination"`
+	ArchiveName        string        `json:"archive_name"`
+	Checksum           string        `json:"checksum"`
+	SizeBytes          int64         `json:"size_bytes"`
+	SnapshotGeneration string        `json:"snapshot_generation"`
+	Error              string        `json:"error"`
+	StartedAt          int64         `json:"started_at"`
+	FinishedAt         sql.NullInt64 `json:"finished_at"`
+}
+
 type BucketState struct {
 	PolicyID        string `json:"policy_id"`
 	RemainingUnits  int64  `json:"remaining_units"`
@@ -176,6 +189,25 @@ type LoginThrottle struct {
 	WindowStartedAt int64  `json:"window_started_at"`
 	Failures        int64  `json:"failures"`
 	BlockedUntil    int64  `json:"blocked_until"`
+}
+
+type OperationSetting struct {
+	Singleton            int64  `json:"singleton"`
+	BackupEnabled        int64  `json:"backup_enabled"`
+	BackupIntervalHours  int64  `json:"backup_interval_hours"`
+	BackupRetentionCount int64  `json:"backup_retention_count"`
+	BackupDestination    string `json:"backup_destination"`
+	LocalDirectory       string `json:"local_directory"`
+	S3Endpoint           string `json:"s3_endpoint"`
+	S3Region             string `json:"s3_region"`
+	S3Bucket             string `json:"s3_bucket"`
+	S3Prefix             string `json:"s3_prefix"`
+	S3AccessKeyEnv       string `json:"s3_access_key_env"`
+	S3SecretKeyEnv       string `json:"s3_secret_key_env"`
+	RequestRetentionDays int64  `json:"request_retention_days"`
+	AuditRetentionDays   int64  `json:"audit_retention_days"`
+	Revision             int64  `json:"revision"`
+	UpdatedAt            int64  `json:"updated_at"`
 }
 
 type PriceVersion struct {
@@ -273,6 +305,7 @@ type Request struct {
 	State       string        `json:"state"`
 	StartedAt   int64         `json:"started_at"`
 	FinishedAt  sql.NullInt64 `json:"finished_at"`
+	RetainedAt  sql.NullInt64 `json:"retained_at"`
 }
 
 type Reservation struct {

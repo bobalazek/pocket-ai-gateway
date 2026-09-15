@@ -2,7 +2,9 @@ package storage
 
 import (
 	"context"
+	"crypto/rand"
 	"database/sql"
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
@@ -216,5 +218,99 @@ func TestRestoreRejectsDatabasesFromDifferentGenerations(t *testing.T) {
 	err = RestoreSnapshot(ctx, snapshot, filepath.Join(root, "restored"))
 	if err == nil || !strings.Contains(err.Error(), "generation does not match") {
 		t.Fatalf("restore error = %v", err)
+	}
+}
+
+func TestEncryptedLiveSnapshotRoundTripAndAuthentication(t *testing.T) {
+	ctx := context.Background()
+	root := t.TempDir()
+	store, err := Open(ctx, filepath.Join(root, "source"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+	if err := systemdb.New(store.SystemDB()).SetGatewayMetadata(ctx, systemdb.SetGatewayMetadataParams{Key: "before", Value: "included"}); err != nil {
+		t.Fatal(err)
+	}
+	key := make([]byte, 32)
+	if _, err := rand.Read(key); err != nil {
+		t.Fatal(err)
+	}
+	archive := filepath.Join(root, "backups", "snapshot.pagbak")
+	manifest, checksum, size, err := CreateEncryptedSnapshot(ctx, store, archive, "test", key)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if manifest.Generation == "" || len(checksum) != 64 || size <= 0 {
+		t.Fatalf("invalid backup result: generation=%q checksum=%q size=%d", manifest.Generation, checksum, size)
+	}
+	if err := systemdb.New(store.SystemDB()).SetGatewayMetadata(ctx, systemdb.SetGatewayMetadataParams{Key: "after", Value: "excluded"}); err != nil {
+		t.Fatalf("source is unavailable after live snapshot: %v", err)
+	}
+	restored := filepath.Join(root, "nested", "restored")
+	if err := RestoreEncryptedSnapshot(ctx, archive, restored, key); err != nil {
+		t.Fatal(err)
+	}
+	restoredStore, err := Open(ctx, restored)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer restoredStore.Close()
+	if value, err := systemdb.New(restoredStore.SystemDB()).GetGatewayMetadata(ctx, "before"); err != nil || value != "included" {
+		t.Fatalf("restored value = %q, error = %v", value, err)
+	}
+	if _, err := systemdb.New(restoredStore.SystemDB()).GetGatewayMetadata(ctx, "after"); !errors.Is(err, sql.ErrNoRows) {
+		t.Fatalf("post-snapshot write was restored: %v", err)
+	}
+
+	wrongKey := append([]byte(nil), key...)
+	wrongKey[0] ^= 1
+	if err := RestoreEncryptedSnapshot(ctx, archive, filepath.Join(root, "wrong-key"), wrongKey); err == nil || !strings.Contains(err.Error(), "authentication failed") {
+		t.Fatalf("wrong-key restore error = %v", err)
+	}
+	contents, err := os.ReadFile(archive)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "truncated.pagbak"), contents[:len(contents)-1], 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := RestoreEncryptedSnapshot(ctx, filepath.Join(root, "truncated.pagbak"), filepath.Join(root, "truncated"), key); err == nil {
+		t.Fatal("truncated archive was accepted")
+	}
+	if err := os.WriteFile(filepath.Join(root, "trailing.pagbak"), append(contents, 0), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := RestoreEncryptedSnapshot(ctx, filepath.Join(root, "trailing.pagbak"), filepath.Join(root, "trailing"), key); err == nil || !strings.Contains(err.Error(), "trailing data") {
+		t.Fatalf("trailing archive error = %v", err)
+	}
+}
+
+func TestEncryptedSnapshotHonorsCancellation(t *testing.T) {
+	store, err := Open(context.Background(), filepath.Join(t.TempDir(), "source"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	output := filepath.Join(t.TempDir(), "cancelled.pagbak")
+	if _, _, _, err := CreateEncryptedSnapshot(ctx, store, output, "test", make([]byte, 32)); !errors.Is(err, context.Canceled) {
+		t.Fatalf("cancellation error = %v", err)
+	}
+	if _, err := os.Stat(output); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("cancelled archive exists: %v", err)
+	}
+}
+
+func TestSnapshotHashHonorsCancellation(t *testing.T) {
+	filename := filepath.Join(t.TempDir(), "snapshot")
+	if err := os.WriteFile(filename, []byte("content"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	if _, _, err := hashFileContext(ctx, filename); !errors.Is(err, context.Canceled) {
+		t.Fatalf("hash error = %v", err)
 	}
 }

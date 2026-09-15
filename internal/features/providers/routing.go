@@ -24,6 +24,8 @@ const (
 
 var routeStrategies = map[string]bool{"fixed": true, "ordered_fallback": true, "weighted": true, "lowest_cost": true, "lowest_latency": true}
 
+func ValidRouteStrategy(value string) bool { return routeStrategies[value] }
+
 type RouteTarget struct {
 	UpstreamModelID    string   `json:"upstream_model_id"`
 	ConnectionID       string   `json:"connection_id"`

@@ -40,6 +40,12 @@ export type RoutePreviewInput = { operation: string; streaming: boolean; estimat
 export type CatalogState = { source_url: string; source_version: string; last_checked_at: string | null; last_error: string; refresh_enabled: boolean; refresh_interval_hours: number };
 export type CatalogModel = Pick<PublicModel, "id" | "label" | "description" | "adapter" | "capabilities">;
 export type GatewayRequest = { id: string; owner_user_id: string; key_id: string; operation: string; dialect: string; model_id: string; state: string; started_at: string; finished_at: string | null; attempts: { id: string; ordinal: number; connection_id: string; model_id: string; upstream_model_id: string; target_dialect: string; target_operation: string; translation_applied: boolean; request_tool_count: number; response_tool_call_count: number; tool_call_status: string; selection_reason: string; rejected_candidates: { upstream_model_id: string; connection_id: string; reason: string }[]; state: string; usage_status: string; input_tokens: number; output_tokens: number; cost_usd: string | null; started_at: string }[] };
+export type OperationSettings = { backup_enabled: boolean; backup_interval_hours: number; backup_retention_count: number; backup_destination: "local" | "s3"; local_directory: string; s3_endpoint: string; s3_region: string; s3_bucket: string; s3_prefix: string; s3_access_key_env: string; s3_secret_key_env: string; request_retention_days: number; audit_retention_days: number; revision: number; updated_at: string; backup_key_configured: boolean };
+export type BackupJob = { id: string; state: "running" | "succeeded" | "failed"; destination: "local" | "s3"; archive_name: string; checksum: string; size_bytes: number; snapshot_generation: string; error: string; started_at: string; finished_at?: string };
+export type AuditEvent = { id: string; actor_user_id?: string; action: string; resource_type: string; resource_id: string; detail_json: string; created_at: string };
+export type AuditFilters = { actor_user_id?: string; action?: string; resource_type?: string; from?: string; to?: string; cursor?: string };
+export type Diagnostics = { version: string; sqlite_version: string; uptime_seconds: number; system_database_bytes: number; data_database_bytes: number; pending_outbox_events: number; backup_key_configured: boolean; latest_backup_state: string };
+export type ConfigPreview = { connections: number; upstream_models: number; public_models: number; targets: number; policies: number; prices: number; warnings: string[] };
 
 export function effectiveKeyState(key: GatewayKey, now = Date.now()) {
   return key.state !== "revoked" && key.expires_at && Date.parse(key.expires_at) <= now ? "expired" : key.state;
@@ -152,6 +158,16 @@ export class GatewayAPIClient {
   configureCatalog(input: { source_url: string; refresh_enabled: boolean; refresh_interval_hours: number }) { return this.request<{ state: CatalogState }>("/api/v1/admin/catalog", { method: "PUT", body: input }); }
   refreshCatalog() { return this.request<{ state: CatalogState }>("/api/v1/admin/catalog/refresh", { method: "POST" }); }
   requests(filters: { user_id?: string; key_id?: string; model_id?: string; dialect?: string; cursor?: string } = {}, signal?: AbortSignal) { const query = new URLSearchParams(); for (const [key,value] of Object.entries(filters)) if (value) query.set(key,value); return this.request<{ data: GatewayRequest[]; next_cursor: string; has_more: boolean }>(`/api/v1/requests${query.size ? `?${query}` : ""}`, { signal }); }
+  operationSettings() { return this.request<{ settings: OperationSettings }>("/api/v1/admin/settings"); }
+  updateOperationSettings(settings: OperationSettings) { return this.request<{ settings: OperationSettings }>("/api/v1/admin/settings", { method: "PATCH", revision: settings.revision, body: settings }); }
+  backups() { return this.request<{ data: BackupJob[] }>("/api/v1/admin/backups"); }
+  runBackup() { return this.request<{ backup: BackupJob }>("/api/v1/admin/backups", { method: "POST" }); }
+  runRetention() { return this.request<{ deleted: Record<string, number> }>("/api/v1/admin/retention", { method: "POST" }); }
+	audit(filters: AuditFilters = {}, signal?: AbortSignal) { const query = new URLSearchParams(); for (const [key, value] of Object.entries(filters)) if (value) query.set(key, value); return this.request<{ data: AuditEvent[]; next_cursor: string; has_more: boolean }>(`/api/v1/admin/audit${query.size ? `?${query}` : ""}`, { signal }); }
+  diagnostics() { return this.request<{ diagnostics: Diagnostics }>("/api/v1/admin/diagnostics"); }
+  exportConfig() { return this.request<unknown>("/api/v1/admin/config/export"); }
+  previewConfig(bundle: unknown) { return this.request<{ preview: ConfigPreview }>("/api/v1/admin/config/preview", { method: "POST", body: bundle }); }
+  importConfig(bundle: unknown) { return this.request<{ imported: ConfigPreview }>("/api/v1/admin/config/import", { method: "POST", body: bundle }); }
   generate(protocol: "openai" | "anthropic" | "gemini", key: string, model: string, prompt: string, signal?: AbortSignal) {
     if (protocol === "openai") return this.request<unknown>("/api/openai/v1/chat/completions", { method: "POST", authorization: `Bearer ${key}`, redirectOnUnauthorized: false, signal, body: { model, messages: [{ role: "user", content: prompt }] } });
     if (protocol === "anthropic") return this.request<unknown>("/api/anthropic/v1/messages", { method: "POST", anthropicKey: key, redirectOnUnauthorized: false, signal, body: { model, max_tokens: 256, messages: [{ role: "user", content: prompt }] } });

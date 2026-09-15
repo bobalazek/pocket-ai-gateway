@@ -28,3 +28,23 @@ jobs:
           version: 10.30.3
           run_install: false
       - run: ./scripts/verify.sh
+
+  windows:
+    runs-on: windows-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-go@v6
+        with: { go-version: 1.27.1, cache: true }
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 22
+          cache: pnpm
+          cache-dependency-path: web/pnpm-lock.yaml
+      - uses: pnpm/action-setup@v4
+        with: { version: 10.30.3, run_install: false }
+      - run: pnpm --dir web install --frozen-lockfile
+      - run: Copy-Item llms.txt web/public/llms.txt; pnpm --dir web build
+      - run: go test ./...
+      - run: go build -trimpath -o dist/pocket-ai-gateway.exe ./cmd/pocket-ai-gateway
+      - run: ./dist/pocket-ai-gateway.exe version

@@ -6,9 +6,9 @@ import type { ReactNode } from "react";
 
 import { useGatewayUser } from "@/components/setup-gate";
 
-export type AppSection = "Overview" | "Status" | "Users" | "Providers" | "Models" | "API keys" | "Playground" | "Requests" | "Usage" | "Account";
+export type AppSection = "Overview" | "Status" | "Users" | "Providers" | "Models" | "API keys" | "Playground" | "Requests" | "Usage" | "Audit" | "Settings" | "Account";
 
-const navigation: { label: string; href?: string; icon?: typeof LayoutDashboardIcon; admin?: boolean }[] = [
+const navigation: { label: string; href?: string; icon?: typeof LayoutDashboardIcon; admin?: boolean; owner?: boolean }[] = [
   { label: "Overview", href: "/", icon: LayoutDashboardIcon },
   { label: "Status", href: "/status/", icon: ActivityIcon },
   { label: "Users", href: "/users/", icon: UsersIcon, admin: true },
@@ -18,15 +18,15 @@ const navigation: { label: string; href?: string; icon?: typeof LayoutDashboardI
   { label: "Playground", href: "/playground/", icon: FlaskConicalIcon },
   { label: "Requests", href: "/requests/", icon: FileClockIcon },
 	{ label: "Usage", href: "/usage/", icon: ChartNoAxesCombinedIcon },
-	{ label: "Audit", icon: ScrollTextIcon, admin: true },
-	{ label: "Settings", icon: SettingsIcon, admin: true },
+	{ label: "Audit", href: "/audit/", icon: ScrollTextIcon, admin: true },
+	{ label: "Settings", href: "/settings/", icon: SettingsIcon, owner: true },
 ];
 
 function Navigation({ active }: { active: AppSection }) {
   const user = useGatewayUser();
   return (
     <nav>
-		{navigation.filter((item) => !item.admin || user?.role === "owner" || user?.role === "admin").map(({ label, href, icon: Icon }) => href ? (
+		{navigation.filter((item) => (!item.admin || user?.role === "owner" || user?.role === "admin") && (!item.owner || user?.role === "owner")).map(({ label, href, icon: Icon }) => href ? (
 			<Link className={`nav-item${active === label ? " active" : ""}`} href={href} key={label}>
 				{Icon && <Icon aria-hidden="true" size={17} />}{label}
 			</Link>

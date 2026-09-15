@@ -98,7 +98,7 @@ func (service *Service) ListRequests(ctx context.Context, actor auth.User, query
 	if err != nil {
 		return nil, "", err
 	}
-	where, args := "1=1", []any{}
+	where, args := "retained_at IS NULL", []any{}
 	if userID != "" {
 		where += " AND owner_user_id=?"
 		args = append(args, userID)

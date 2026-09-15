@@ -1,6 +1,6 @@
 # Implementation phases
 
-Status: Phases 1 through 6 are complete. Later phases remain planned.
+Status: Phases 1 through 7 are complete. Phase 8 remains planned.
 
 ## Build order
 
@@ -45,7 +45,7 @@ Each phase file contains backend work items, frontend scope, requirements, depen
 | 4 | [First native gateway](phase-04-native-protocol-features.md) | Complete |
 | 5 | [Compatibility, translation, and usable alpha](phase-05-cross-protocol-compatibility.md) | Complete |
 | 6 | [Routing strategies and provider catalog](phase-06-routing-provider-catalog.md) | Complete |
-| 7 | [Operations, security, and v0.1 release](phase-07-operations-release.md) | Planned |
+| 7 | [Operations, security, and v0.1 release](phase-07-operations-release.md) | Complete |
 | 8 | [Broader providers, full API inventory, and optional self-update](phase-08-provider-api-expansion.md) | Planned |
 
 ## Requirement coverage
@@ -98,4 +98,4 @@ Normal CI never needs paid providers. Live tests are isolated, explicitly enable
 
 Implement one bounded work item at a time in this repository. Update its status and evidence after checks pass. Review financial/security/data-loss boundaries before declaring the containing phase complete. Do not generate all future directories, tables, interfaces, or placeholder endpoints upfront.
 
-The next action is Phase 7 operations, security, and release readiness.
+The next action is Phase 8 provider/API expansion and explicit updates.

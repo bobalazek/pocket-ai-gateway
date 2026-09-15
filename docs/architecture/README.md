@@ -126,6 +126,8 @@ One gateway writer owns the instance. Phase 1 uses one connection per local stor
 
 Optional remote libSQL/Turso backends require their own transaction/migration/backup certification and single-writer authority. No eventual-sync copy or automatic local fallback may authorize live spending. Remote outages/uncertain commits are handled conservatively. See the [data model](data-model.md) for the outbox, remote commit, and fencing rules.
 
+For v0.1, local SQLite remains the only live authority. See [ADR-014](../project/decisions/2026-09-15-v01-local-sqlite-authority.md).
+
 WAL supports readers alongside a single writer and requires a local filesystem. Keep automatic checkpoints initially, monitor WAL growth, and avoid long read transactions. Do not copy a live DB without its consistency protocol. [SQLite WAL](https://www.sqlite.org/wal.html)
 
 The SQLite WAL documentation records a corruption fix in 3.51.3 and selected backports. Phase 1 must verify the bundled engine includes that fix or a later corrected release; checking only the Go module version is insufficient. [SQLite WAL-reset notice](https://www.sqlite.org/wal.html#walreset)

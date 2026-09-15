@@ -11,8 +11,8 @@ export default function OverviewPage() {
         <header className="page-header">
           <div>
             <p className="context">Dashboard</p>
-            <h1>Your gateway is ready to configure.</h1>
-            <p className="lede">Manage access, enforce usage limits, and review local accounting before connecting providers.</p>
+            <h1>Your gateway is ready.</h1>
+            <p className="lede">Manage access, connect providers, publish stable models, and inspect local usage.</p>
           </div>
           <a className={buttonVariants()} href="/healthz">Check health</a>
         </header>
@@ -34,9 +34,9 @@ export default function OverviewPage() {
         <section className="next-step" aria-labelledby="next-step-title">
           <div>
             <h2 id="next-step-title">Continue setup</h2>
-            <p>Add users and application keys, then configure limits and model prices. Provider connections and live traffic arrive in the next phase.</p>
+            <p>Add a provider connection, publish a model route, then issue an API key for your application.</p>
           </div>
-          <div className="row-actions"><Link className="text-link" href="/usage/">Configure usage <span aria-hidden="true">→</span></Link><Link className="text-link" href="/keys/">Manage API keys</Link></div>
+          <div className="row-actions"><Link className="text-link" href="/providers/">Connect a provider <span aria-hidden="true">→</span></Link><Link className="text-link" href="/keys/">Manage API keys</Link></div>
         </section>
       </main>
     </AppShell>

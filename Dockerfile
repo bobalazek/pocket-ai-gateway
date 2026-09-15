@@ -16,12 +16,14 @@ COPY go.mod go.sum ./
 RUN go mod download
 COPY . .
 COPY --from=dashboard /src/web/out ./web/out
-RUN CGO_ENABLED=0 go build -trimpath -ldflags "-s -w -X=main.version=${VERSION}" -o /pocket-ai-gateway ./cmd/pocket-ai-gateway && mkdir /data
+RUN CGO_ENABLED=0 go build -trimpath -ldflags "-s -w -X=main.version=${VERSION}" -o /pocket-ai-gateway ./cmd/pocket-ai-gateway && mkdir /data /backups
 
 FROM gcr.io/distroless/static-debian12:nonroot
 COPY --from=builder --chown=nonroot:nonroot /pocket-ai-gateway /usr/local/bin/pocket-ai-gateway
+COPY --from=builder /src/LICENSE /src/THIRD_PARTY_NOTICES.md /usr/share/licenses/pocket-ai-gateway/
 COPY --from=builder --chown=nonroot:nonroot /data /data
-VOLUME ["/data"]
+COPY --from=builder --chown=nonroot:nonroot /backups /backups
+VOLUME ["/data", "/backups"]
 EXPOSE 8080
 ENTRYPOINT ["/usr/local/bin/pocket-ai-gateway"]
 CMD ["help"]

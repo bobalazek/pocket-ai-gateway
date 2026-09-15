@@ -2,7 +2,6 @@ package app
 
 import (
 	"context"
-	"database/sql"
 	"encoding/json"
 	"errors"
 	"flag"
@@ -18,6 +17,7 @@ import (
 
 	"github.com/bobalazek/pocket-ai-gateway/internal/credentials"
 	"github.com/bobalazek/pocket-ai-gateway/internal/features/auth"
+	"github.com/bobalazek/pocket-ai-gateway/internal/features/operations"
 	"github.com/bobalazek/pocket-ai-gateway/internal/features/providers"
 	"github.com/bobalazek/pocket-ai-gateway/internal/features/usage"
 	"github.com/bobalazek/pocket-ai-gateway/internal/server"
@@ -65,6 +65,33 @@ func Execute(ctx context.Context, version string, args []string, getenv func(str
 			return 1
 		}
 		return 0
+	case "backup":
+		dataDir, output, err := parseStorageCommand("backup", args[1:], getenv, stderr, "output")
+		if err != nil {
+			fmt.Fprintf(stderr, "configuration error: %v\n", err)
+			return 2
+		}
+		key, err := storage.DecodeBackupKey(getenv("POCKET_AI_GATEWAY_BACKUP_KEY"))
+		if err != nil {
+			fmt.Fprintf(stderr, "backup error: %v\n", err)
+			return 1
+		}
+		stores, err := storage.OpenWithVersion(ctx, dataDir, version)
+		if err != nil {
+			fmt.Fprintf(stderr, "backup error: %v\n", err)
+			return 1
+		}
+		manifest, checksum, size, backupErr := storage.CreateEncryptedSnapshot(ctx, stores, output, version, key)
+		closeErr := stores.Close()
+		if err := errors.Join(backupErr, closeErr); err != nil {
+			fmt.Fprintf(stderr, "backup error: %v\n", err)
+			return 1
+		}
+		if err := json.NewEncoder(stdout).Encode(map[string]any{"manifest": manifest, "checksum": checksum, "size_bytes": size}); err != nil {
+			fmt.Fprintf(stderr, "backup output error: %v\n", err)
+			return 1
+		}
+		return 0
 	case "restore":
 		dataDir, snapshotDir, err := parseStorageCommand("restore", args[1:], getenv, stderr, "snapshot")
 		if err != nil {
@@ -76,6 +103,23 @@ func Execute(ctx context.Context, version string, args []string, getenv func(str
 			return 1
 		}
 		fmt.Fprintf(stdout, "restored snapshot into %s\n", dataDir)
+		return 0
+	case "restore-backup":
+		dataDir, archive, err := parseStorageCommand("restore-backup", args[1:], getenv, stderr, "archive")
+		if err != nil {
+			fmt.Fprintf(stderr, "configuration error: %v\n", err)
+			return 2
+		}
+		key, err := storage.DecodeBackupKey(getenv("POCKET_AI_GATEWAY_BACKUP_KEY"))
+		if err != nil {
+			fmt.Fprintf(stderr, "restore error: %v\n", err)
+			return 1
+		}
+		if err := storage.RestoreEncryptedSnapshot(ctx, archive, dataDir, key); err != nil {
+			fmt.Fprintf(stderr, "restore error: %v\n", err)
+			return 1
+		}
+		fmt.Fprintf(stdout, "restored encrypted backup into %s\n", dataDir)
 		return 0
 	case "owner-reset":
 		dataDir, err := parseDataDirCommand("owner-reset", args[1:], getenv, stderr)
@@ -144,6 +188,7 @@ func serve(ctx context.Context, version string, cfg Config, logOutput io.Writer)
 		return fmt.Errorf("load provider credential key: %w", err)
 	}
 	providerService := providers.New(stores.SystemDB(), masterKey)
+	operationService := operations.New(stores, providerService, version, os.Getenv)
 	if err := usageService.Recover(ctx); err != nil {
 		return fmt.Errorf("recover usage accounting: %w", err)
 	}
@@ -165,12 +210,14 @@ func serve(ctx context.Context, version string, cfg Config, logOutput io.Writer)
 	logger := slog.New(slog.NewTextHandler(logOutput, &slog.HandlerOptions{Level: slog.LevelInfo}))
 	workerContext, stopWorker := context.WithCancel(ctx)
 	workerDone := make(chan struct{})
-	go projectUsage(workerContext, stores.SystemDB(), stores.DataDB(), logger, workerDone)
+	go projectUsage(workerContext, stores, logger, workerDone)
 	catalogDone := make(chan struct{})
 	go func() { defer close(catalogDone); providerService.RunCatalogRefresh(workerContext) }()
-	defer func() { stopWorker(); <-workerDone; <-catalogDone }()
+	operationsDone := make(chan struct{})
+	go runOperations(workerContext, operationService, logger, operationsDone)
+	defer func() { stopWorker(); <-workerDone; <-catalogDone; <-operationsDone }()
 	httpServer := &http.Server{
-		Handler:           server.NewWithServices(stores.SystemDB(), publicOrigin, usageService, providerService),
+		Handler:           server.NewRuntime(stores.SystemDB(), publicOrigin, usageService, providerService, operationService),
 		ReadHeaderTimeout: 5 * time.Second,
 		IdleTimeout:       60 * time.Second,
 	}
@@ -198,12 +245,28 @@ func serve(ctx context.Context, version string, cfg Config, logOutput io.Writer)
 	return nil
 }
 
-func projectUsage(ctx context.Context, system, data *sql.DB, logger *slog.Logger, done chan<- struct{}) {
+func runOperations(ctx context.Context, service *operations.Service, logger *slog.Logger, done chan<- struct{}) {
+	defer close(done)
+	ticker := time.NewTicker(15 * time.Minute)
+	defer ticker.Stop()
+	for {
+		if err := service.RunDue(ctx); err != nil && !errors.Is(err, context.Canceled) {
+			logger.Error("scheduled backup delayed", "error", err)
+		}
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+		}
+	}
+}
+
+func projectUsage(ctx context.Context, stores *storage.Store, logger *slog.Logger, done chan<- struct{}) {
 	defer close(done)
 	ticker := time.NewTicker(time.Second)
 	defer ticker.Stop()
 	for {
-		if _, err := usage.ProjectOutbox(ctx, system, data, 100); err != nil && !errors.Is(err, context.Canceled) {
+		if _, err := usage.ProjectOutbox(ctx, stores, 100); err != nil && !errors.Is(err, context.Canceled) {
 			logger.Error("usage projection delayed", "error", err)
 		}
 		select {
@@ -259,7 +322,7 @@ func writeProtectedCode(dataDir, name, code string) (err error) {
 }
 
 func printUsage(output io.Writer) {
-	fmt.Fprintln(output, "Usage: pocket-ai-gateway <serve|snapshot|restore|owner-reset|version>")
+	fmt.Fprintln(output, "Usage: pocket-ai-gateway <serve|backup|restore-backup|snapshot|restore|owner-reset|version>")
 }
 
 func parseDataDirCommand(name string, args []string, getenv func(string) string, output io.Writer) (string, error) {
@@ -282,7 +345,7 @@ func parseStorageCommand(name string, args []string, getenv func(string) string,
 	flags := flag.NewFlagSet(name, flag.ContinueOnError)
 	flags.SetOutput(output)
 	dataDir := flags.String("data-dir", valueOr(getenv("POCKET_AI_GATEWAY_DATA_DIR"), defaultDataDir), "directory for local gateway data")
-	snapshotDir := flags.String(snapshotFlag, "", "snapshot directory")
+	snapshotDir := flags.String(snapshotFlag, "", "snapshot or backup path")
 	if err := flags.Parse(args); err != nil {
 		return "", "", err
 	}

@@ -21,6 +21,7 @@ trap cleanup EXIT
 
 cp "$binary" "$scratch/pocket-ai-gateway"
 cd "$scratch"
+export POCKET_AI_GATEWAY_BACKUP_KEY="AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA="
 ./pocket-ai-gateway serve --listen 127.0.0.1:0 --data-dir "$scratch/data" >"$scratch/server.log" 2>&1 &
 server_pid=$!
 
@@ -62,6 +63,9 @@ expect_status 200 "$base/_/account/"
 expect_status 200 "$base/_/users/"
 expect_status 200 "$base/_/keys/"
 expect_status 200 "$base/_/usage/"
+expect_status 200 "$base/_/audit/"
+expect_status 200 "$base/_/settings/"
+expect_status 200 "$base/readyz"
 expect_status 404 "$base/_/missing/"
 expect_status 404 "$base/api/openai/v1/missing"
 expect_status 404 "$base/api/anthropic/v1/missing"
@@ -85,6 +89,10 @@ curl --silent --cookie "$scratch/cookies" "$base/api/v1/auth/session" | rg --qui
 csrf=$(awk '$6 == "pocket_ai_gateway_csrf" { print $7 }' "$scratch/cookies")
 [[ -n "$csrf" ]]
 curl --silent --fail --cookie "$scratch/cookies" "$base/api/v1/usage" | rg --quiet '"known_cost_usd":"0"'
+curl --silent --fail --cookie "$scratch/cookies" "$base/api/v1/admin/diagnostics" | rg --quiet '"backup_key_configured":true'
+curl --silent --fail --cookie "$scratch/cookies" --header "Origin: $base" --header "X-CSRF-Token: $csrf" --request POST \
+  "$base/api/v1/admin/backups" | rg --quiet '"state":"succeeded"'
+test -f "$scratch/data_backups/"*.pagbak
 curl --silent --fail --cookie "$scratch/cookies" --header "Content-Type: application/json" --header "Origin: $base" --header "X-CSRF-Token: $csrf" \
   --data '{"scope_kind":"instance","scope_id":"","metric":"requests","algorithm":"quota","period":"day","window_seconds":0,"limit_units":100,"limit_usd":"","refill_units":0,"refill_interval_ms":0}' \
   "$base/api/v1/admin/policies" | rg --quiet '"metric":"requests"'
@@ -130,4 +138,6 @@ rg --quiet 'gateway stopped' "$scratch/server.log"
 
 ./pocket-ai-gateway snapshot --data-dir "$scratch/data" --output "$scratch/snapshot" >/dev/null
 ./pocket-ai-gateway restore --snapshot "$scratch/snapshot" --data-dir "$scratch/restored" >/dev/null
+./pocket-ai-gateway backup --data-dir "$scratch/data" --output "$scratch/backup.pagbak" >/dev/null
+./pocket-ai-gateway restore-backup --archive "$scratch/backup.pagbak" --data-dir "$scratch/restored-backup" >/dev/null
 ./pocket-ai-gateway version | rg --quiet '.+'

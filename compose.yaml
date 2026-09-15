@@ -17,6 +17,9 @@ services:
       - "127.0.0.1:8080:8080"
     volumes:
       - pocket-gateway-data:/data
+      - pocket-gateway-backups:/backups
+    environment:
+      POCKET_AI_GATEWAY_BACKUP_KEY: ${POCKET_AI_GATEWAY_BACKUP_KEY:-}
     read_only: true
     tmpfs:
       - /tmp
@@ -26,3 +29,4 @@ services:
 
 volumes:
   pocket-gateway-data:
+  pocket-gateway-backups:
