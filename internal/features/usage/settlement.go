@@ -337,7 +337,7 @@ func requestState(attemptState string) string {
 }
 
 func (service *Service) FinalizeRequest(ctx context.Context, requestID, state string) error {
-	if !contains([]string{"failed", "cancelled", "interrupted_unknown"}, state) {
+	if !contains([]string{"succeeded", "failed", "cancelled", "interrupted_unknown"}, state) {
 		return errors.New("invalid final request state")
 	}
 	tx, err := service.database.BeginTx(ctx, nil)
@@ -345,6 +345,17 @@ func (service *Service) FinalizeRequest(ctx context.Context, requestID, state st
 		return err
 	}
 	defer tx.Rollback()
+	if err := service.FinalizeRequestTx(ctx, tx, requestID, state); err != nil {
+		return err
+	}
+	return tx.Commit()
+}
+
+// FinalizeRequestTx closes a request inside a caller-owned system database transaction.
+func (service *Service) FinalizeRequestTx(ctx context.Context, tx *sql.Tx, requestID, state string) error {
+	if !contains([]string{"succeeded", "failed", "cancelled", "interrupted_unknown"}, state) {
+		return errors.New("invalid final request state")
+	}
 	var active int64
 	if err := tx.QueryRowContext(ctx, `SELECT COUNT(*) FROM attempts WHERE request_id = ? AND state IN ('reserved', 'dispatching', 'streaming')`, requestID).Scan(&active); err != nil {
 		return err
@@ -363,7 +374,7 @@ func (service *Service) FinalizeRequest(ctx context.Context, requestID, state st
 	if _, err := tx.ExecContext(ctx, "DELETE FROM concurrency_leases WHERE lease_kind = 'request' AND request_id = ?", requestID); err != nil {
 		return err
 	}
-	return tx.Commit()
+	return nil
 }
 
 func (service *Service) ReconcileUnknown(ctx context.Context, actor auth.User, attemptID string, input ReconciliationInput) error {

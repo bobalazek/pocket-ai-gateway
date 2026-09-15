@@ -358,19 +358,22 @@ type SetupToken struct {
 }
 
 type StoredResponse struct {
-	ID              string        `json:"id"`
-	OwnerUserID     string        `json:"owner_user_id"`
-	KeyID           string        `json:"key_id"`
-	ModelID         string        `json:"model_id"`
-	BodyJson        []byte        `json:"body_json"`
-	CreatedAt       int64         `json:"created_at"`
-	ExpiresAt       int64         `json:"expires_at"`
-	State           string        `json:"state"`
-	RequestJson     []byte        `json:"request_json"`
-	CancelRequested int64         `json:"cancel_requested"`
-	LeaseEpoch      string        `json:"lease_epoch"`
-	ClaimedAt       sql.NullInt64 `json:"claimed_at"`
-	FinishedAt      sql.NullInt64 `json:"finished_at"`
+	ID                    string         `json:"id"`
+	OwnerUserID           string         `json:"owner_user_id"`
+	KeyID                 string         `json:"key_id"`
+	ModelID               string         `json:"model_id"`
+	BodyJson              []byte         `json:"body_json"`
+	CreatedAt             int64          `json:"created_at"`
+	ExpiresAt             int64          `json:"expires_at"`
+	State                 string         `json:"state"`
+	RequestJson           []byte         `json:"request_json"`
+	CancelRequested       int64          `json:"cancel_requested"`
+	LeaseEpoch            string         `json:"lease_epoch"`
+	ClaimedAt             sql.NullInt64  `json:"claimed_at"`
+	FinishedAt            sql.NullInt64  `json:"finished_at"`
+	ConversationID        sql.NullString `json:"conversation_id"`
+	ConversationRevision  sql.NullInt64  `json:"conversation_revision"`
+	ConversationItemsJson []byte         `json:"conversation_items_json"`
 }
 
 type UpstreamModel struct {

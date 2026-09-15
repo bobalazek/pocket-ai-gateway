@@ -120,10 +120,16 @@ func (handler *Handler) forwardAuthorized(response http.ResponseWriter, request 
 		return
 	}
 	storeResponse := false
-	attachment, _ := request.Context().Value(conversationAttachmentContextKey{}).(conversationAttachment)
 	var attached *conversationAttachment
-	if attachment.id != "" {
-		attached = &attachment
+	switch attachment := request.Context().Value(conversationAttachmentContextKey{}).(type) {
+	case conversationAttachment:
+		if attachment.id != "" {
+			attached = &attachment
+		}
+	case *conversationAttachment:
+		if attachment != nil && attachment.id != "" {
+			attached = attachment
+		}
 	}
 	if dialect == "responses" {
 		if storeResponse, err = validateResponses(envelope); err != nil {
@@ -332,7 +338,8 @@ func (handler *Handler) forwardAuthorized(response http.ResponseWriter, request 
 			toolStatus = "incomplete"
 		}
 		var storageErr error
-		if success && (storeResponse || attached != nil) {
+		deferredAttachment := attached != nil && attached.deferStore
+		if success && (storeResponse || attached != nil) && !deferredAttachment {
 			storageContext, cancelStorage := context.WithTimeout(context.WithoutCancel(request.Context()), 2*time.Second)
 			if storeResponse {
 				requestBody := body
@@ -353,15 +360,15 @@ func (handler *Handler) forwardAuthorized(response http.ResponseWriter, request 
 			state, status = "interrupted_unknown", "unknown"
 			retry = false
 		}
-		settlement := usage.SettlementInput{IdempotencyKey: "dispatch:" + admission.AttemptID, State: state, UsageStatus: status, InputTokens: inputTokens, OutputTokens: outputTokens, CostNanos: cost, ResponseToolCallCount: toolCalls, ToolCallStatus: toolStatus, FinalRequest: !retry && storageErr == nil}
+		settlement := usage.SettlementInput{IdempotencyKey: "dispatch:" + admission.AttemptID, State: state, UsageStatus: status, InputTokens: inputTokens, OutputTokens: outputTokens, CostNanos: cost, ResponseToolCallCount: toolCalls, ToolCallStatus: toolStatus, FinalRequest: !retry && storageErr == nil && !(deferredAttachment && success && request.Context().Err() == nil)}
 		settlementErr := handler.settle(admission.AttemptID, settlement)
 		if observer, ok := response.(interface {
-			observeSettlement(string, usage.SettlementInput, error)
+			observeSettlement(string, string, usage.SettlementInput, error)
 		}); ok {
 			for settlementErr != nil && !permanentSettlementError(settlementErr) && request.Context().Err() == nil && waitBackground(request.Context(), time.Second) {
 				settlementErr = handler.settle(admission.AttemptID, settlement)
 			}
-			observer.observeSettlement(admission.AttemptID, settlement, settlementErr)
+			observer.observeSettlement(requestID, admission.AttemptID, settlement, settlementErr)
 		}
 		if storageErr != nil {
 			finalizeContext, cancelFinalize := context.WithTimeout(context.Background(), 2*time.Second)

@@ -36,6 +36,7 @@ const (
 )
 
 var errStoredResponseLimit = errors.New("stored response retention limit reached")
+var errBackgroundStateChanged = errors.New("background response state changed")
 
 type preparedResponse struct {
 	id        string
@@ -47,6 +48,8 @@ type backgroundJob struct {
 	id, ownerID, keyID, modelID string
 	request                     []byte
 	createdAt                   time.Time
+	attachment                  *conversationAttachment
+	invalidAttachment           bool
 }
 
 func (handler *Handler) responses(response http.ResponseWriter, request *http.Request) {
@@ -74,6 +77,7 @@ func (handler *Handler) responses(response http.ResponseWriter, request *http.Re
 		handler.writeError(response, "responses", http.StatusBadRequest, "invalid_request", conversationErr.Error())
 		return
 	}
+	var attachment *conversationAttachment
 	if conversationID != "" {
 		if !principalHasScope(principal.Scopes, "responses:generate") {
 			handler.writeError(response, "responses", http.StatusForbidden, "permission_denied", "Responses access is not permitted")
@@ -84,11 +88,11 @@ func (handler *Handler) responses(response http.ResponseWriter, request *http.Re
 			handler.writeError(response, "responses", http.StatusBadRequest, "invalid_request", "stream must be a boolean")
 			return
 		}
-		if background || stream {
-			handler.writeError(response, "responses", http.StatusBadRequest, "unsupported_feature", "conversation attachment currently requires a synchronous JSON Response")
+		if stream {
+			handler.writeError(response, "responses", http.StatusBadRequest, "unsupported_feature", "conversation attachment does not support streaming Responses")
 			return
 		}
-		attachment, expanded, err := handler.prepareConversationResponse(request.Context(), principal, envelope)
+		prepared, expanded, err := handler.prepareConversationResponse(request.Context(), principal, envelope)
 		if errors.Is(err, sql.ErrNoRows) {
 			handler.writeError(response, "responses", http.StatusNotFound, "not_found", "Conversation not found")
 			return
@@ -105,14 +109,17 @@ func (handler *Handler) responses(response http.ResponseWriter, request *http.Re
 			handler.writeError(response, "responses", http.StatusServiceUnavailable, "gateway_unavailable", "Conversation is unavailable")
 			return
 		}
-		request = request.WithContext(context.WithValue(request.Context(), conversationAttachmentContextKey{}, attachment))
+		attachment = &prepared
 		body = expanded
 	}
 	if !background {
+		if attachment != nil {
+			request = request.WithContext(context.WithValue(request.Context(), conversationAttachmentContextKey{}, *attachment))
+		}
 		handler.forwardAuthorized(response, request, "responses", "responses:generate", "responses", "", nil, principal, body)
 		return
 	}
-	handler.enqueueResponse(response, request, principal, envelope, body)
+	handler.enqueueResponse(response, request, principal, envelope, body, attachment)
 }
 
 func (handler *Handler) compactResponse(response http.ResponseWriter, request *http.Request) {
@@ -198,7 +205,7 @@ func rejectCompactReferences(value any) error {
 	return nil
 }
 
-func (handler *Handler) enqueueResponse(response http.ResponseWriter, request *http.Request, principal keys.Principal, envelope map[string]json.RawMessage, body []byte) {
+func (handler *Handler) enqueueResponse(response http.ResponseWriter, request *http.Request, principal keys.Principal, envelope map[string]json.RawMessage, body []byte, attachment *conversationAttachment) {
 	if !principalHasScope(principal.Scopes, "responses:generate") {
 		handler.writeError(response, "responses", http.StatusForbidden, "permission_denied", "Responses access is not permitted")
 		return
@@ -244,16 +251,30 @@ func (handler *Handler) enqueueResponse(response http.ResponseWriter, request *h
 		return
 	}
 	id, now := "resp_"+token, time.Now()
-	queued := responseState(id, modelID, "queued", now, nil)
+	conversationID := ""
+	if attachment != nil {
+		conversationID = attachment.id
+	}
+	queued := responseState(id, modelID, "queued", now, nil, conversationID)
+	requestBody := body
+	var storedConversationID any
+	var conversationRevision any
+	var conversationItems []byte
+	if attachment != nil {
+		requestBody = attachment.requestBody
+		storedConversationID = attachment.id
+		conversationRevision = attachment.revision
+		conversationItems, _ = json.Marshal(attachment.newItems)
+	}
 	queueLimited := false
 	tx, err := handler.database.BeginTx(request.Context(), nil)
 	if err == nil {
 		var count, size, ownerCount, ownerSize, keyCount, keySize int64
-		err = tx.QueryRowContext(request.Context(), `SELECT COUNT(*),COALESCE(SUM(length(request_json)+length(body_json)),0),
-			COALESCE(SUM(CASE WHEN owner_user_id=? THEN 1 ELSE 0 END),0),COALESCE(SUM(CASE WHEN owner_user_id=? THEN length(request_json)+length(body_json) ELSE 0 END),0),
-			COALESCE(SUM(CASE WHEN key_id=? THEN 1 ELSE 0 END),0),COALESCE(SUM(CASE WHEN key_id=? THEN length(request_json)+length(body_json) ELSE 0 END),0)
+		err = tx.QueryRowContext(request.Context(), `SELECT COUNT(*),COALESCE(SUM(length(request_json)+length(body_json)+COALESCE(length(conversation_items_json),0)),0),
+			COALESCE(SUM(CASE WHEN owner_user_id=? THEN 1 ELSE 0 END),0),COALESCE(SUM(CASE WHEN owner_user_id=? THEN length(request_json)+length(body_json)+COALESCE(length(conversation_items_json),0) ELSE 0 END),0),
+			COALESCE(SUM(CASE WHEN key_id=? THEN 1 ELSE 0 END),0),COALESCE(SUM(CASE WHEN key_id=? THEN length(request_json)+length(body_json)+COALESCE(length(conversation_items_json),0) ELSE 0 END),0)
 			FROM stored_responses WHERE state IN ('queued','running')`, principal.OwnerUserID, principal.OwnerUserID, principal.KeyID, principal.KeyID).Scan(&count, &size, &ownerCount, &ownerSize, &keyCount, &keySize)
-		incoming := int64(len(body) + len(queued))
+		incoming := int64(len(requestBody) + len(conversationItems) + len(queued))
 		if err == nil && (ownerCount >= backgroundOwnerJobs || ownerSize+incoming > backgroundOwnerBytes || keyCount >= backgroundKeyJobs || keySize+incoming > backgroundKeyBytes) {
 			queueLimited = true
 			err = errors.New("queue limit reached")
@@ -265,7 +286,7 @@ func (handler *Handler) enqueueResponse(response http.ResponseWriter, request *h
 			queueLimited = errors.Is(err, errStoredResponseLimit)
 		}
 		if err == nil {
-			_, err = tx.ExecContext(request.Context(), `INSERT INTO stored_responses(id,owner_user_id,key_id,model_id,body_json,created_at,expires_at,state,request_json) VALUES(?,?,?,?,?,?,?,?,?)`, id, principal.OwnerUserID, principal.KeyID, modelID, queued, now.UnixMilli(), now.Add(storedResponseLifetime).UnixMilli(), "queued", body)
+			_, err = tx.ExecContext(request.Context(), `INSERT INTO stored_responses(id,owner_user_id,key_id,model_id,body_json,created_at,expires_at,state,request_json,conversation_id,conversation_revision,conversation_items_json) VALUES(?,?,?,?,?,?,?,?,?,?,?,?)`, id, principal.OwnerUserID, principal.KeyID, modelID, queued, now.UnixMilli(), now.Add(storedResponseLifetime).UnixMilli(), "queued", requestBody, storedConversationID, conversationRevision, conversationItems)
 		}
 		if err == nil {
 			err = tx.Commit()
@@ -348,9 +369,9 @@ type responseQueryer interface {
 
 func checkRetainedResponseCapacity(ctx context.Context, query responseQueryer, ownerID, keyID string, incoming int64) error {
 	var count, size, ownerCount, ownerSize, keyCount, keySize int64
-	err := query.QueryRowContext(ctx, `SELECT COUNT(*),COALESCE(SUM(COALESCE(length(request_json),0)+length(body_json)+CASE WHEN state IN ('queued','running') THEN ? ELSE 0 END),0),
-		COALESCE(SUM(CASE WHEN owner_user_id=? THEN 1 ELSE 0 END),0),COALESCE(SUM(CASE WHEN owner_user_id=? THEN COALESCE(length(request_json),0)+length(body_json)+CASE WHEN state IN ('queued','running') THEN ? ELSE 0 END ELSE 0 END),0),
-		COALESCE(SUM(CASE WHEN key_id=? THEN 1 ELSE 0 END),0),COALESCE(SUM(CASE WHEN key_id=? THEN COALESCE(length(request_json),0)+length(body_json)+CASE WHEN state IN ('queued','running') THEN ? ELSE 0 END ELSE 0 END),0)
+	err := query.QueryRowContext(ctx, `SELECT COUNT(*),COALESCE(SUM(COALESCE(length(request_json),0)+length(body_json)+COALESCE(length(conversation_items_json),0)+CASE WHEN state IN ('queued','running') THEN ? ELSE 0 END),0),
+		COALESCE(SUM(CASE WHEN owner_user_id=? THEN 1 ELSE 0 END),0),COALESCE(SUM(CASE WHEN owner_user_id=? THEN COALESCE(length(request_json),0)+length(body_json)+COALESCE(length(conversation_items_json),0)+CASE WHEN state IN ('queued','running') THEN ? ELSE 0 END ELSE 0 END),0),
+		COALESCE(SUM(CASE WHEN key_id=? THEN 1 ELSE 0 END),0),COALESCE(SUM(CASE WHEN key_id=? THEN COALESCE(length(request_json),0)+length(body_json)+COALESCE(length(conversation_items_json),0)+CASE WHEN state IN ('queued','running') THEN ? ELSE 0 END ELSE 0 END),0)
 		FROM stored_responses WHERE expires_at>?`, maxInferenceBody, ownerID, ownerID, maxInferenceBody, keyID, keyID, maxInferenceBody, time.Now().UnixMilli()).Scan(&count, &size, &ownerCount, &ownerSize, &keyCount, &keySize)
 	if err != nil {
 		return err
@@ -408,7 +429,8 @@ func (handler *Handler) cancelResponse(response http.ResponseWriter, request *ht
 	id, now := request.PathValue("response_id"), time.Now()
 	var modelID, state string
 	var createdAt int64
-	err := handler.database.QueryRowContext(request.Context(), `SELECT model_id,state,created_at FROM stored_responses WHERE id=? AND key_id=? AND expires_at>?`, id, principal.KeyID, now.UnixMilli()).Scan(&modelID, &state, &createdAt)
+	var conversationID sql.NullString
+	err := handler.database.QueryRowContext(request.Context(), `SELECT model_id,state,created_at,conversation_id FROM stored_responses WHERE id=? AND key_id=? AND expires_at>?`, id, principal.KeyID, now.UnixMilli()).Scan(&modelID, &state, &createdAt, &conversationID)
 	if errors.Is(err, sql.ErrNoRows) {
 		handler.writeError(response, "responses", http.StatusNotFound, "not_found", "Response not found")
 		return
@@ -421,8 +443,8 @@ func (handler *Handler) cancelResponse(response http.ResponseWriter, request *ht
 		handler.writeError(response, "responses", http.StatusBadRequest, "invalid_request", "Only queued or in-progress Responses can be cancelled")
 		return
 	}
-	body := responseState(id, modelID, "cancelled", time.UnixMilli(createdAt), nil)
-	result, err := handler.database.ExecContext(request.Context(), `UPDATE stored_responses SET state='cancelled',body_json=?,cancel_requested=1,finished_at=? WHERE id=? AND key_id=? AND state IN ('queued','running')`, body, now.UnixMilli(), id, principal.KeyID)
+	body := responseState(id, modelID, "cancelled", time.UnixMilli(createdAt), nil, conversationID.String)
+	result, err := handler.database.ExecContext(request.Context(), `UPDATE stored_responses SET state='cancelled',body_json=?,cancel_requested=1,finished_at=?,conversation_items_json=NULL WHERE id=? AND key_id=? AND state IN ('queued','running')`, body, now.UnixMilli(), id, principal.KeyID)
 	if err != nil {
 		handler.writeError(response, "responses", http.StatusServiceUnavailable, "gateway_unavailable", "Response could not be cancelled")
 		return
@@ -564,11 +586,14 @@ func principalHasScope(scopes []string, wanted string) bool {
 	return false
 }
 
-func responseState(id, modelID, status string, createdAt time.Time, responseError map[string]string) []byte {
+func responseState(id, modelID, status string, createdAt time.Time, responseError map[string]string, conversationID ...string) []byte {
 	value := map[string]any{
 		"id": id, "object": "response", "created_at": createdAt.Unix(), "status": status,
 		"background": true, "store": true, "model": modelID, "output": []any{},
 		"error": responseError, "incomplete_details": nil, "usage": nil,
+	}
+	if len(conversationID) > 0 && conversationID[0] != "" {
+		value["conversation"] = map[string]string{"id": conversationID[0]}
 	}
 	encoded, _ := json.Marshal(value)
 	return encoded
@@ -602,18 +627,19 @@ func (handler *Handler) RunBackground(ctx context.Context) {
 }
 
 func (handler *Handler) recoverBackground(ctx context.Context) error {
-	rows, err := handler.database.QueryContext(ctx, `SELECT id,model_id,created_at FROM stored_responses WHERE state='running' AND expires_at>?`, time.Now().UnixMilli())
+	rows, err := handler.database.QueryContext(ctx, `SELECT id,model_id,created_at,conversation_id FROM stored_responses WHERE state='running' AND expires_at>?`, time.Now().UnixMilli())
 	if err != nil {
 		return err
 	}
 	type interrupted struct {
-		id, model string
-		created   int64
+		id, model    string
+		created      int64
+		conversation sql.NullString
 	}
 	var values []interrupted
 	for rows.Next() {
 		var value interrupted
-		if rows.Scan(&value.id, &value.model, &value.created) == nil {
+		if rows.Scan(&value.id, &value.model, &value.created, &value.conversation) == nil {
 			values = append(values, value)
 		}
 	}
@@ -621,8 +647,8 @@ func (handler *Handler) recoverBackground(ctx context.Context) error {
 		return err
 	}
 	for _, value := range values {
-		body := responseState(value.id, value.model, "failed", time.UnixMilli(value.created), map[string]string{"code": "background_interrupted", "message": "The gateway restarted while the provider outcome was unknown."})
-		result, err := handler.database.ExecContext(ctx, `UPDATE stored_responses SET state='interrupted_unknown',body_json=?,finished_at=? WHERE id=? AND state='running'`, body, time.Now().UnixMilli(), value.id)
+		body := responseState(value.id, value.model, "failed", time.UnixMilli(value.created), map[string]string{"code": "background_interrupted", "message": "The gateway restarted while the provider outcome was unknown."}, value.conversation.String)
+		result, err := handler.database.ExecContext(ctx, `UPDATE stored_responses SET state='interrupted_unknown',body_json=?,finished_at=?,conversation_items_json=NULL WHERE id=? AND state='running'`, body, time.Now().UnixMilli(), value.id)
 		if err != nil {
 			return err
 		}
@@ -636,13 +662,27 @@ func (handler *Handler) recoverBackground(ctx context.Context) error {
 func (handler *Handler) claimBackground(ctx context.Context) (backgroundJob, bool) {
 	var job backgroundJob
 	var created int64
+	var conversationID sql.NullString
+	var conversationRevision sql.NullInt64
+	var conversationItems []byte
 	now := time.Now().UnixMilli()
-	err := handler.database.QueryRowContext(ctx, `UPDATE stored_responses SET state='running',lease_epoch=?,claimed_at=? WHERE id=(SELECT id FROM stored_responses WHERE state='queued' AND expires_at>? ORDER BY CASE WHEN owner_user_id=? THEN 1 ELSE 0 END,CASE WHEN key_id=? THEN 1 ELSE 0 END,created_at,id LIMIT 1) AND state='queued' RETURNING id,owner_user_id,key_id,model_id,request_json,created_at`, handler.epoch, now, now, handler.lastOwner, handler.lastKey).Scan(&job.id, &job.ownerID, &job.keyID, &job.modelID, &job.request, &created)
+	err := handler.database.QueryRowContext(ctx, `UPDATE stored_responses SET state='running',lease_epoch=?,claimed_at=? WHERE id=(SELECT id FROM stored_responses WHERE state='queued' AND expires_at>? ORDER BY CASE WHEN owner_user_id=? THEN 1 ELSE 0 END,CASE WHEN key_id=? THEN 1 ELSE 0 END,created_at,id LIMIT 1) AND state='queued' RETURNING id,owner_user_id,key_id,model_id,request_json,created_at,conversation_id,conversation_revision,conversation_items_json`, handler.epoch, now, now, handler.lastOwner, handler.lastKey).Scan(&job.id, &job.ownerID, &job.keyID, &job.modelID, &job.request, &created, &conversationID, &conversationRevision, &conversationItems)
 	if err != nil {
 		return backgroundJob{}, false
 	}
 	job.createdAt = time.UnixMilli(created)
-	body := responseState(job.id, job.modelID, "in_progress", job.createdAt, nil)
+	if conversationID.Valid || conversationRevision.Valid || len(conversationItems) > 0 {
+		var items []json.RawMessage
+		job.invalidAttachment = !conversationID.Valid || !conversationRevision.Valid || json.Unmarshal(conversationItems, &items) != nil
+		if !job.invalidAttachment {
+			job.attachment = &conversationAttachment{id: conversationID.String, keyID: job.keyID, ownerID: job.ownerID, revision: conversationRevision.Int64, newItems: items, requestBody: job.request}
+		}
+	}
+	stateConversationID := ""
+	if job.attachment != nil {
+		stateConversationID = job.attachment.id
+	}
+	body := responseState(job.id, job.modelID, "in_progress", job.createdAt, nil, stateConversationID)
 	if !handler.transitionBackground(ctx, `UPDATE stored_responses SET body_json=? WHERE id=? AND state='running' AND lease_epoch=?`, body, job.id, handler.epoch) {
 		return backgroundJob{}, false
 	}
@@ -651,10 +691,26 @@ func (handler *Handler) claimBackground(ctx context.Context) (backgroundJob, boo
 }
 
 func (handler *Handler) runBackground(parent context.Context, job backgroundJob) {
+	if job.invalidAttachment {
+		handler.failBackground(parent, job, "invalid_request", "The stored conversation attachment is invalid.")
+		return
+	}
 	principal, err := handler.keys.Principal(parent, job.keyID)
 	if err != nil || !principalHasScope(principal.Scopes, "responses:generate") {
 		handler.failBackground(parent, job, "permission_denied", "The API key or its grants are no longer active.")
 		return
+	}
+	if job.attachment != nil {
+		var revision int64
+		err = handler.database.QueryRowContext(parent, "SELECT revision FROM conversations WHERE id=? AND key_id=? AND deleted_at IS NULL", job.attachment.id, job.keyID).Scan(&revision)
+		if errors.Is(err, sql.ErrNoRows) || err == nil && revision != job.attachment.revision {
+			handler.failBackground(parent, job, "conversation_conflict", "The conversation changed before the Response started.")
+			return
+		}
+		if err != nil {
+			handler.failBackground(parent, job, "gateway_unavailable", "The conversation could not be checked.")
+			return
+		}
 	}
 	var envelope map[string]json.RawMessage
 	if json.Unmarshal(job.request, &envelope) != nil {
@@ -663,6 +719,13 @@ func (handler *Handler) runBackground(parent context.Context, job backgroundJob)
 	}
 	envelope["background"], envelope["store"], envelope["stream"] = json.RawMessage(`false`), json.RawMessage(`false`), json.RawMessage(`false`)
 	body, _ := json.Marshal(envelope)
+	if job.attachment != nil {
+		body, err = conversationDispatchBody(body)
+		if err != nil {
+			handler.failBackground(parent, job, "invalid_request", "The stored conversation attachment is invalid.")
+			return
+		}
+	}
 	jobContext, cancel := context.WithCancel(parent)
 	handler.activeMu.Lock()
 	handler.active[job.id] = cancel
@@ -679,6 +742,10 @@ func (handler *Handler) runBackground(parent context.Context, job backgroundJob)
 	}
 	recorder := &memoryResponse{header: make(http.Header)}
 	request, _ := http.NewRequestWithContext(jobContext, http.MethodPost, "/api/openai/v1/responses", bytes.NewReader(body))
+	if job.attachment != nil {
+		job.attachment.deferStore = true
+		request = request.WithContext(context.WithValue(request.Context(), conversationAttachmentContextKey{}, job.attachment))
+	}
 	handler.forwardAuthorized(recorder, request, "responses", "responses:generate", "responses", "", nil, principal, body)
 	if parent.Err() != nil {
 		return
@@ -694,18 +761,92 @@ func (handler *Handler) runBackground(parent context.Context, job backgroundJob)
 		return
 	}
 	if recorder.status >= 200 && recorder.status < 300 {
-		stored, rewriteErr := rewriteResponse(job.id, job.modelID, true, job.createdAt, recorder.body.Bytes())
-		if rewriteErr == nil {
-			handler.transitionBackground(parent, `UPDATE stored_responses SET state='completed',body_json=?,finished_at=? WHERE id=? AND state='running' AND lease_epoch=?`, stored, time.Now().UnixMilli(), job.id, handler.epoch)
+		if job.attachment != nil && recorder.settlement.FinalRequest {
+			handler.failBackground(parent, job, "background_interrupted", "The provider request was interrupted before conversation completion.")
 			return
 		}
+		result := recorder.body.Bytes()
+		stored, rewriteErr := rewriteResponse(job.id, job.modelID, true, job.createdAt, result)
+		if rewriteErr == nil {
+			if job.attachment == nil {
+				handler.transitionBackground(parent, `UPDATE stored_responses SET state='completed',body_json=?,finished_at=? WHERE id=? AND state='running' AND lease_epoch=?`, stored, time.Now().UnixMilli(), job.id, handler.epoch)
+				return
+			}
+			for {
+				err = handler.completeBackgroundConversation(parent, job, stored, recorder.requestID)
+				if err == nil || errors.Is(err, errBackgroundStateChanged) {
+					if errors.Is(err, errBackgroundStateChanged) && !recorder.settlement.FinalRequest {
+						handler.finalizeBackgroundRequest(parent, recorder.requestID, "failed")
+					}
+					return
+				}
+				if errors.Is(err, errConversationChanged) {
+					if !recorder.settlement.FinalRequest {
+						handler.finalizeBackgroundRequest(parent, recorder.requestID, "failed")
+					}
+					handler.failBackground(parent, job, "conversation_conflict", "The conversation changed before the Response completed.")
+					return
+				}
+				if errors.Is(err, errConversationLimit) || errors.Is(err, errConversationItemLimit) {
+					if !recorder.settlement.FinalRequest {
+						handler.finalizeBackgroundRequest(parent, recorder.requestID, "failed")
+					}
+					handler.failBackground(parent, job, "conversation_limit", "The conversation retention limit was reached.")
+					return
+				}
+				if !waitBackground(parent, 250*time.Millisecond) {
+					return
+				}
+			}
+		}
+	}
+	if recorder.requestID != "" && !recorder.settlement.FinalRequest {
+		handler.finalizeBackgroundRequest(parent, recorder.requestID, "failed")
 	}
 	handler.failBackground(parent, job, "background_failed", "The provider request failed.")
 }
 
+func (handler *Handler) completeBackgroundConversation(ctx context.Context, job backgroundJob, body []byte, requestID string) error {
+	tx, err := handler.database.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	if err := appendConversationTurn(ctx, tx, *job.attachment, time.Now().UnixMilli()); err != nil {
+		return err
+	}
+	result, err := tx.ExecContext(ctx, `UPDATE stored_responses SET state='completed',body_json=?,finished_at=?,conversation_items_json=NULL WHERE id=? AND state='running' AND lease_epoch=?`, body, time.Now().UnixMilli(), job.id, handler.epoch)
+	if err != nil {
+		return err
+	}
+	if changed, err := result.RowsAffected(); err != nil || changed != 1 {
+		return errBackgroundStateChanged
+	}
+	if err := handler.usage.FinalizeRequestTx(ctx, tx, requestID, "succeeded"); err != nil {
+		return err
+	}
+	return tx.Commit()
+}
+
+func (handler *Handler) finalizeBackgroundRequest(ctx context.Context, requestID, state string) bool {
+	for requestID != "" {
+		if err := handler.usage.FinalizeRequest(ctx, requestID, state); err == nil || errors.Is(err, usage.ErrConflict) {
+			return true
+		}
+		if !waitBackground(ctx, 250*time.Millisecond) {
+			return false
+		}
+	}
+	return true
+}
+
 func (handler *Handler) failBackground(ctx context.Context, job backgroundJob, code, message string) {
-	body := responseState(job.id, job.modelID, "failed", job.createdAt, map[string]string{"code": code, "message": message})
-	handler.transitionBackground(ctx, `UPDATE stored_responses SET state='failed',body_json=?,finished_at=? WHERE id=? AND state IN ('queued','running')`, body, time.Now().UnixMilli(), job.id)
+	conversationID := ""
+	if job.attachment != nil {
+		conversationID = job.attachment.id
+	}
+	body := responseState(job.id, job.modelID, "failed", job.createdAt, map[string]string{"code": code, "message": message}, conversationID)
+	handler.transitionBackground(ctx, `UPDATE stored_responses SET state='failed',body_json=?,finished_at=?,conversation_items_json=NULL WHERE id=? AND state IN ('queued','running')`, body, time.Now().UnixMilli(), job.id)
 }
 
 func (handler *Handler) transitionBackground(ctx context.Context, statement string, args ...any) bool {
@@ -745,13 +886,14 @@ type memoryResponse struct {
 	header        http.Header
 	status        int
 	body          bytes.Buffer
+	requestID     string
 	attemptID     string
 	settlement    usage.SettlementInput
 	settlementErr error
 }
 
-func (response *memoryResponse) observeSettlement(attemptID string, input usage.SettlementInput, err error) {
-	response.attemptID, response.settlement, response.settlementErr = attemptID, input, err
+func (response *memoryResponse) observeSettlement(requestID, attemptID string, input usage.SettlementInput, err error) {
+	response.requestID, response.attemptID, response.settlement, response.settlementErr = requestID, attemptID, input, err
 }
 
 func (response *memoryResponse) Header() http.Header { return response.header }

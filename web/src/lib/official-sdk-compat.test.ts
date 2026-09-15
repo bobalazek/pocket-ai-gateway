@@ -100,6 +100,16 @@ describe("official SDK compatibility through the Go gateway", () => {
     expect(response.conversation).toEqual({ id: conversation.id });
     const responseItemID = response.output[0]?.id;
     expect(responseItemID).toMatch(/^citem_/);
+    const background = await client.responses.create({ model: "target-openai", input: "Later", background: true, conversation: conversation.id });
+    expect(background.conversation).toEqual({ id: conversation.id });
+    let backgroundCompleted = background;
+    for (let attempt = 0; attempt < 50 && backgroundCompleted.status !== "completed"; attempt++) {
+      await new Promise((resolve) => setTimeout(resolve, 20));
+      backgroundCompleted = await client.responses.retrieve(background.id);
+    }
+    expect(backgroundCompleted).toMatchObject({ status: "completed", conversation: { id: conversation.id } });
+    const backgroundItemID = backgroundCompleted.output[0]?.id;
+    expect(backgroundItemID).toMatch(/^citem_/);
     const added = await client.conversations.items.create(conversation.id, {
       items: [
         { type: "message", role: "user", content: [{ type: "input_text", text: "Next" }] },
@@ -116,6 +126,7 @@ describe("official SDK compatibility through the Go gateway", () => {
     expect(page.has_more).toBe(true);
     const conversationItems = await client.conversations.items.list(conversation.id, { order: "asc", limit: 100 });
     expect(conversationItems.data.some((item) => item.id === responseItemID)).toBe(true);
+    expect(conversationItems.data.some((item) => item.id === backgroundItemID)).toBe(true);
     expect((await client.conversations.update(conversation.id, { metadata: { topic: "updated" } })).metadata).toEqual({ topic: "updated" });
     expect((await client.conversations.items.delete(itemID, { conversation_id: conversation.id })).id).toBe(conversation.id);
     expect(await client.conversations.delete(conversation.id)).toMatchObject({ id: conversation.id, deleted: true });

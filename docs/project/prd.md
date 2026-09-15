@@ -118,7 +118,7 @@ Never retry after downstream headers or events are committed. Never splice two p
 
 Embeddings preserve indexes, dimensions, encoding, and batch order; token-ID inputs require a tested native path. Each public embedding model has one target and a versioned vector-space contract. A different embedding model requires a new public model or an explicit breaking change.
 
-Responses supports native and translated POST /api/openai/v1/responses across the three provider families, including typed output items, function tools/results, and stream lifecycle events. Non-streaming responses default to gateway-owned storage under the creating API key; `store:false` remains stateless. Durable background execution uses the same ownership contract. Provider resource chains, persisted conversation references, and hosted tools require separate phase 8 contracts. Opaque provider-affine inputs require a matching route or explicit rejection.
+Responses supports native and translated POST /api/openai/v1/responses across the three provider families, including typed output items, function tools/results, and stream lifecycle events. Non-streaming responses default to gateway-owned storage under the creating API key; `store:false` remains stateless. Durable background execution uses the same ownership contract. Gateway-owned Conversations attach to synchronous and background Responses; provider-owned response or conversation chains and hosted tools require separate phase 8 contracts. Opaque provider-affine inputs require a matching route or explicit rejection.
 
 **Acceptance:** embeddings never silently change vector space; unsupported Responses state receives an explicit error; local request history is never used as a substitute for provider conversation state.
 

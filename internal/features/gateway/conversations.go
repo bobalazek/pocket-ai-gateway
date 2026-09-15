@@ -49,6 +49,7 @@ type conversationAttachment struct {
 	newItems           []json.RawMessage
 	outputItems        []json.RawMessage
 	requestBody        []byte
+	deferStore         bool
 }
 
 type conversationAttachmentContextKey struct{}
@@ -114,11 +115,27 @@ func (handler *Handler) prepareConversationResponse(ctx context.Context, princip
 	envelope["input"] = storedInput
 	delete(envelope, "conversation")
 	storedBody, _ := json.Marshal(envelope)
-	dispatch := make([]json.RawMessage, 0, len(storedItems))
-	for _, item := range storedItems {
+	body, err := conversationDispatchBody(storedBody)
+	if err == nil && len(body) > maxInferenceBody {
+		err = errConversationContextTooLarge
+	}
+	return conversationAttachment{id: id, keyID: principal.KeyID, ownerID: principal.OwnerUserID, revision: revision, newItems: newItems, requestBody: storedBody}, body, err
+}
+
+func conversationDispatchBody(body []byte) ([]byte, error) {
+	var envelope map[string]json.RawMessage
+	if json.Unmarshal(body, &envelope) != nil || envelope == nil {
+		return nil, errors.New("conversation request is invalid")
+	}
+	var items []json.RawMessage
+	if json.Unmarshal(envelope["input"], &items) != nil {
+		return nil, errors.New("conversation input is invalid")
+	}
+	dispatch := make([]json.RawMessage, 0, len(items))
+	for _, item := range items {
 		var value map[string]json.RawMessage
 		if json.Unmarshal(item, &value) != nil {
-			return conversationAttachment{}, nil, errors.New("conversation contains an invalid item")
+			return nil, errors.New("conversation contains an invalid item")
 		}
 		delete(value, "id")
 		encoded, _ := json.Marshal(value)
@@ -126,11 +143,7 @@ func (handler *Handler) prepareConversationResponse(ctx context.Context, princip
 	}
 	encodedItems, _ := json.Marshal(dispatch)
 	envelope["input"] = encodedItems
-	body, err := json.Marshal(envelope)
-	if err == nil && len(body) > maxInferenceBody {
-		err = errConversationContextTooLarge
-	}
-	return conversationAttachment{id: id, keyID: principal.KeyID, ownerID: principal.OwnerUserID, revision: revision, newItems: newItems, requestBody: storedBody}, body, err
+	return json.Marshal(envelope)
 }
 
 func responseRequestConversationItems(raw json.RawMessage) ([]json.RawMessage, error) {
