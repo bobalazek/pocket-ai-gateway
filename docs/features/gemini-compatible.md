@@ -34,6 +34,8 @@ streamGenerateContent?alt=sse emits incremental native response envelopes; it is
 
 Map systemInstruction, contents/parts, functionCall/functionResponse, candidate finish/safety metadata, and usage to/from OpenAI and Anthropic. Preserve valid thought signatures/provider-affine content; reject incompatible replay rather than discarding it. Distinguish generated token counts from thinking/cache details according to the actual target.
 
+The gateway keeps `usageMetadata` unchanged and separately normalizes `cachedContentTokenCount` into request accounting. `promptTokenCount` remains the total effective prompt size, including cached content, so the cache count is recorded as a subset and never added twice.
+
 When native clients use a query-string key, redact it before all logs/traces/captures. Prefer header authentication in docs. The path's public model resolves through ordinary grants and cannot be an arbitrary upstream resource.
 
 Automated coverage pins the Google Gen AI SDK and verifies its exact `/api/gemini/v1beta` request path, then exercises every provider family, native stream/error/tool shapes, authorized model lists, signature rejection, and credential replacement.

@@ -42,7 +42,10 @@ func (handler *Handler) requests(response http.ResponseWriter, request *http.Req
 		return
 	}
 	query := request.URL.Query()
-	items, next, err := handler.service.ListRequests(request.Context(), current.User, UsageQuery{UserID: query.Get("user_id"), KeyID: query.Get("key_id"), ModelID: query.Get("model_id"), Dialect: query.Get("dialect"), Cursor: query.Get("cursor")})
+	items, next, err := handler.service.ListRequests(request.Context(), current.User, UsageQuery{
+		UserID: query.Get("user_id"), KeyID: query.Get("key_id"), ModelID: query.Get("model_id"),
+		Dialect: query.Get("dialect"), Cursor: query.Get("cursor"), RequestID: query.Get("request_id"),
+	})
 	if err != nil {
 		handler.writeError(response, err)
 		return

@@ -28,6 +28,8 @@ type streamDelta struct {
 	Stop                      string
 	Done                      bool
 	InputTokens, OutputTokens *int64
+	Usage                     map[string]any
+	InvalidUsage              bool
 }
 
 type streamTool struct {
@@ -67,6 +69,9 @@ func TranslateStream(response http.ResponseWriter, source io.Reader, client, tar
 	tools := map[int]*streamTool{}
 	started, textStarted, completed := false, false, false
 	var inputTokens, outputTokens *int64
+	usageFields := map[string]any{}
+	invalidUsage := false
+	terminalSeen, terminalUsage := false, false
 	var bytesRead int64
 	textOutputIndex := -1
 	stop, refusal, nextOutput := "", "", 0
@@ -74,7 +79,10 @@ func TranslateStream(response http.ResponseWriter, source io.Reader, client, tar
 		if len(tools) == 0 {
 			status = "none"
 		}
-		return usageDocument(target, inputTokens, outputTokens, int64(len(tools)), status)
+		if invalidUsage {
+			return usageDocument(target, nil, nil, usageFields, int64(len(tools)), status)
+		}
+		return usageDocument(target, inputTokens, outputTokens, usageFields, int64(len(tools)), status)
 	}
 	ensureStarted := func() {
 		if started {
@@ -182,6 +190,7 @@ func TranslateStream(response http.ResponseWriter, source io.Reader, client, tar
 		}
 		if delta.Stop != "" {
 			stop = delta.Stop
+			terminalSeen = true
 		}
 		if delta.Refusal != "" {
 			refusal += delta.Refusal
@@ -191,6 +200,18 @@ func TranslateStream(response http.ResponseWriter, source io.Reader, client, tar
 		}
 		if delta.OutputTokens != nil {
 			outputTokens = delta.OutputTokens
+		}
+		for name, value := range delta.Usage {
+			usageFields[name] = value
+		}
+		invalidUsage = invalidUsage || delta.InvalidUsage
+		switch target {
+		case "openai", "openai_compatible":
+			terminalUsage = terminalUsage || terminalSeen && delta.InputTokens != nil && delta.OutputTokens != nil
+		case "anthropic":
+			terminalUsage = terminalUsage || delta.Stop != "" && delta.OutputTokens != nil && inputTokens != nil
+		case "gemini":
+			terminalUsage = terminalUsage || delta.Done && delta.OutputTokens != nil && inputTokens != nil
 		}
 		completed = completed || delta.Done
 		return emitErr
@@ -236,6 +257,13 @@ func TranslateStream(response http.ResponseWriter, source io.Reader, client, tar
 	}
 	if !completed {
 		return http.StatusOK, metadata("incomplete"), fmt.Errorf("%w: terminal event missing", ErrUpstreamResponseInterrupted)
+	}
+	if invalidUsage {
+		return http.StatusOK, metadata("incomplete"), errors.New("upstream stream contains invalid token usage")
+	}
+	if !terminalUsage {
+		invalidUsage = true
+		return http.StatusOK, metadata("incomplete"), errors.New("upstream stream omitted terminal token usage")
 	}
 	for _, tool := range tools {
 		if tool.Arguments == "" {
@@ -337,7 +365,7 @@ func decodeStreamDelta(target string, payload []byte) (streamDelta, error) {
 		return streamDelta{}, errors.New("upstream stream contains invalid JSON")
 	}
 	var result streamDelta
-	result.InputTokens, result.OutputTokens = streamUsage(target, value)
+	result.InputTokens, result.OutputTokens, result.Usage, result.InvalidUsage = streamUsage(target, value)
 	switch target {
 	case "openai", "openai_compatible":
 		choices := array(value["choices"])
@@ -417,40 +445,60 @@ func decodeStreamDelta(target string, payload []byte) (streamDelta, error) {
 	return result, nil
 }
 
-func streamUsage(target string, value map[string]any) (*int64, *int64) {
-	usage := objectMap(value["usage"])
+func streamUsage(target string, value map[string]any) (*int64, *int64, map[string]any, bool) {
+	rawUsage := value["usage"]
+	usage := objectMap(rawUsage)
 	inputName, outputName := "prompt_tokens", "completion_tokens"
 	if target == "anthropic" {
-		if len(usage) == 0 {
-			usage = objectMap(objectMap(value["message"])["usage"])
+		if rawUsage == nil {
+			rawUsage = objectMap(value["message"])["usage"]
+			usage = objectMap(rawUsage)
 		}
 		inputName, outputName = "input_tokens", "output_tokens"
 	} else if target == "gemini" {
-		usage = objectMap(value["usageMetadata"])
+		rawUsage = value["usageMetadata"]
+		usage = objectMap(rawUsage)
 		inputName, outputName = "promptTokenCount", "candidatesTokenCount"
 	}
+	_, usageIsObject := rawUsage.(map[string]any)
+	invalid := rawUsage != nil && !usageIsObject
 	var input, output *int64
-	if number, ok := integer(usage[inputName]); ok {
-		input = &number
+	if raw, exists := usage[inputName]; exists {
+		if number, ok := integer(raw); ok {
+			input = &number
+		} else {
+			invalid = true
+		}
 	}
-	if number, ok := integer(usage[outputName]); ok {
-		output = &number
+	if raw, exists := usage[outputName]; exists {
+		if number, ok := integer(raw); ok {
+			output = &number
+		} else {
+			invalid = true
+		}
 	}
-	return input, output
+	return input, output, usage, invalid
 }
 
-func usageDocument(target string, input, output *int64, toolCalls int64, toolStatus string) []byte {
+func usageDocument(target string, input, output *int64, fields map[string]any, toolCalls int64, toolStatus string) []byte {
 	result := map[string]any{"_gateway_tool_call_count": toolCalls, "_gateway_tool_call_status": toolStatus}
 	if input == nil || output == nil {
 		return mustJSON(result)
 	}
+	usage := make(map[string]any, len(fields)+2)
+	for name, value := range fields {
+		usage[name] = value
+	}
 	switch target {
 	case "anthropic":
-		result["usage"] = map[string]any{"input_tokens": *input, "output_tokens": *output}
+		usage["input_tokens"], usage["output_tokens"] = *input, *output
+		result["usage"] = usage
 	case "gemini":
-		result["usageMetadata"] = map[string]any{"promptTokenCount": *input, "candidatesTokenCount": *output}
+		usage["promptTokenCount"], usage["candidatesTokenCount"] = *input, *output
+		result["usageMetadata"] = usage
 	default:
-		result["usage"] = map[string]any{"prompt_tokens": *input, "completion_tokens": *output}
+		usage["prompt_tokens"], usage["completion_tokens"] = *input, *output
+		result["usage"] = usage
 	}
 	return mustJSON(result)
 }

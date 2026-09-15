@@ -28,6 +28,7 @@ func parseUsageDetails(dialect string, raw []byte) parsedUsage {
 	foundCacheCreation, foundCacheRead := false, false
 	var cacheCreation5m, cacheCreation1h int64
 	foundCacheCreation5m, foundCacheCreation1h := false, false
+	invalidCache := false
 	for _, object := range responseObjects(raw) {
 		var value map[string]any
 		if json.Unmarshal(object, &value) != nil {
@@ -94,6 +95,54 @@ func parseUsageDetails(dialect string, raw []byte) parsedUsage {
 					cacheCreation1h, foundCacheCreation1h = number, true
 				}
 			}
+		} else if dialect == "gemini" {
+			if rawCache, exists := usageMap["cachedContentTokenCount"]; exists {
+				if number, ok := integer(rawCache); ok {
+					cacheRead, foundCacheRead = number, true
+				} else {
+					invalidCache = true
+				}
+			}
+		} else {
+			var objectCacheRead int64
+			foundObjectCacheRead := false
+			setCacheRead := func(rawCache any) {
+				number, ok := integer(rawCache)
+				if !ok || foundObjectCacheRead && objectCacheRead != number {
+					invalidCache = true
+					return
+				}
+				objectCacheRead, foundObjectCacheRead = number, true
+			}
+			for _, detailsName := range []string{"prompt_tokens_details", "input_tokens_details"} {
+				if rawDetails, exists := usageMap[detailsName]; exists && rawDetails != nil {
+					details, ok := rawDetails.(map[string]any)
+					if !ok {
+						invalidCache = true
+						continue
+					}
+					if rawCache, exists := details["cached_tokens"]; exists {
+						setCacheRead(rawCache)
+					}
+				}
+			}
+			if rawCache, exists := usageMap["prompt_cache_hit_tokens"]; exists {
+				setCacheRead(rawCache)
+			}
+			if rawMiss, exists := usageMap["prompt_cache_miss_tokens"]; exists {
+				miss, ok := integer(rawMiss)
+				currentInput, hasCurrentInput := integer(usageMap[inputName])
+				if !ok || !hasCurrentInput || miss > currentInput {
+					invalidCache = true
+				} else if foundObjectCacheRead {
+					invalidCache = invalidCache || objectCacheRead > currentInput-miss || objectCacheRead+miss != currentInput
+				} else {
+					objectCacheRead, foundObjectCacheRead = currentInput-miss, true
+				}
+			}
+			if foundObjectCacheRead {
+				cacheRead, foundCacheRead = objectCacheRead, true
+			}
 		}
 	}
 	if !foundInput || !foundOutput {
@@ -108,7 +157,7 @@ func parseUsageDetails(dialect string, raw []byte) parsedUsage {
 			}
 		}
 	}
-	if !foundInput || !foundOutput {
+	if !foundInput || !foundOutput || invalidCache || dialect != "anthropic" && foundCacheRead && cacheRead > input {
 		return parsedUsage{}
 	}
 	if dialect == "anthropic" {

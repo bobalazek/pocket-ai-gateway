@@ -20,6 +20,8 @@ Protocol roots are /api/openai, /api/anthropic, and /api/gemini. Each retains it
 
 The prefix names the **client API specification**, not a forced upstream provider. /api/anthropic/v1/messages may target Gemini or OpenAI through translation, and its response remains Anthropic-shaped. Gateway metadata at /api/v1/models has its own schema and is distinct from all three compatible model-list endpoints.
 
+Compatible responses keep their native usage fields. After admission, every forwarded response also carries `X-Pocket-AI-Request-ID`; use that value as the exact `request_id` filter on `GET /api/v1/requests` to inspect normalized input, output, cache, estimated, recorded, and restated cost data. Cost stays outside provider response bodies so OpenAI, Anthropic, and Gemini SDK compatibility is preserved. Unknown usage or pricing is returned as `null`, never zero.
+
 ## Operation inventory
 
 | Endpoint | Wire contract / initial behavior |
@@ -183,7 +185,7 @@ Base path /api/v1/. Server-side session cookies authorize browser operations; se
 | Public models/routes | GET/POST /models, GET /admin/models, GET/PUT /admin/models/{id}/route | Owner/admin mutations; member reads limited public projection; fixed and embedding routes use one target; free-only needs manager-recorded zero pricing verified within 24 hours |
 | Route preview | POST /admin/models/{id}/route-preview | Owner/admin; representative operation, stream mode, and token estimates; no dispatch |
 | Policies | GET /keys/{id}/effective-limits, GET/POST /admin/policies, PATCH /admin/policies/{id} | Owner/admin writes; member reads own effective limits |
-| Requests/attempts | GET /requests | Server ownership filter; source/target route, usage, declared-tool count, returned-tool-call count, optional web-search ceiling/completed-call count, and completion state; no prompt or argument capture |
+| Requests/attempts | GET /requests | Server ownership filter and exact `request_id` lookup; source/target route, normalized usage/cache counts, estimated/recorded/restated costs with price provenance, tool counts, and completion state; no prompt or argument capture |
 | Captured content | GET /requests/{id}/content | Separate opt-in permission and audit |
 | Usage/unknowns | GET /usage, GET /usage/unresolved, POST /admin/usage/adjustments | Scoped reads with separate token/cache/web-search-call counters and known/unknown cost; audited privileged adjustments |
 | Repricing | POST /admin/usage/reprice-preview, POST /admin/usage/reprice | Bounded synchronous preview and idempotent historical adjustments |
