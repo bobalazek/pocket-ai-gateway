@@ -34,7 +34,7 @@ func (handler *Handler) updateGrants(response http.ResponseWriter, request *http
 	if !ok {
 		return
 	}
-	revision, ok := requireRevision(response, request)
+	revision, ok := auth.RequireRevision(response, request)
 	if !ok {
 		return
 	}
@@ -47,7 +47,7 @@ func (handler *Handler) updateGrants(response http.ResponseWriter, request *http
 		handler.writeError(response, err)
 		return
 	}
-	response.Header().Set("ETag", etag(user.Revision))
+	response.Header().Set("ETag", auth.ETag(user.Revision))
 	auth.WriteJSON(response, http.StatusOK, map[string]any{"user": user})
 }
 
@@ -80,7 +80,7 @@ func (handler *Handler) create(response http.ResponseWriter, request *http.Reque
 		return
 	}
 	response.Header().Set("Cache-Control", "no-store")
-	response.Header().Set("ETag", etag(user.Revision))
+	response.Header().Set("ETag", auth.ETag(user.Revision))
 	auth.WriteJSON(response, http.StatusCreated, map[string]any{"user": user, "activation_code": code})
 }
 
@@ -94,7 +94,7 @@ func (handler *Handler) get(response http.ResponseWriter, request *http.Request)
 		handler.writeError(response, err)
 		return
 	}
-	response.Header().Set("ETag", etag(user.Revision))
+	response.Header().Set("ETag", auth.ETag(user.Revision))
 	auth.WriteJSON(response, http.StatusOK, map[string]any{"user": user})
 }
 
@@ -103,7 +103,7 @@ func (handler *Handler) update(response http.ResponseWriter, request *http.Reque
 	if !ok {
 		return
 	}
-	revision, ok := requireRevision(response, request)
+	revision, ok := auth.RequireRevision(response, request)
 	if !ok {
 		return
 	}
@@ -116,7 +116,7 @@ func (handler *Handler) update(response http.ResponseWriter, request *http.Reque
 		handler.writeError(response, err)
 		return
 	}
-	response.Header().Set("ETag", etag(user.Revision))
+	response.Header().Set("ETag", auth.ETag(user.Revision))
 	auth.WriteJSON(response, http.StatusOK, map[string]any{"user": user})
 }
 
@@ -182,15 +182,3 @@ func (handler *Handler) writeError(response http.ResponseWriter, err error) {
 		auth.WriteError(response, http.StatusServiceUnavailable, "users_unavailable", "Users are unavailable")
 	}
 }
-
-func requireRevision(response http.ResponseWriter, request *http.Request) (int64, bool) {
-	value := strings.Trim(request.Header.Get("If-Match"), "\"")
-	revision, err := strconv.ParseInt(value, 10, 64)
-	if err != nil || revision < 1 {
-		auth.WriteError(response, http.StatusPreconditionRequired, "revision_required", "Send the current ETag in If-Match")
-		return 0, false
-	}
-	return revision, true
-}
-
-func etag(revision int64) string { return "\"" + strconv.FormatInt(revision, 10) + "\"" }

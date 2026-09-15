@@ -362,7 +362,7 @@ func (service *Service) ChangePassword(ctx context.Context, current Authenticate
 }
 
 func (service *Service) UpdateProfile(ctx context.Context, current AuthenticatedSession, input ProfileInput) (User, string, error) {
-	email, displayName, err := validateIdentity(input.Email, input.DisplayName)
+	email, displayName, err := ValidateIdentity(input.Email, input.DisplayName)
 	if err != nil {
 		return User{}, "", err
 	}

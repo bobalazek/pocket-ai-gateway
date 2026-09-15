@@ -37,7 +37,7 @@ type streamTool struct {
 
 func (handler *Handler) translateStream(response http.ResponseWriter, source io.Reader, client, target, model string) (int, []byte, error) {
 	if client == "anthropic" && target != "anthropic" {
-		return http.StatusBadRequest, nil, errors.New("Anthropic streaming requires an Anthropic-compatible target")
+		return http.StatusBadRequest, nil, errors.New("anthropic streaming requires an Anthropic-compatible target")
 	}
 	flusher, ok := response.(http.Flusher)
 	if !ok {

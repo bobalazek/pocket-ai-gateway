@@ -113,7 +113,7 @@ func (handler *Handler) createPolicy(response http.ResponseWriter, request *http
 		handler.writeError(response, err)
 		return
 	}
-	response.Header().Set("ETag", revisionETag(policy.Revision))
+	response.Header().Set("ETag", auth.ETag(policy.Revision))
 	auth.WriteJSON(response, http.StatusCreated, map[string]any{"policy": policy})
 }
 
@@ -122,7 +122,7 @@ func (handler *Handler) updatePolicy(response http.ResponseWriter, request *http
 	if !ok {
 		return
 	}
-	revision, ok := requireRevision(response, request)
+	revision, ok := auth.RequireRevision(response, request)
 	if !ok {
 		return
 	}
@@ -139,7 +139,7 @@ func (handler *Handler) updatePolicy(response http.ResponseWriter, request *http
 		handler.writeError(response, err)
 		return
 	}
-	response.Header().Set("ETag", revisionETag(policy.Revision))
+	response.Header().Set("ETag", auth.ETag(policy.Revision))
 	auth.WriteJSON(response, http.StatusOK, map[string]any{"policy": policy})
 }
 
@@ -309,17 +309,6 @@ func (handler *Handler) writeError(response http.ResponseWriter, err error) {
 		auth.WriteError(response, http.StatusServiceUnavailable, "usage_unavailable", "Usage and limits are unavailable")
 	}
 }
-
-func requireRevision(response http.ResponseWriter, request *http.Request) (int64, bool) {
-	revision, err := strconv.ParseInt(strings.Trim(request.Header.Get("If-Match"), "\""), 10, 64)
-	if err != nil || revision < 1 {
-		auth.WriteError(response, http.StatusPreconditionRequired, "revision_required", "Send the current ETag in If-Match")
-		return 0, false
-	}
-	return revision, true
-}
-
-func revisionETag(revision int64) string { return "\"" + strconv.FormatInt(revision, 10) + "\"" }
 
 func requireRecentAuthentication(response http.ResponseWriter, current auth.AuthenticatedSession, action string) bool {
 	if current.AuthenticatedAt < time.Now().Add(-15*time.Minute).UnixMilli() {

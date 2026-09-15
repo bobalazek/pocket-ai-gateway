@@ -322,17 +322,6 @@ func openReadOnlyDatabase(ctx context.Context, filename string) (*sql.DB, error)
 	return database, nil
 }
 
-func checkpoint(ctx context.Context, database *sql.DB) error {
-	var busy, logFrames, checkpointed int
-	if err := database.QueryRowContext(ctx, "PRAGMA wal_checkpoint(TRUNCATE)").Scan(&busy, &logFrames, &checkpointed); err != nil {
-		return err
-	}
-	if busy != 0 {
-		return errors.New("database is busy")
-	}
-	return nil
-}
-
 func readManifest(filename string) (SnapshotManifest, error) {
 	file, info, err := openRegularFile(filename)
 	if err != nil {

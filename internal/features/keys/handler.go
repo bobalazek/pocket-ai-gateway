@@ -60,7 +60,7 @@ func (handler *Handler) create(response http.ResponseWriter, request *http.Reque
 		return
 	}
 	response.Header().Set("Cache-Control", "no-store")
-	response.Header().Set("ETag", etag(key.Revision))
+	response.Header().Set("ETag", auth.ETag(key.Revision))
 	auth.WriteJSON(response, http.StatusCreated, map[string]any{"key": key, "secret": secret})
 }
 
@@ -74,7 +74,7 @@ func (handler *Handler) get(response http.ResponseWriter, request *http.Request)
 		handler.writeError(response, err)
 		return
 	}
-	response.Header().Set("ETag", etag(key.Revision))
+	response.Header().Set("ETag", auth.ETag(key.Revision))
 	auth.WriteJSON(response, http.StatusOK, map[string]any{"key": key})
 }
 
@@ -83,7 +83,7 @@ func (handler *Handler) update(response http.ResponseWriter, request *http.Reque
 	if !ok {
 		return
 	}
-	revision, ok := requireRevision(response, request)
+	revision, ok := auth.RequireRevision(response, request)
 	if !ok {
 		return
 	}
@@ -96,7 +96,7 @@ func (handler *Handler) update(response http.ResponseWriter, request *http.Reque
 		handler.writeError(response, err)
 		return
 	}
-	response.Header().Set("ETag", etag(key.Revision))
+	response.Header().Set("ETag", auth.ETag(key.Revision))
 	auth.WriteJSON(response, http.StatusOK, map[string]any{"key": key})
 }
 
@@ -105,7 +105,7 @@ func (handler *Handler) revoke(response http.ResponseWriter, request *http.Reque
 	if !ok {
 		return
 	}
-	revision, ok := requireRevision(response, request)
+	revision, ok := auth.RequireRevision(response, request)
 	if !ok {
 		return
 	}
@@ -124,7 +124,7 @@ func (handler *Handler) rotate(response http.ResponseWriter, request *http.Reque
 	if !recentlyAuthenticated(response, current) {
 		return
 	}
-	revision, ok := requireRevision(response, request)
+	revision, ok := auth.RequireRevision(response, request)
 	if !ok {
 		return
 	}
@@ -134,7 +134,7 @@ func (handler *Handler) rotate(response http.ResponseWriter, request *http.Reque
 		return
 	}
 	response.Header().Set("Cache-Control", "no-store")
-	response.Header().Set("ETag", etag(key.Revision))
+	response.Header().Set("ETag", auth.ETag(key.Revision))
 	auth.WriteJSON(response, http.StatusOK, map[string]any{"key": key, "secret": secret})
 }
 
@@ -154,17 +154,6 @@ func (handler *Handler) writeError(response http.ResponseWriter, err error) {
 		auth.WriteError(response, http.StatusServiceUnavailable, "keys_unavailable", "API keys are unavailable")
 	}
 }
-
-func requireRevision(response http.ResponseWriter, request *http.Request) (int64, bool) {
-	revision, err := strconv.ParseInt(strings.Trim(request.Header.Get("If-Match"), "\""), 10, 64)
-	if err != nil || revision < 1 {
-		auth.WriteError(response, http.StatusPreconditionRequired, "revision_required", "Send the current ETag in If-Match")
-		return 0, false
-	}
-	return revision, true
-}
-
-func etag(revision int64) string { return "\"" + strconv.FormatInt(revision, 10) + "\"" }
 
 func recentlyAuthenticated(response http.ResponseWriter, current auth.AuthenticatedSession) bool {
 	if current.AuthenticatedAt < time.Now().Add(-15*time.Minute).UnixMilli() {

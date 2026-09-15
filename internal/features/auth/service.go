@@ -345,7 +345,7 @@ func decodeUserGrants(user *User, scopesJSON, modelsJSON, connectionsJSON string
 }
 
 func validateClaim(input ClaimInput) (string, string, error) {
-	email, displayName, err := validateIdentity(input.Email, input.DisplayName)
+	email, displayName, err := ValidateIdentity(input.Email, input.DisplayName)
 	if err != nil {
 		return "", "", err
 	}
@@ -355,7 +355,8 @@ func validateClaim(input ClaimInput) (string, string, error) {
 	return email, displayName, nil
 }
 
-func validateIdentity(rawEmail, rawDisplayName string) (string, string, error) {
+// ValidateIdentity normalizes and validates the account identity shared by setup and user management.
+func ValidateIdentity(rawEmail, rawDisplayName string) (string, string, error) {
 	email := strings.ToLower(strings.TrimSpace(rawEmail))
 	address, err := mail.ParseAddress(email)
 	if err != nil || address.Address != email || len(email) > 254 {

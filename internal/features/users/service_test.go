@@ -37,7 +37,7 @@ func TestRolesSuspensionAndOwnerTransfer(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	activeMember, memberSession, err := authService.Activate(ctx, auth.ActivateInput{Code: memberCode, Password: "member-secure-password"})
+	activeMember, _, err := authService.Activate(ctx, auth.ActivateInput{Code: memberCode, Password: "member-secure-password"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -69,7 +69,7 @@ func TestRolesSuspensionAndOwnerTransfer(t *testing.T) {
 	if err := store.SystemDB().QueryRowContext(ctx, "SELECT scopes_json FROM api_keys WHERE id = 'key_member'").Scan(&scopesJSON); err != nil || scopesJSON != "[]" {
 		t.Fatalf("stored key grants = %q, %v", scopesJSON, err)
 	}
-	_, memberSession, err = authService.Login(ctx, auth.LoginInput{Email: activeMember.Email, Password: "member-secure-password"})
+	_, memberSession, err := authService.Login(ctx, auth.LoginInput{Email: activeMember.Email, Password: "member-secure-password"})
 	if err != nil {
 		t.Fatal(err)
 	}

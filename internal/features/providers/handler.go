@@ -3,7 +3,6 @@ package providers
 import (
 	"errors"
 	"net/http"
-	"strconv"
 	"strings"
 
 	"github.com/bobalazek/pocket-ai-gateway/internal/features/auth"
@@ -73,7 +72,7 @@ func (handler *Handler) getConnection(response http.ResponseWriter, request *htt
 		handler.writeError(response, err)
 		return
 	}
-	response.Header().Set("ETag", etag(item.Revision))
+	response.Header().Set("ETag", auth.ETag(item.Revision))
 	auth.WriteJSON(response, http.StatusOK, map[string]any{"connection": item})
 }
 func (handler *Handler) createConnection(response http.ResponseWriter, request *http.Request) {
@@ -90,7 +89,7 @@ func (handler *Handler) createConnection(response http.ResponseWriter, request *
 		handler.writeError(response, err)
 		return
 	}
-	response.Header().Set("ETag", etag(item.Revision))
+	response.Header().Set("ETag", auth.ETag(item.Revision))
 	auth.WriteJSON(response, http.StatusCreated, map[string]any{"connection": item})
 }
 func (handler *Handler) updateConnection(response http.ResponseWriter, request *http.Request) {
@@ -98,7 +97,7 @@ func (handler *Handler) updateConnection(response http.ResponseWriter, request *
 	if !ok {
 		return
 	}
-	revision, ok := revision(response, request)
+	revision, ok := auth.RequireRevision(response, request)
 	if !ok {
 		return
 	}
@@ -111,7 +110,7 @@ func (handler *Handler) updateConnection(response http.ResponseWriter, request *
 		handler.writeError(response, err)
 		return
 	}
-	response.Header().Set("ETag", etag(item.Revision))
+	response.Header().Set("ETag", auth.ETag(item.Revision))
 	auth.WriteJSON(response, http.StatusOK, map[string]any{"connection": item})
 }
 func (handler *Handler) putCredential(response http.ResponseWriter, request *http.Request) {
@@ -195,7 +194,7 @@ func (handler *Handler) createPublicModel(response http.ResponseWriter, request 
 		handler.writeError(response, err)
 		return
 	}
-	response.Header().Set("ETag", etag(item.Revision))
+	response.Header().Set("ETag", auth.ETag(item.Revision))
 	auth.WriteJSON(response, http.StatusCreated, map[string]any{"model": item})
 }
 
@@ -222,7 +221,7 @@ func (handler *Handler) getRoute(response http.ResponseWriter, request *http.Req
 		handler.writeError(response, err)
 		return
 	}
-	response.Header().Set("ETag", etag(model.Revision))
+	response.Header().Set("ETag", auth.ETag(model.Revision))
 	auth.WriteJSON(response, http.StatusOK, map[string]any{"model": model, "targets": targets})
 }
 
@@ -231,7 +230,7 @@ func (handler *Handler) putRoute(response http.ResponseWriter, request *http.Req
 	if !ok {
 		return
 	}
-	revision, ok := revision(response, request)
+	revision, ok := auth.RequireRevision(response, request)
 	if !ok {
 		return
 	}
@@ -244,7 +243,7 @@ func (handler *Handler) putRoute(response http.ResponseWriter, request *http.Req
 		handler.writeError(response, err)
 		return
 	}
-	response.Header().Set("ETag", etag(model.Revision))
+	response.Header().Set("ETag", auth.ETag(model.Revision))
 	auth.WriteJSON(response, http.StatusOK, map[string]any{"model": model})
 }
 
@@ -339,12 +338,3 @@ func (handler *Handler) writeError(response http.ResponseWriter, err error) {
 		auth.WriteError(response, http.StatusServiceUnavailable, "providers_unavailable", "Providers are unavailable")
 	}
 }
-func revision(response http.ResponseWriter, request *http.Request) (int64, bool) {
-	value, err := strconv.ParseInt(strings.Trim(request.Header.Get("If-Match"), "\""), 10, 64)
-	if err != nil || value < 1 {
-		auth.WriteError(response, http.StatusPreconditionRequired, "revision_required", "Send the current ETag in If-Match")
-		return 0, false
-	}
-	return value, true
-}
-func etag(value int64) string { return "\"" + strconv.FormatInt(value, 10) + "\"" }

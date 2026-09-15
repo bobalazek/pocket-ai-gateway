@@ -1,0 +1,247 @@
+package gateway
+
+import (
+	"bytes"
+	"context"
+	"errors"
+	"fmt"
+	"io"
+	"net"
+	"net/http"
+	"net/url"
+	"strings"
+	"time"
+
+	"github.com/bobalazek/pocket-ai-gateway/internal/features/providers"
+	"github.com/bobalazek/pocket-ai-gateway/internal/features/usage"
+)
+
+func (handler *Handler) settle(attemptID string, input usage.SettlementInput) error {
+	var last error
+	for attempt := 0; attempt < 5; attempt++ {
+		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+		err := handler.usage.Settle(ctx, attemptID, input)
+		cancel()
+		if err == nil {
+			return nil
+		}
+		if permanentSettlementError(err) {
+			return err
+		}
+		last = err
+		if attempt < 4 {
+			time.Sleep(time.Duration(1<<attempt) * 100 * time.Millisecond)
+		}
+	}
+	return last
+}
+
+func permanentSettlementError(err error) bool {
+	return errors.Is(err, usage.ErrConflict) || errors.Is(err, usage.ErrNotFound)
+}
+
+func (handler *Handler) dispatch(response http.ResponseWriter, request *http.Request, target providers.Target, relative string, body []byte, stream bool, dialect string, releaseDispatch func()) (int, []byte, error) {
+	released := false
+	release := func() {
+		if !released {
+			released = true
+			releaseDispatch()
+		}
+	}
+	defer release()
+	endpoint, err := joinURL(target.BaseURL, relative)
+	if err != nil {
+		handler.writeError(response, dialect, http.StatusBadGateway, "upstream_error", "Provider URL is invalid")
+		return 0, nil, err
+	}
+	upstream, err := http.NewRequestWithContext(request.Context(), http.MethodPost, endpoint, bytes.NewReader(body))
+	if err != nil {
+		return 0, nil, err
+	}
+	upstream.Header.Set("Content-Type", "application/json")
+	setProviderCredential(upstream, target.Adapter, target.Preset, target.Credential)
+	copyProtocolHeaders(upstream.Header, request.Header, target.Adapter)
+	client := safeClient(time.Duration(target.TimeoutMS)*time.Millisecond, target.AllowPrivateNetwork)
+	result, err := client.Do(upstream)
+	release()
+	if err != nil {
+		handler.writeError(response, dialect, http.StatusBadGateway, "upstream_error", "Provider request failed")
+		return 0, nil, err
+	}
+	defer result.Body.Close()
+	if result.StatusCode < 200 || result.StatusCode >= 300 {
+		raw, readErr := io.ReadAll(io.LimitReader(result.Body, (1<<20)+1))
+		if readErr != nil || len(raw) > 1<<20 || !writeNativeUpstreamError(response, dialect, result.StatusCode, raw) {
+			handler.writeError(response, dialect, http.StatusBadGateway, "upstream_error", "Provider rejected the request")
+		}
+		return result.StatusCode, nil, nil
+	}
+	contentType := result.Header.Get("Content-Type")
+	if contentType == "" {
+		contentType = "application/json"
+	}
+	if !stream {
+		raw, readErr := io.ReadAll(io.LimitReader(result.Body, maxInferenceBody+1))
+		if readErr != nil || len(raw) > maxInferenceBody {
+			handler.writeError(response, dialect, http.StatusBadGateway, "upstream_error", "Provider response exceeds 16 MiB")
+			return result.StatusCode, nil, errors.New("provider response exceeds 16 MiB")
+		}
+		response.Header().Set("Content-Type", contentType)
+		response.Header().Set("Cache-Control", "no-store")
+		response.WriteHeader(result.StatusCode)
+		_, err = response.Write(raw)
+		return result.StatusCode, raw, err
+	}
+	response.Header().Set("Content-Type", contentType)
+	response.Header().Set("Cache-Control", "no-store")
+	response.WriteHeader(result.StatusCode)
+	flusher, ok := response.(http.Flusher)
+	if !ok {
+		return result.StatusCode, nil, errors.New("streaming is unsupported by the response writer")
+	}
+	capture := &limitedCapture{limit: 8 << 20}
+	_, err = io.Copy(flushWriter{writer: response, flusher: flusher}, io.TeeReader(result.Body, capture))
+	return result.StatusCode, capture.Bytes(), err
+}
+
+func (handler *Handler) dispatchTranslated(response http.ResponseWriter, request *http.Request, target providers.Target, relative string, body []byte, dialect, publicModel string, stream bool, releaseDispatch func()) (int, []byte, error) {
+	released := false
+	release := func() {
+		if !released {
+			released = true
+			releaseDispatch()
+		}
+	}
+	defer release()
+	endpoint, err := joinURL(target.BaseURL, relative)
+	if err != nil {
+		handler.writeError(response, dialect, http.StatusBadGateway, "upstream_error", "Provider URL is invalid")
+		return 0, nil, err
+	}
+	upstream, err := http.NewRequestWithContext(request.Context(), http.MethodPost, endpoint, bytes.NewReader(body))
+	if err != nil {
+		return 0, nil, err
+	}
+	upstream.Header.Set("Content-Type", "application/json")
+	setProviderCredential(upstream, target.Adapter, target.Preset, target.Credential)
+	if target.Adapter == "anthropic" {
+		upstream.Header.Set("anthropic-version", "2023-06-01")
+	}
+	result, err := safeClient(time.Duration(target.TimeoutMS)*time.Millisecond, target.AllowPrivateNetwork).Do(upstream)
+	release()
+	if err != nil {
+		handler.writeError(response, dialect, http.StatusBadGateway, "upstream_error", "Provider request failed")
+		return 0, nil, err
+	}
+	defer result.Body.Close()
+	if result.StatusCode < 200 || result.StatusCode >= 300 {
+		io.Copy(io.Discard, io.LimitReader(result.Body, 1<<20))
+		handler.writeError(response, dialect, http.StatusBadGateway, "upstream_error", "Provider rejected the request")
+		return result.StatusCode, nil, nil
+	}
+	if stream {
+		return handler.translateStream(response, result.Body, dialect, target.Adapter, publicModel)
+	}
+	raw, err := io.ReadAll(io.LimitReader(result.Body, (16<<20)+1))
+	if err != nil {
+		handler.writeError(response, dialect, http.StatusBadGateway, "upstream_error", "Provider response could not be translated")
+		return result.StatusCode, nil, fmt.Errorf("%w: %v", errUpstreamResponseInterrupted, err)
+	}
+	if len(raw) > 16<<20 {
+		handler.writeError(response, dialect, http.StatusBadGateway, "upstream_error", "Provider response could not be translated")
+		return result.StatusCode, nil, errors.New("translated response exceeds 16 MiB")
+	}
+	translated, err := translateResponse(dialect, target.Adapter, publicModel, raw)
+	if err != nil {
+		handler.writeError(response, dialect, http.StatusBadGateway, "translation_error", "Provider response could not be translated")
+		return result.StatusCode, nil, err
+	}
+	response.Header().Set("Content-Type", "application/json")
+	response.Header().Set("Cache-Control", "no-store")
+	response.WriteHeader(http.StatusOK)
+	_, err = response.Write(translated)
+	return http.StatusOK, raw, err
+}
+
+func joinURL(base, relative string) (string, error) {
+	parsed, err := url.Parse(base)
+	if err != nil {
+		return "", err
+	}
+	reference, err := url.Parse(relative)
+	if err != nil {
+		return "", err
+	}
+	parsed.Path = strings.TrimRight(parsed.Path, "/") + "/" + strings.TrimLeft(reference.Path, "/")
+	parsed.RawQuery = reference.RawQuery
+	return parsed.String(), nil
+}
+func setProviderCredential(request *http.Request, adapter, preset, credential string) {
+	if credential == "" {
+		return
+	}
+	if preset == "azure-openai" {
+		request.Header.Set("api-key", credential)
+		return
+	}
+	switch adapter {
+	case "anthropic":
+		request.Header.Set("x-api-key", credential)
+	case "gemini":
+		request.Header.Set("x-goog-api-key", credential)
+	default:
+		request.Header.Set("Authorization", "Bearer "+credential)
+	}
+}
+func copyProtocolHeaders(destination, source http.Header, adapter string) {
+	if adapter == "anthropic" {
+		for _, name := range []string{"anthropic-version", "anthropic-beta"} {
+			if value := source.Get(name); value != "" {
+				destination.Set(name, value)
+			}
+		}
+	}
+}
+func safeClient(timeout time.Duration, allowPrivate bool) *http.Client {
+	dialer := &net.Dialer{Timeout: min(timeout, 10*time.Second)}
+	transport := http.DefaultTransport.(*http.Transport).Clone()
+	transport.Proxy = nil
+	transport.DialContext = func(ctx context.Context, network, address string) (net.Conn, error) {
+		host, port, err := net.SplitHostPort(address)
+		if err != nil {
+			return nil, err
+		}
+		ips, err := net.DefaultResolver.LookupIP(ctx, "ip", host)
+		if err != nil {
+			return nil, err
+		}
+		for _, ip := range ips {
+			if allowPrivate || ip.IsGlobalUnicast() && !ip.IsPrivate() {
+				return dialer.DialContext(ctx, network, net.JoinHostPort(ip.String(), port))
+			}
+		}
+		return nil, errors.New("provider destination is not allowed")
+	}
+	return &http.Client{Transport: transport, Timeout: timeout, CheckRedirect: func(*http.Request, []*http.Request) error { return errors.New("provider redirects are disabled") }}
+}
+
+type limitedCapture struct {
+	bytes.Buffer
+	limit    int64
+	overflow bool
+}
+
+func (capture *limitedCapture) Write(value []byte) (int, error) {
+	original := len(value)
+	remaining := capture.limit - int64(capture.Len())
+	if remaining <= 0 {
+		capture.overflow = true
+		return original, nil
+	}
+	if int64(len(value)) > remaining {
+		value = value[:remaining]
+		capture.overflow = true
+	}
+	_, _ = capture.Buffer.Write(value)
+	return original, nil
+}

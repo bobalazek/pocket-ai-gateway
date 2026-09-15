@@ -7,7 +7,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"net/mail"
 	"path"
 	"strconv"
 	"strings"
@@ -118,7 +117,7 @@ func (service *Service) List(ctx context.Context, actor auth.User, limit int, cu
 }
 
 func (service *Service) Create(ctx context.Context, actor auth.User, input CreateInput) (User, string, error) {
-	email, displayName, err := validateIdentity(input.Email, input.DisplayName)
+	email, displayName, err := auth.ValidateIdentity(input.Email, input.DisplayName)
 	if err != nil {
 		return User{}, "", err
 	}
@@ -250,13 +249,13 @@ func (service *Service) Update(ctx context.Context, actor auth.User, targetID st
 	}
 	email, displayName := target.Email, target.DisplayName
 	if input.Email != nil {
-		email, _, err = validateIdentity(*input.Email, displayName)
+		email, _, err = auth.ValidateIdentity(*input.Email, displayName)
 		if err != nil {
 			return User{}, err
 		}
 	}
 	if input.DisplayName != nil {
-		_, displayName, err = validateIdentity(email, *input.DisplayName)
+		_, displayName, err = auth.ValidateIdentity(email, *input.DisplayName)
 		if err != nil {
 			return User{}, err
 		}
@@ -523,19 +522,6 @@ func clampKeys(ctx context.Context, tx *sql.Tx, userID string, ceiling Grants, n
 
 func canManage(actor auth.User, target User) bool {
 	return actor.Role == "owner" || (actor.Role == "admin" && target.Role == "member")
-}
-
-func validateIdentity(rawEmail, rawName string) (string, string, error) {
-	email := strings.ToLower(strings.TrimSpace(rawEmail))
-	address, err := mail.ParseAddress(email)
-	if err != nil || address.Address != email || len(email) > 254 {
-		return "", "", &auth.InputError{Message: "Enter a valid email address"}
-	}
-	name := strings.TrimSpace(rawName)
-	if name == "" || len([]rune(name)) > 100 {
-		return "", "", &auth.InputError{Message: "Display name must be between 1 and 100 characters"}
-	}
-	return email, name, nil
 }
 
 func insertCode(ctx context.Context, tx *sql.Tx, userID, purpose, code string, now int64) error {

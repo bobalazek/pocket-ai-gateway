@@ -128,3 +128,19 @@ func TestCredentialMutationClearsStaleSession(t *testing.T) {
 		}
 	}
 }
+
+func TestRequireRevision(t *testing.T) {
+	request := httptest.NewRequest(http.MethodPatch, "/api/v1/test", nil)
+	request.Header.Set("If-Match", `"7"`)
+	response := httptest.NewRecorder()
+	revision, ok := RequireRevision(response, request)
+	if !ok || revision != 7 || ETag(revision) != `"7"` {
+		t.Fatalf("revision = %d, ok = %v, etag = %q", revision, ok, ETag(revision))
+	}
+
+	request.Header.Del("If-Match")
+	response = httptest.NewRecorder()
+	if _, ok := RequireRevision(response, request); ok || response.Code != http.StatusPreconditionRequired {
+		t.Fatalf("missing If-Match response = %d: %s", response.Code, response.Body.String())
+	}
+}

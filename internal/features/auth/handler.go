@@ -8,6 +8,7 @@ import (
 	"mime"
 	"net/http"
 	"net/url"
+	"strconv"
 	"strings"
 
 	"github.com/bobalazek/pocket-ai-gateway/internal/credentials"
@@ -392,3 +393,16 @@ func WriteJSON(response http.ResponseWriter, status int, value any) {
 	response.WriteHeader(status)
 	_ = json.NewEncoder(response).Encode(value)
 }
+
+// RequireRevision reads the optimistic-concurrency revision from If-Match.
+func RequireRevision(response http.ResponseWriter, request *http.Request) (int64, bool) {
+	revision, err := strconv.ParseInt(strings.Trim(request.Header.Get("If-Match"), "\""), 10, 64)
+	if err != nil || revision < 1 {
+		WriteError(response, http.StatusPreconditionRequired, "revision_required", "Send the current ETag in If-Match")
+		return 0, false
+	}
+	return revision, true
+}
+
+// ETag formats a revision for optimistic concurrency responses.
+func ETag(revision int64) string { return "\"" + strconv.FormatInt(revision, 10) + "\"" }

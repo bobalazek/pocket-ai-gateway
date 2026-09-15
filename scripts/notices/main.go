@@ -61,7 +61,7 @@ func collect(binary, web string) ([]notice, error) {
 	}
 	standard, err := readNotices(goRoot)
 	if err != nil {
-		return nil, fmt.Errorf("Go standard library: %w", err)
+		return nil, fmt.Errorf("go standard library: %w", err)
 	}
 	items := []notice{{name: "Go standard library", version: info.GoVersion, source: "https://go.dev", text: standard}}
 	moduleCache, err := command("go", "env", "GOMODCACHE")
