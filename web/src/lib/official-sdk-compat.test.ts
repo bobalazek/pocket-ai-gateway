@@ -66,6 +66,16 @@ describe("official SDK compatibility through the Go gateway", () => {
     expect(result.content[0]).toMatchObject({ type: "text", text: "Hello" });
   });
 
+  it("preserves native Anthropic prompt-cache usage", async () => {
+    const result = await anthropic().messages.create({
+      model: "target-anthropic",
+      max_tokens: 8,
+      system: [{ type: "text", text: "Stable system prompt", cache_control: { type: "ephemeral", ttl: "5m" } }],
+      messages: [{ role: "user", content: "Hi" }],
+    });
+    expect(result.usage).toMatchObject({ input_tokens: 2, cache_creation_input_tokens: 3, cache_read_input_tokens: 5, output_tokens: 1 });
+  });
+
   it.each(models)("decodes Google Gen AI through %s", async (model) => {
     const result = await gemini().models.generateContent({ model, contents: "Hi" });
     expect(result.text).toBe("Hello");

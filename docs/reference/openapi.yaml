@@ -547,7 +547,7 @@ paths:
     post:
       operationId: createUpstreamModel
       parameters: [{ $ref: "#/components/parameters/ID" }, { $ref: "#/components/parameters/CSRF" }]
-      requestBody: { required: true, content: { application/json: { schema: { type: object, additionalProperties: false, required: [upstream_id, capabilities], properties: { upstream_id: { type: string, minLength: 1, maxLength: 300 }, capabilities: { type: array, minItems: 1, uniqueItems: true, items: { type: string, enum: [chat, embeddings, moderations, count_tokens, images, image_edit, image_variation, audio_speech, audio_transcription, audio_translation] } } } } } } }
+      requestBody: { required: true, content: { application/json: { schema: { type: object, additionalProperties: false, required: [upstream_id, capabilities], properties: { upstream_id: { type: string, minLength: 1, maxLength: 300 }, capabilities: { type: array, minItems: 1, uniqueItems: true, items: { type: string, enum: [chat, embeddings, moderations, count_tokens, images, image_edit, image_variation, audio_speech, audio_transcription, audio_translation, prompt_cache] } } } } } } }
       responses:
         "201": { description: Upstream model created, content: { application/json: { schema: { type: object, required: [model], properties: { model: { $ref: "#/components/schemas/UpstreamModel" } } } } } }
         "400": { $ref: "#/components/responses/BadRequest" }
@@ -1265,7 +1265,7 @@ components:
         id: { type: string }
         connection_id: { type: string }
         upstream_id: { type: string }
-        capabilities: { type: array, minItems: 1, uniqueItems: true, items: { type: string, enum: [chat, embeddings, moderations, count_tokens, images, image_edit, image_variation, audio_speech, audio_transcription, audio_translation] } }
+        capabilities: { type: array, minItems: 1, uniqueItems: true, items: { type: string, enum: [chat, embeddings, moderations, count_tokens, images, image_edit, image_variation, audio_speech, audio_transcription, audio_translation, prompt_cache] } }
         active: { type: boolean }
     VisibleModel:
       type: object
@@ -1285,7 +1285,7 @@ components:
         label: { type: string, minLength: 1, maxLength: 200 }
         description: { type: string, maxLength: 1000 }
         target_model_id: { type: string }
-        capabilities: { type: array, minItems: 1, uniqueItems: true, items: { type: string, enum: [chat, embeddings, moderations, count_tokens, images, image_edit, image_variation, audio_speech, audio_transcription, audio_translation] } }
+        capabilities: { type: array, minItems: 1, uniqueItems: true, items: { type: string, enum: [chat, embeddings, moderations, count_tokens, images, image_edit, image_variation, audio_speech, audio_transcription, audio_translation, prompt_cache] } }
     PublicModel:
       allOf:
         - { $ref: "#/components/schemas/VisibleModel" }
@@ -1350,7 +1350,7 @@ components:
       properties:
         upstream_model_id: { type: string }
         connection_id: { type: string }
-        reason: { type: string, enum: [connection_not_granted, unsupported_capability, translation_unsupported, request_translation_unsupported, anthropic_stream_usage_unavailable, credential_unavailable, not_verified_free, circuit_open, price_unknown] }
+        reason: { type: string, enum: [connection_not_granted, unsupported_capability, translation_unsupported, request_translation_unsupported, anthropic_stream_usage_unavailable, prompt_cache_native_required, cache_price_contract_unavailable, credential_unavailable, not_verified_free, circuit_open, price_unknown] }
     CatalogConfigInput:
       type: object
       additionalProperties: false
@@ -1521,17 +1521,21 @@ components:
         resets_at: { type: [string, "null"], format: date-time }
     UsagePoint:
       type: object
-      required: [date, requests, input_tokens, output_tokens, known_cost_usd, unknown_attempts]
+      required: [date, requests, input_tokens, output_tokens, cache_creation_input_tokens, cache_read_input_tokens, cache_creation_5m_input_tokens, cache_creation_1h_input_tokens, known_cost_usd, unknown_attempts]
       properties:
         date: { type: string, format: date }
         requests: { type: integer }
         input_tokens: { type: integer }
         output_tokens: { type: integer }
+        cache_creation_input_tokens: { type: integer }
+        cache_read_input_tokens: { type: integer }
+        cache_creation_5m_input_tokens: { type: integer }
+        cache_creation_1h_input_tokens: { type: integer }
         known_cost_usd: { type: string }
         unknown_attempts: { type: integer }
     UsageSummary:
       type: object
-      required: [from, to, requests, attempts, input_tokens, output_tokens, known_cost_usd, estimated_cost_usd, as_recorded_cost_usd, restatement_delta_usd, unknown_attempts, points]
+      required: [from, to, requests, attempts, input_tokens, output_tokens, cache_creation_input_tokens, cache_read_input_tokens, cache_creation_5m_input_tokens, cache_creation_1h_input_tokens, known_cost_usd, estimated_cost_usd, as_recorded_cost_usd, restatement_delta_usd, unknown_attempts, points]
       properties:
         from: { type: string, format: date-time }
         to: { type: string, format: date-time }
@@ -1539,6 +1543,10 @@ components:
         attempts: { type: integer }
         input_tokens: { type: integer }
         output_tokens: { type: integer }
+        cache_creation_input_tokens: { type: integer }
+        cache_read_input_tokens: { type: integer }
+        cache_creation_5m_input_tokens: { type: integer }
+        cache_creation_1h_input_tokens: { type: integer }
         known_cost_usd: { type: string }
         estimated_cost_usd: { type: string }
         as_recorded_cost_usd: { type: string }
@@ -1561,7 +1569,7 @@ components:
         started_at: { type: string, format: date-time }
     RequestAttempt:
       type: object
-      required: [id, ordinal, connection_id, model_id, upstream_model_id, target_dialect, target_operation, translation_applied, request_tool_count, response_tool_call_count, tool_call_status, selection_reason, rejected_candidates, state, usage_status, input_tokens, output_tokens, cost_usd, started_at]
+      required: [id, ordinal, connection_id, model_id, upstream_model_id, target_dialect, target_operation, translation_applied, request_tool_count, response_tool_call_count, tool_call_status, selection_reason, rejected_candidates, state, usage_status, input_tokens, output_tokens, cache_creation_input_tokens, cache_read_input_tokens, cache_creation_5m_input_tokens, cache_creation_1h_input_tokens, cost_usd, started_at]
       properties:
         id: { type: string }
         ordinal: { type: integer, minimum: 1 }
@@ -1580,6 +1588,10 @@ components:
         usage_status: { type: string, enum: [pending, provider_reported, estimated, unknown] }
         input_tokens: { type: integer, minimum: 0 }
         output_tokens: { type: integer, minimum: 0 }
+        cache_creation_input_tokens: { type: integer, minimum: 0 }
+        cache_read_input_tokens: { type: integer, minimum: 0 }
+        cache_creation_5m_input_tokens: { type: integer, minimum: 0 }
+        cache_creation_1h_input_tokens: { type: integer, minimum: 0 }
         cost_usd: { type: [string, "null"] }
         started_at: { type: string, format: date-time }
     RequestRecord:

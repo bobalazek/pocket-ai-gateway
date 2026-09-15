@@ -12,15 +12,19 @@ import (
 )
 
 type SettlementInput struct {
-	IdempotencyKey        string
-	State                 string
-	UsageStatus           string
-	InputTokens           *int64
-	OutputTokens          *int64
-	CostNanos             *int64
-	ResponseToolCallCount int64
-	ToolCallStatus        string
-	FinalRequest          bool
+	IdempotencyKey           string
+	State                    string
+	UsageStatus              string
+	InputTokens              *int64
+	OutputTokens             *int64
+	CacheCreationInputTokens *int64
+	CacheReadInputTokens     *int64
+	CacheCreation5mTokens    *int64
+	CacheCreation1hTokens    *int64
+	CostNanos                *int64
+	ResponseToolCallCount    int64
+	ToolCallStatus           string
+	FinalRequest             bool
 }
 
 type ReconciliationInput struct {
@@ -95,8 +99,27 @@ func (service *Service) Settle(ctx context.Context, attemptID string, input Sett
 	if input.ResponseToolCallCount < 0 || !contains([]string{"none", "completed", "incomplete"}, input.ToolCallStatus) || input.ResponseToolCallCount == 0 && input.ToolCallStatus != "none" || input.ResponseToolCallCount > 0 && input.ToolCallStatus == "none" {
 		return errors.New("invalid tool call settlement")
 	}
-	if input.InputTokens != nil && (*input.InputTokens < 0 || *input.InputTokens > maxSafeInteger) || input.OutputTokens != nil && (*input.OutputTokens < 0 || *input.OutputTokens > maxSafeInteger) || input.CostNanos != nil && *input.CostNanos < 0 {
+	if input.InputTokens != nil && (*input.InputTokens < 0 || *input.InputTokens > maxSafeInteger) || input.OutputTokens != nil && (*input.OutputTokens < 0 || *input.OutputTokens > maxSafeInteger) || input.CacheCreationInputTokens != nil && (*input.CacheCreationInputTokens < 0 || *input.CacheCreationInputTokens > maxSafeInteger) || input.CacheReadInputTokens != nil && (*input.CacheReadInputTokens < 0 || *input.CacheReadInputTokens > maxSafeInteger) || input.CacheCreation5mTokens != nil && (*input.CacheCreation5mTokens < 0 || *input.CacheCreation5mTokens > maxSafeInteger) || input.CacheCreation1hTokens != nil && (*input.CacheCreation1hTokens < 0 || *input.CacheCreation1hTokens > maxSafeInteger) || input.CostNanos != nil && *input.CostNanos < 0 {
 		return errors.New("settlement values cannot be negative")
+	}
+	hasCacheUsage := input.CacheCreationInputTokens != nil || input.CacheReadInputTokens != nil || input.CacheCreation5mTokens != nil || input.CacheCreation1hTokens != nil
+	cacheCreation, cacheRead, cache5m, cache1h := int64(0), int64(0), int64(0), int64(0)
+	if input.CacheCreationInputTokens != nil {
+		cacheCreation = *input.CacheCreationInputTokens
+	}
+	if input.CacheReadInputTokens != nil {
+		cacheRead = *input.CacheReadInputTokens
+	}
+	if input.CacheCreation5mTokens != nil {
+		cache5m = *input.CacheCreation5mTokens
+	}
+	if input.CacheCreation1hTokens != nil {
+		cache1h = *input.CacheCreation1hTokens
+	}
+	cacheInput, cacheOK := checkedAdd(cacheCreation, cacheRead)
+	cacheDetails, detailsOK := checkedAdd(cache5m, cache1h)
+	if !cacheOK || !detailsOK || (input.CacheCreationInputTokens != nil || input.CacheReadInputTokens != nil) && input.InputTokens == nil || input.InputTokens != nil && cacheInput > *input.InputTokens || (input.CacheCreation5mTokens != nil || input.CacheCreation1hTokens != nil) && (input.CacheCreationInputTokens == nil || cacheDetails != cacheCreation) {
+		return errors.New("invalid cache usage settlement")
 	}
 	tx, err := service.database.BeginTx(ctx, nil)
 	if err != nil {
@@ -107,7 +130,7 @@ func (service *Service) Settle(ctx context.Context, attemptID string, input Sett
 	var settledTokens, settledCost sql.NullInt64
 	err = tx.QueryRowContext(ctx, "SELECT attempt_id, entry_type, token_units, cost_nanos, reason FROM usage_ledger WHERE idempotency_key = ?", input.IdempotencyKey).Scan(&settledAttemptID, &entryType, &settledTokens, &settledCost, &signature)
 	if err == nil {
-		if input.CostNanos == nil {
+		if input.CostNanos == nil && !hasCacheUsage {
 			input.CostNanos, _ = calculatedAttemptCost(ctx, tx, attemptID, input.InputTokens, input.OutputTokens)
 		}
 		tokens, sumErr := nullableInt64Sum(input.InputTokens, input.OutputTokens)
@@ -135,7 +158,7 @@ func (service *Service) Settle(ctx context.Context, attemptID string, input Sett
 	if !contains([]string{"reserved", "dispatching", "streaming"}, state) {
 		return ErrConflict
 	}
-	if input.CostNanos == nil && priceVersionID.Valid {
+	if input.CostNanos == nil && priceVersionID.Valid && !hasCacheUsage {
 		input.CostNanos, err = calculatedPriceCost(ctx, tx, priceVersionID.String, input.InputTokens, input.OutputTokens)
 		if err != nil {
 			return err
@@ -208,8 +231,8 @@ func (service *Service) Settle(ctx context.Context, attemptID string, input Sett
 			return err
 		}
 	}
-	_, err = tx.ExecContext(ctx, `UPDATE attempts SET state = ?, usage_status = ?, input_tokens = ?, output_tokens = ?, as_recorded_cost_nanos = ?, restated_cost_nanos = ?, response_tool_call_count = ?, tool_call_status = ?, finished_at = ? WHERE id = ?`,
-		input.State, input.UsageStatus, input.InputTokens, input.OutputTokens, input.CostNanos, input.CostNanos, input.ResponseToolCallCount, input.ToolCallStatus, now, attemptID)
+	_, err = tx.ExecContext(ctx, `UPDATE attempts SET state = ?, usage_status = ?, input_tokens = ?, output_tokens = ?, cache_creation_input_tokens = ?, cache_read_input_tokens = ?, cache_creation_5m_input_tokens = ?, cache_creation_1h_input_tokens = ?, as_recorded_cost_nanos = ?, restated_cost_nanos = ?, response_tool_call_count = ?, tool_call_status = ?, finished_at = ? WHERE id = ?`,
+		input.State, input.UsageStatus, input.InputTokens, input.OutputTokens, input.CacheCreationInputTokens, input.CacheReadInputTokens, input.CacheCreation5mTokens, input.CacheCreation1hTokens, input.CostNanos, input.CostNanos, input.ResponseToolCallCount, input.ToolCallStatus, now, attemptID)
 	if err != nil {
 		return err
 	}
@@ -236,7 +259,7 @@ func (service *Service) Settle(ctx context.Context, attemptID string, input Sett
 	} else if _, err := tx.ExecContext(ctx, "UPDATE requests SET state = 'in_progress' WHERE id = ?", requestID); err != nil {
 		return err
 	}
-	if err := appendOutbox(ctx, tx, "attempt.settled", requestID, attemptID, map[string]any{"owner_user_id": ownerID, "key_id": keyID, "model_id": modelID, "connection_id": connectionID, "started_at": startedAt, "state": input.State, "usage_status": input.UsageStatus, "input_tokens": input.InputTokens, "output_tokens": input.OutputTokens, "cost_nanos": input.CostNanos}, now); err != nil {
+	if err := appendOutbox(ctx, tx, "attempt.settled", requestID, attemptID, map[string]any{"owner_user_id": ownerID, "key_id": keyID, "model_id": modelID, "connection_id": connectionID, "started_at": startedAt, "state": input.State, "usage_status": input.UsageStatus, "input_tokens": input.InputTokens, "output_tokens": input.OutputTokens, "cache_creation_input_tokens": input.CacheCreationInputTokens, "cache_read_input_tokens": input.CacheReadInputTokens, "cache_creation_5m_input_tokens": input.CacheCreation5mTokens, "cache_creation_1h_input_tokens": input.CacheCreation1hTokens, "cost_nanos": input.CostNanos}, now); err != nil {
 		return err
 	}
 	return tx.Commit()
@@ -263,7 +286,7 @@ func calculatedPriceCost(ctx context.Context, tx *sql.Tx, priceID string, inputT
 }
 
 func settlementSignature(input SettlementInput) string {
-	return fmt.Sprintf("state=%s;usage=%s;final=%t;input=%s;output=%s;cost=%s;tools=%d;tool_status=%s", input.State, input.UsageStatus, input.FinalRequest, nullableValue(input.InputTokens), nullableValue(input.OutputTokens), nullableValue(input.CostNanos), input.ResponseToolCallCount, input.ToolCallStatus)
+	return fmt.Sprintf("state=%s;usage=%s;final=%t;input=%s;output=%s;cache_creation=%s;cache_read=%s;cache_5m=%s;cache_1h=%s;cost=%s;tools=%d;tool_status=%s", input.State, input.UsageStatus, input.FinalRequest, nullableValue(input.InputTokens), nullableValue(input.OutputTokens), nullableValue(input.CacheCreationInputTokens), nullableValue(input.CacheReadInputTokens), nullableValue(input.CacheCreation5mTokens), nullableValue(input.CacheCreation1hTokens), nullableValue(input.CostNanos), input.ResponseToolCallCount, input.ToolCallStatus)
 }
 
 func nullableValue(value *int64) string {
@@ -412,14 +435,18 @@ func (service *Service) ReconcileUnknown(ctx context.Context, actor auth.User, a
 	}
 	var requestID, ownerID, keyID, modelID, connectionID, state, usageStatus string
 	var priceID sql.NullString
-	var previousInput, previousOutput, previousCost sql.NullInt64
+	var previousInput, previousOutput, previousCost, cacheCreation, cacheRead sql.NullInt64
 	var startedAt int64
-	if err := tx.QueryRowContext(ctx, `SELECT attempts.request_id, requests.owner_user_id, requests.key_id, attempts.model_id, attempts.connection_id, attempts.state, attempts.usage_status, attempts.price_version_id, attempts.started_at, attempts.input_tokens, attempts.output_tokens, COALESCE(attempts.restated_cost_nanos, attempts.as_recorded_cost_nanos)
-		FROM attempts JOIN requests ON requests.id = attempts.request_id WHERE attempts.id = ?`, attemptID).Scan(&requestID, &ownerID, &keyID, &modelID, &connectionID, &state, &usageStatus, &priceID, &startedAt, &previousInput, &previousOutput, &previousCost); err != nil {
+	if err := tx.QueryRowContext(ctx, `SELECT attempts.request_id, requests.owner_user_id, requests.key_id, attempts.model_id, attempts.connection_id, attempts.state, attempts.usage_status, attempts.price_version_id, attempts.started_at, attempts.input_tokens, attempts.output_tokens, COALESCE(attempts.restated_cost_nanos, attempts.as_recorded_cost_nanos), attempts.cache_creation_input_tokens, attempts.cache_read_input_tokens
+		FROM attempts JOIN requests ON requests.id = attempts.request_id WHERE attempts.id = ?`, attemptID).Scan(&requestID, &ownerID, &keyID, &modelID, &connectionID, &state, &usageStatus, &priceID, &startedAt, &previousInput, &previousOutput, &previousCost, &cacheCreation, &cacheRead); err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return ErrNotFound
 		}
 		return err
+	}
+	cacheTotal, ok := checkedAdd(nullInt64Value(cacheCreation), nullInt64Value(cacheRead))
+	if !ok || *input.InputTokens < cacheTotal {
+		return errors.New("reconciled input tokens cannot be less than the recorded cache-token breakdown")
 	}
 	if state != "interrupted_unknown" || usageStatus != "unknown" {
 		var uncertain int64
@@ -437,7 +464,7 @@ func (service *Service) ReconcileUnknown(ctx context.Context, actor auth.User, a
 	if priorReconciliations > 0 && (previousInput.Valid && previousInput.Int64 != *input.InputTokens || previousOutput.Valid && previousOutput.Int64 != *input.OutputTokens) {
 		return ErrConflict
 	}
-	if input.CostNanos == nil && !previousCost.Valid && priceID.Valid {
+	if input.CostNanos == nil && !previousCost.Valid && priceID.Valid && !cacheCreation.Valid && !cacheRead.Valid {
 		input.CostNanos, err = calculatedPriceCost(ctx, tx, priceID.String, input.InputTokens, input.OutputTokens)
 		if err != nil {
 			return err

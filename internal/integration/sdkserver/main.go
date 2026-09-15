@@ -46,14 +46,24 @@ func main() {
 	connections := make([]string, 0, 3)
 	base := "http://" + upstreamListener.Addr().String()
 	for _, adapter := range []string{"openai", "anthropic", "gemini"} {
-		connection, err := providerService.CreateConnection(ctx, owner, providers.ConnectionInput{Name: adapter, Adapter: adapter, BaseURL: base + "/" + adapter + map[string]string{"openai": "/v1", "anthropic": "/v1", "gemini": "/v1beta"}[adapter], Enabled: true, AllowPrivateNetwork: true, TimeoutMS: 5000})
+		connectionInput := providers.ConnectionInput{Name: adapter, Adapter: adapter, BaseURL: base + "/" + adapter + map[string]string{"openai": "/v1", "anthropic": "/v1", "gemini": "/v1beta"}[adapter], Enabled: true, AllowPrivateNetwork: true, TimeoutMS: 5000}
+		if adapter == "anthropic" {
+			connectionInput = providers.ConnectionInput{Name: adapter, Preset: "anthropic", Enabled: true, TimeoutMS: 5000}
+		}
+		connection, err := providerService.CreateConnection(ctx, owner, connectionInput)
 		must(err)
 		if adapter == "openai" {
 			_, err = store.SystemDB().ExecContext(ctx, "UPDATE provider_connections SET preset='openai' WHERE id=?", connection.ID)
 			must(err)
+		} else if adapter == "anthropic" {
+			_, err = store.SystemDB().ExecContext(ctx, "UPDATE provider_connections SET base_url=?,allow_private_network=1 WHERE id=?", base+"/anthropic/v1", connection.ID)
+			must(err)
 		}
 		must(providerService.PutCredential(ctx, owner, connection.ID, "provider-secret", ""))
 		capabilities := []string{"chat"}
+		if adapter == "anthropic" {
+			capabilities = append(capabilities, "prompt_cache")
+		}
 		if adapter == "openai" {
 			capabilities = append(capabilities, "moderations", "count_tokens", "images", "audio_speech", "audio_transcription", "audio_translation")
 		}
@@ -175,6 +185,10 @@ func upstreamHandler(response http.ResponseWriter, request *http.Request) {
 		}
 		io.WriteString(response, `{"id":"chat_1","object":"chat.completion","choices":[{"index":0,"message":{"role":"assistant","content":"Hello"},"finish_reason":"stop"}],"usage":{"prompt_tokens":2,"completion_tokens":1,"total_tokens":3}}`)
 	case "anthropic":
+		if bytes.Contains(body, []byte(`"cache_control"`)) {
+			io.WriteString(response, `{"id":"msg_cache","type":"message","role":"assistant","content":[{"type":"text","text":"Hello"}],"stop_reason":"end_turn","usage":{"input_tokens":2,"cache_creation_input_tokens":3,"cache_read_input_tokens":5,"cache_creation":{"ephemeral_5m_input_tokens":3,"ephemeral_1h_input_tokens":0},"output_tokens":1}}`)
+			return
+		}
 		io.WriteString(response, `{"id":"msg_1","type":"message","role":"assistant","content":[{"type":"text","text":"Hello"}],"stop_reason":"end_turn","usage":{"input_tokens":2,"output_tokens":1}}`)
 	case "gemini":
 		io.WriteString(response, `{"responseId":"gemini_1","candidates":[{"index":0,"content":{"role":"model","parts":[{"text":"Hello"}]},"finishReason":"STOP"}],"usageMetadata":{"promptTokenCount":2,"candidatesTokenCount":1,"totalTokenCount":3}}`)

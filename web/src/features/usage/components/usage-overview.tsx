@@ -10,6 +10,8 @@ import { Field, Metric } from "@/features/usage/components/usage-fields";
 type UsageModel = ReturnType<typeof useUsage>;
 
 export function UsageOverview({ model }: { model: UsageModel }) {
+  const hasCacheUsage = model.usage.cache_creation_input_tokens > 0 || model.usage.cache_read_input_tokens > 0 || model.usage.cache_creation_5m_input_tokens > 0 || model.usage.cache_creation_1h_input_tokens > 0;
+
   return (
     <>
       <Card className="panel">
@@ -30,6 +32,17 @@ export function UsageOverview({ model }: { model: UsageModel }) {
         <Metric label="Current cost" value={`$${model.usage.known_cost_usd}`} />
         <Metric label="Needs review" value={model.usage.unknown_attempts.toLocaleString()} />
       </section>
+      {hasCacheUsage && (
+        <Card className="panel">
+          <p className="context">Prompt cache usage</p>
+          <div className="metric-grid">
+            <Metric label="Cache writes" value={model.usage.cache_creation_input_tokens.toLocaleString()} />
+            <Metric label="Cache reads" value={model.usage.cache_read_input_tokens.toLocaleString()} />
+            <Metric label="5-minute writes" value={model.usage.cache_creation_5m_input_tokens.toLocaleString()} />
+            <Metric label="1-hour writes" value={model.usage.cache_creation_1h_input_tokens.toLocaleString()} />
+          </div>
+        </Card>
+      )}
       <Card className="panel">
         <p className="context">Cost provenance</p>
         <div className="metric-grid">
@@ -44,7 +57,24 @@ export function UsageOverview({ model }: { model: UsageModel }) {
           <>
             <ChartContainer label="Daily token usage"><AreaChart responsive data={model.chartData}><CartesianGrid vertical={false} /><XAxis dataKey="date" /><YAxis width={52} /><Tooltip /><Area dataKey="tokens" stroke="var(--accent)" fill="var(--accent-soft)" /></AreaChart></ChartContainer>
             <div className="table-wrap" tabIndex={0} role="region" aria-label="Scrollable daily usage table">
-              <table><thead><tr><th>Date</th><th>Requests</th><th>Input</th><th>Output</th><th>Cost</th><th>Unknown</th></tr></thead><tbody>{model.usage.points.map((point) => <tr key={point.date}><td>{point.date}</td><td>{point.requests}</td><td>{point.input_tokens}</td><td>{point.output_tokens}</td><td>${point.known_cost_usd}</td><td>{point.unknown_attempts}</td></tr>)}</tbody></table>
+              <table>
+                <thead>
+                  <tr>
+                    <th>Date</th><th>Requests</th><th>Input</th><th>Output</th>
+                    {hasCacheUsage && <><th>Cache writes</th><th>Cache reads</th><th>5m writes</th><th>1h writes</th></>}
+                    <th>Cost</th><th>Unknown</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {model.usage.points.map((point) => (
+                    <tr key={point.date}>
+                      <td>{point.date}</td><td>{point.requests}</td><td>{point.input_tokens}</td><td>{point.output_tokens}</td>
+                      {hasCacheUsage && <><td>{point.cache_creation_input_tokens}</td><td>{point.cache_read_input_tokens}</td><td>{point.cache_creation_5m_input_tokens}</td><td>{point.cache_creation_1h_input_tokens}</td></>}
+                      <td>${point.known_cost_usd}</td><td>{point.unknown_attempts}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
             </div>
           </>
         ) : <p className="empty-copy">No settled usage in this period.</p>}

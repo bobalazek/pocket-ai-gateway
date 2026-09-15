@@ -54,7 +54,7 @@ Base URL: `/api/anthropic/v1`.
 | `POST /messages/count_tokens` | Native target only | The gateway never estimates a different provider's tokenizer result |
 | Message Batches | Pending | Requires durable jobs, result ownership, cancellation, retention, and charging |
 | Files | Pending | Requires encrypted object storage and provider-resource affinity |
-| Prompt caching controls | Pending across translated paths | Native opaque cache directives are not silently discarded |
+| Prompt caching controls | Implemented for native Anthropic Messages | Fixed Anthropic preset plus public/upstream `prompt_cache`; bounded ephemeral controls; JSON/SSE cache-token accounting; no translated or post-dispatch fallback; cache content is never persisted; cost remains unknown until cache rates are versioned |
 | Hosted web search, code execution, computer use, and connectors | Pending | Provider-hosted tools require explicit capability and billing contracts |
 | Extended thinking and opaque signatures | Pending across translated paths | Requests are rejected when signatures or reasoning semantics cannot be preserved |
 

@@ -8,6 +8,7 @@ import (
 	"io"
 	"net/http"
 	"net/url"
+	"slices"
 	"strconv"
 	"time"
 
@@ -55,6 +56,13 @@ func (handler *Handler) forwardAuthorized(response http.ResponseWriter, request 
 	if publicID == "" {
 		handler.writeError(response, dialect, http.StatusBadRequest, "invalid_request", "model is required")
 		return
+	}
+	promptCache := promptCacheRequest{}
+	if dialect == "anthropic" && upstreamPath == "messages" {
+		if promptCache, err = validatePromptCache(envelope); err != nil {
+			handler.writeError(response, dialect, http.StatusBadRequest, "invalid_request", err.Error())
+			return
+		}
 	}
 	storeResponse := false
 	storedChat, _ := request.Context().Value(storedChatContextKey{}).(*storedChatRequest)
@@ -154,6 +162,17 @@ func (handler *Handler) forwardAuthorized(response http.ResponseWriter, request 
 	seed := sha256.Sum256(append([]byte(principal.KeyID+"\x00"+publicID+"\x00"+strconv.FormatInt(time.Now().UnixNano(), 10)+"\x00"), body...))
 	plan, err := handler.providers.Route(request.Context(), publicID, providers.RouteOptions{Operation: clientOperation, Streaming: stream, EstimatedInputTokens: inputEstimate, EstimatedOutputTokens: outputEstimate, Seed: string(seed[:]), AllowsConnection: func(connectionID string) bool { return principal.Allows(scope, publicID, connectionID) }, Eligibility: func(target providers.Target) (bool, string) {
 		native := nativeTarget(dialect, target.Adapter)
+		if promptCache.enabled {
+			if !native || target.Preset != "anthropic" {
+				return false, "prompt_cache_native_required"
+			}
+			if !slices.Contains(target.Capabilities, "prompt_cache") || !slices.Contains(target.UpstreamCapabilities, "prompt_cache") {
+				return false, "unsupported_capability"
+			}
+			if target.RoutingStrategy == "lowest_cost" || target.FreeOnly {
+				return false, "cache_price_contract_unavailable"
+			}
+		}
 		if !hasCapability(target.Capabilities, scope) || !hasCapability(target.UpstreamCapabilities, scope) {
 			return false, "unsupported_capability"
 		}
@@ -239,7 +258,7 @@ func (handler *Handler) forwardAuthorized(response http.ResponseWriter, request 
 			handler.writeError(response, dialect, http.StatusBadRequest, "unsupported_feature", err.Error())
 			return
 		}
-		admission, admitErr := handler.usage.Admit(request.Context(), usage.AdmissionInput{RequestID: requestID, KeyID: principal.KeyID, ConnectionID: target.TargetConnectionID, ModelID: publicID, UpstreamModelRecordID: target.TargetModelID, UpstreamModelID: target.UpstreamID, ConnectionRevision: target.ConnectionRevision, ModelRevision: target.Revision, Operation: clientOperation, TargetOperation: targetPath, Scope: scope, Dialect: recordDialect, TargetDialect: target.Adapter, TranslationApplied: !native, RequestToolCount: requestToolCount, SelectionReason: plan.SelectionReason, RejectedCandidatesJSON: string(rejected), RequiredPriceVersionID: routeTarget.PriceVersionID(), RequireFreePrice: plan.FreeOnly, BodyBytes: originalBodyBytes, BatchItems: batchItems, EstimatedInputTokens: inputEstimate, EstimatedOutputTokens: outputEstimate, EnforceOutputBound: generation, OutputBounded: !generation || outputBounded})
+		admission, admitErr := handler.usage.Admit(request.Context(), usage.AdmissionInput{RequestID: requestID, KeyID: principal.KeyID, ConnectionID: target.TargetConnectionID, ModelID: publicID, UpstreamModelRecordID: target.TargetModelID, UpstreamModelID: target.UpstreamID, ConnectionRevision: target.ConnectionRevision, ModelRevision: target.Revision, Operation: clientOperation, TargetOperation: targetPath, Scope: scope, Dialect: recordDialect, TargetDialect: target.Adapter, TranslationApplied: !native, RequestToolCount: requestToolCount, SelectionReason: plan.SelectionReason, RejectedCandidatesJSON: string(rejected), RequiredPriceVersionID: routeTarget.PriceVersionID(), RequireFreePrice: plan.FreeOnly, PriceUnavailable: promptCache.enabled, BodyBytes: originalBodyBytes, BatchItems: batchItems, EstimatedInputTokens: inputEstimate, EstimatedOutputTokens: outputEstimate, EnforceOutputBound: generation, OutputBounded: !generation || outputBounded})
 		if admitErr != nil {
 			if requestID != "" {
 				_ = handler.usage.CloseFailedRequest(context.WithoutCancel(request.Context()), requestID)
@@ -304,13 +323,21 @@ func (handler *Handler) forwardAuthorized(response http.ResponseWriter, request 
 		if native && bufferedStream {
 			accountRaw = attemptWriter.body.Bytes()
 		}
-		inputTokens, outputTokens, cost := parseUsage(accountDialect, accountRaw)
+		parsed := parseUsageDetails(accountDialect, accountRaw)
+		inputTokens, outputTokens, cost := parsed.inputTokens, parsed.outputTokens, (*int64)(nil)
+		cacheCreationInputTokens, cacheReadInputTokens := parsed.cacheCreationInputTokens, parsed.cacheReadInputTokens
+		cacheCreation5mTokens, cacheCreation1hTokens := parsed.cacheCreation5mTokens, parsed.cacheCreation1hTokens
 		if countedInputTokens != nil {
 			zero := int64(0)
 			inputTokens, outputTokens = countedInputTokens, &zero
 		}
 		toolCalls, toolStatus := parseToolMetadata(accountDialect, accountRaw)
 		success := copyErr == nil && result >= 200 && result < 300
+		if success && promptCache.enabled && (cacheCreationInputTokens == nil || cacheReadInputTokens == nil) {
+			inputTokens, outputTokens, cost = nil, nil, nil
+			cacheCreationInputTokens, cacheReadInputTokens = nil, nil
+			cacheCreation5mTokens, cacheCreation1hTokens = nil, nil
+		}
 		estimatedUsage := false
 		if success && upstreamPath == "moderations" && inputTokens == nil && outputTokens == nil {
 			input, zero := inputEstimate, int64(0)
@@ -355,7 +382,7 @@ func (handler *Handler) forwardAuthorized(response http.ResponseWriter, request 
 			_ = handler.providers.RecordRouteOutcome(context.WithoutCancel(request.Context()), target, clientOperation, stream, success, attemptWriter.FirstByte(started), time.Since(started))
 		}
 		retryableDispatchError := !semanticResponseError && (native && dispatchErr != nil || errors.Is(dispatchErr, errUpstreamResponseInterrupted))
-		retry := !opaqueMedia && !terminalStreamFailure && index+1 < len(plan.Targets) && (retryableDispatchError || retryableResult(result, copyErr)) && !attemptWriter.Committed()
+		retry := !opaqueMedia && !promptCache.enabled && !terminalStreamFailure && index+1 < len(plan.Targets) && (retryableDispatchError || retryableResult(result, copyErr)) && !attemptWriter.Committed()
 		state, status := "succeeded", "provider_reported"
 		if estimatedUsage {
 			status = "estimated"
@@ -371,11 +398,19 @@ func (handler *Handler) forwardAuthorized(response http.ResponseWriter, request 
 			if !terminalStreamFailure {
 				status = "unknown"
 				inputTokens, outputTokens, cost = nil, nil, nil
+				cacheCreationInputTokens, cacheReadInputTokens = nil, nil
+				cacheCreation5mTokens, cacheCreation1hTokens = nil, nil
 				if result >= 400 && result < 500 && copyErr == nil {
 					zero := int64(0)
 					status, inputTokens, outputTokens, cost = "estimated", &zero, &zero, &zero
 				}
 			}
+		}
+		if promptCache.enabled && !success {
+			status = "unknown"
+			inputTokens, outputTokens, cost = nil, nil, nil
+			cacheCreationInputTokens, cacheReadInputTokens = nil, nil
+			cacheCreation5mTokens, cacheCreation1hTokens = nil, nil
 		}
 		if copyErr != nil && toolCalls > 0 {
 			toolStatus = "incomplete"
@@ -392,7 +427,7 @@ func (handler *Handler) forwardAuthorized(response http.ResponseWriter, request 
 			retry = false
 		}
 		publishAfterSettlement := success && state == "succeeded" && !deferredAttachment && (storeResponse || storedChat != nil)
-		settlement := usage.SettlementInput{IdempotencyKey: "dispatch:" + admission.AttemptID, State: state, UsageStatus: status, InputTokens: inputTokens, OutputTokens: outputTokens, CostNanos: cost, ResponseToolCallCount: toolCalls, ToolCallStatus: toolStatus, FinalRequest: !retry && storageErr == nil && !publishAfterSettlement && !(deferredAttachment && success && request.Context().Err() == nil)}
+		settlement := usage.SettlementInput{IdempotencyKey: "dispatch:" + admission.AttemptID, State: state, UsageStatus: status, InputTokens: inputTokens, OutputTokens: outputTokens, CacheCreationInputTokens: cacheCreationInputTokens, CacheReadInputTokens: cacheReadInputTokens, CacheCreation5mTokens: cacheCreation5mTokens, CacheCreation1hTokens: cacheCreation1hTokens, CostNanos: cost, ResponseToolCallCount: toolCalls, ToolCallStatus: toolStatus, FinalRequest: !retry && storageErr == nil && !publishAfterSettlement && !(deferredAttachment && success && request.Context().Err() == nil)}
 		settlementErr := handler.settle(admission.AttemptID, settlement)
 		if observer, ok := response.(interface {
 			observeSettlement(string, string, usage.SettlementInput, error)

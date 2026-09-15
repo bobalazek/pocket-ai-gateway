@@ -8,8 +8,26 @@ import (
 )
 
 func parseUsage(dialect string, raw []byte) (*int64, *int64, *int64) {
+	usage := parseUsageDetails(dialect, raw)
+	return usage.inputTokens, usage.outputTokens, nil
+}
+
+type parsedUsage struct {
+	inputTokens              *int64
+	outputTokens             *int64
+	cacheCreationInputTokens *int64
+	cacheReadInputTokens     *int64
+	cacheCreation5mTokens    *int64
+	cacheCreation1hTokens    *int64
+}
+
+func parseUsageDetails(dialect string, raw []byte) parsedUsage {
 	var input, output int64
 	foundInput, foundOutput := false, false
+	var cacheCreation, cacheRead int64
+	foundCacheCreation, foundCacheRead := false, false
+	var cacheCreation5m, cacheCreation1h int64
+	foundCacheCreation5m, foundCacheCreation1h := false, false
 	for _, object := range responseObjects(raw) {
 		var value map[string]any
 		if json.Unmarshal(object, &value) != nil {
@@ -61,6 +79,22 @@ func parseUsage(dialect string, raw []byte) (*int64, *int64, *int64) {
 		if number, ok := integer(usageMap[outputName]); ok {
 			output, foundOutput = number, true
 		}
+		if dialect == "anthropic" {
+			if number, ok := integer(usageMap["cache_creation_input_tokens"]); ok {
+				cacheCreation, foundCacheCreation = number, true
+			}
+			if number, ok := integer(usageMap["cache_read_input_tokens"]); ok {
+				cacheRead, foundCacheRead = number, true
+			}
+			if details, _ := usageMap["cache_creation"].(map[string]any); details != nil {
+				if number, ok := integer(details["ephemeral_5m_input_tokens"]); ok {
+					cacheCreation5m, foundCacheCreation5m = number, true
+				}
+				if number, ok := integer(details["ephemeral_1h_input_tokens"]); ok {
+					cacheCreation1h, foundCacheCreation1h = number, true
+				}
+			}
+		}
 	}
 	if !foundInput || !foundOutput {
 		if dialect == "openai" && foundInput {
@@ -75,9 +109,45 @@ func parseUsage(dialect string, raw []byte) (*int64, *int64, *int64) {
 		}
 	}
 	if !foundInput || !foundOutput {
-		return nil, nil, nil
+		return parsedUsage{}
 	}
-	return &input, &output, nil
+	if dialect == "anthropic" {
+		if foundCacheCreation5m || foundCacheCreation1h {
+			detailTotal := cacheCreation5m + cacheCreation1h
+			if detailTotal < cacheCreation5m || detailTotal > 9_007_199_254_740_991 || foundCacheCreation && detailTotal != cacheCreation {
+				return parsedUsage{}
+			}
+			if !foundCacheCreation {
+				return parsedUsage{}
+			}
+		}
+		if foundCacheCreation {
+			if input > 9_007_199_254_740_991-cacheCreation {
+				return parsedUsage{}
+			}
+			input += cacheCreation
+		}
+		if foundCacheRead {
+			if input > 9_007_199_254_740_991-cacheRead {
+				return parsedUsage{}
+			}
+			input += cacheRead
+		}
+	}
+	result := parsedUsage{inputTokens: &input, outputTokens: &output}
+	if foundCacheCreation {
+		result.cacheCreationInputTokens = &cacheCreation
+	}
+	if foundCacheRead {
+		result.cacheReadInputTokens = &cacheRead
+	}
+	if foundCacheCreation5m {
+		result.cacheCreation5mTokens = &cacheCreation5m
+	}
+	if foundCacheCreation1h {
+		result.cacheCreation1hTokens = &cacheCreation1h
+	}
+	return result
 }
 
 func countRequestTools(dialect string, raw []byte) int64 {

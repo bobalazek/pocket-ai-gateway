@@ -15,16 +15,20 @@ type ProjectionMetadatum struct {
 }
 
 type UsageDaily struct {
-	Date            string `json:"date"`
-	OwnerUserID     string `json:"owner_user_id"`
-	KeyID           string `json:"key_id"`
-	ModelID         string `json:"model_id"`
-	ConnectionID    string `json:"connection_id"`
-	Requests        int64  `json:"requests"`
-	InputTokens     int64  `json:"input_tokens"`
-	OutputTokens    int64  `json:"output_tokens"`
-	KnownCostNanos  int64  `json:"known_cost_nanos"`
-	UnknownAttempts int64  `json:"unknown_attempts"`
+	Date                       string `json:"date"`
+	OwnerUserID                string `json:"owner_user_id"`
+	KeyID                      string `json:"key_id"`
+	ModelID                    string `json:"model_id"`
+	ConnectionID               string `json:"connection_id"`
+	Requests                   int64  `json:"requests"`
+	InputTokens                int64  `json:"input_tokens"`
+	OutputTokens               int64  `json:"output_tokens"`
+	KnownCostNanos             int64  `json:"known_cost_nanos"`
+	UnknownAttempts            int64  `json:"unknown_attempts"`
+	CacheCreationInputTokens   int64  `json:"cache_creation_input_tokens"`
+	CacheReadInputTokens       int64  `json:"cache_read_input_tokens"`
+	CacheCreation5mInputTokens int64  `json:"cache_creation_5m_input_tokens"`
+	CacheCreation1hInputTokens int64  `json:"cache_creation_1h_input_tokens"`
 }
 
 type UsageEvent struct {

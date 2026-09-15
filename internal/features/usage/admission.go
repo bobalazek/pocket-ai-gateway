@@ -39,6 +39,7 @@ type AdmissionInput struct {
 	RejectedCandidatesJSON string
 	RequiredPriceVersionID string
 	RequireFreePrice       bool
+	PriceUnavailable       bool
 	BodyBytes              int64
 	BatchItems             int64
 	EstimatedInputTokens   int64
@@ -176,18 +177,22 @@ func (service *Service) Admit(ctx context.Context, input AdmissionInput) (Admiss
 	}
 	var estimatedCost *int64
 	priceVersionID := ""
-	price, priceErr := priceAt(ctx, tx, input.ConnectionID, input.ModelID, effective)
-	if priceErr == nil {
-		if input.RequireFreePrice && (price.ID != input.RequiredPriceVersionID || !VerifiedFreePrice(price.inputNanosPerMillion, price.outputNanosPerMillion, price.Source, price.createdAt, effective)) {
-			return Admission{}, ErrDenied
+	priceErr := sql.ErrNoRows
+	if !input.PriceUnavailable {
+		price, lookupErr := priceAt(ctx, tx, input.ConnectionID, input.ModelID, effective)
+		priceErr = lookupErr
+		if priceErr == nil {
+			if input.RequireFreePrice && (price.ID != input.RequiredPriceVersionID || !VerifiedFreePrice(price.inputNanosPerMillion, price.outputNanosPerMillion, price.Source, price.createdAt, effective)) {
+				return Admission{}, ErrDenied
+			}
+			cost, err := CalculateCost(input.EstimatedInputTokens, input.EstimatedOutputTokens, price.inputNanosPerMillion, price.outputNanosPerMillion)
+			if err != nil {
+				return Admission{}, err
+			}
+			estimatedCost, priceVersionID = &cost, price.ID
+		} else if !errors.Is(priceErr, sql.ErrNoRows) {
+			return Admission{}, priceErr
 		}
-		cost, err := CalculateCost(input.EstimatedInputTokens, input.EstimatedOutputTokens, price.inputNanosPerMillion, price.outputNanosPerMillion)
-		if err != nil {
-			return Admission{}, err
-		}
-		estimatedCost, priceVersionID = &cost, price.ID
-	} else if !errors.Is(priceErr, sql.ErrNoRows) {
-		return Admission{}, priceErr
 	}
 	if input.RequireFreePrice && priceErr != nil {
 		return Admission{}, ErrDenied

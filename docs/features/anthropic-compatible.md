@@ -41,4 +41,10 @@ Translate ordinary JSON requests to/from OpenAI and Gemini while preserving mult
 
 Automated coverage pins the Anthropic SDK and verifies that its `/v1/messages` path is appended exactly once, then exercises OpenAI, Anthropic, and Gemini upstream families, native headers/errors, translated tool cycles, and stream shapes.
 
-Sources: [Anthropic API](https://platform.claude.com/docs/en/api/overview), [streaming](https://platform.claude.com/docs/en/build-with-claude/streaming).
+## Native prompt caching
+
+Messages sent to the fixed Anthropic preset may use top-level automatic `cache_control` or explicit controls on tools, system blocks, and message content blocks. Controls are bounded to `{ "type": "ephemeral", "ttl": "5m" | "1h" }`, with the documented four-breakpoint and TTL-order rules. The public model and upstream model must both publish `prompt_cache`; translated targets are ineligible, and a dispatched cached request never falls back to another target because duplicate cache writes can be billable.
+
+Accounting treats `input_tokens + cache_creation_input_tokens + cache_read_input_tokens` as total input. It also preserves cache creation, cache read, five-minute creation, and one-hour creation counters in authoritative attempts and the data projection. Cache-controlled attempts have unknown cost until the price model can represent versioned cache rates, so spend policies, free-only routes, and lowest-cost routing reject them before dispatch. The gateway stores counters only, never prompt or cached content.
+
+Sources: [Anthropic API](https://platform.claude.com/docs/en/api/overview), [streaming](https://platform.claude.com/docs/en/build-with-claude/streaming), [prompt caching](https://platform.claude.com/docs/en/build-with-claude/prompt-caching).
