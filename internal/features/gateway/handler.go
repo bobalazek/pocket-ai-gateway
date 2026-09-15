@@ -120,6 +120,11 @@ func (handler *Handler) forwardAuthorized(response http.ResponseWriter, request 
 		return
 	}
 	storeResponse := false
+	attachment, _ := request.Context().Value(conversationAttachmentContextKey{}).(conversationAttachment)
+	var attached *conversationAttachment
+	if attachment.id != "" {
+		attached = &attachment
+	}
 	if dialect == "responses" {
 		if storeResponse, err = validateResponses(envelope); err != nil {
 			handler.writeError(response, dialect, http.StatusBadRequest, "unsupported_feature", err.Error())
@@ -275,6 +280,17 @@ func (handler *Handler) forwardAuthorized(response http.ResponseWriter, request 
 			result, raw, copyErr = handler.dispatchTranslated(attemptWriter, request, target, targetPath, targetBody, dialect, publicID, stream, releaseDispatch)
 		}
 		success := copyErr == nil && result >= 200 && result < 300
+		if success && attached != nil {
+			var attachedBody []byte
+			attachedBody, copyErr = responseWithConversation(attemptWriter.body.Bytes(), attached)
+			if copyErr == nil {
+				attemptWriter.body.Reset()
+				_, _ = attemptWriter.body.Write(attachedBody)
+			} else {
+				success = false
+				attemptWriter.Reset()
+			}
+		}
 		var storedResponse preparedResponse
 		if success && storeResponse {
 			storedResponse, copyErr = prepareStoredResponse(publicID, attemptWriter.body.Bytes())
@@ -316,11 +332,19 @@ func (handler *Handler) forwardAuthorized(response http.ResponseWriter, request 
 			toolStatus = "incomplete"
 		}
 		var storageErr error
-		if success && storeResponse {
+		if success && (storeResponse || attached != nil) {
 			storageContext, cancelStorage := context.WithTimeout(context.WithoutCancel(request.Context()), 2*time.Second)
-			storageErr = handler.storeResponse(storageContext, principal.OwnerUserID, principal.KeyID, publicID, body, storedResponse)
+			if storeResponse {
+				requestBody := body
+				if attached != nil {
+					requestBody = attached.requestBody
+				}
+				storageErr = handler.storeResponse(storageContext, principal.OwnerUserID, principal.KeyID, publicID, requestBody, storedResponse, attached)
+			} else {
+				storageErr = handler.storeConversationTurn(storageContext, *attached)
+			}
 			cancelStorage()
-			if storageErr == nil {
+			if storageErr == nil && storeResponse {
 				attemptWriter.body.Reset()
 				_, _ = attemptWriter.body.Write(storedResponse.body)
 			}
@@ -346,6 +370,10 @@ func (handler *Handler) forwardAuthorized(response http.ResponseWriter, request 
 			attemptWriter.Reset()
 			if errors.Is(storageErr, errStoredResponseLimit) {
 				handler.writeError(attemptWriter, dialect, http.StatusTooManyRequests, "rate_limit_exceeded", "Stored Response retention limit reached")
+			} else if errors.Is(storageErr, errConversationLimit) || errors.Is(storageErr, errConversationItemLimit) {
+				handler.writeError(attemptWriter, dialect, http.StatusTooManyRequests, "rate_limit_exceeded", "Conversation retention limit reached")
+			} else if errors.Is(storageErr, errConversationChanged) {
+				handler.writeError(attemptWriter, dialect, http.StatusConflict, "conflict", "Conversation changed before the Response completed")
 			} else {
 				handler.writeError(attemptWriter, dialect, http.StatusServiceUnavailable, "gateway_unavailable", "Response could not be stored")
 			}

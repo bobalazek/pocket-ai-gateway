@@ -1,5 +1,5 @@
 openapi: 3.1.0
-info: { title: Pocket AI Gateway OpenAI-Compatible API, version: 0.6.0 }
+info: { title: Pocket AI Gateway OpenAI-Compatible API, version: 0.7.0 }
 servers: [{ url: /api/openai/v1 }]
 security: [{ bearerAuth: [] }]
 paths:
@@ -18,8 +18,8 @@ paths:
   /responses:
     post:
       operationId: createResponse
-      description: Creates a response. Non-streaming responses are stored by default for the creating API key. background:true queues durable gateway execution and requires storage. store:false remains stateless and is required for streaming.
-      requestBody: { required: true, content: { application/json: { schema: { type: object, required: [model, input], properties: { model: { type: string }, input: {}, store: { type: boolean, default: true }, stream: { type: boolean }, background: { type: boolean, default: false } }, additionalProperties: true } } } }
+      description: Creates a response. Non-streaming responses are stored by default for the creating API key. Synchronous JSON requests may attach a gateway-owned conversation by ID; streaming and background attachment are currently rejected. background:true queues durable gateway execution and requires storage. store:false remains stateless and is required for streaming.
+      requestBody: { required: true, content: { application/json: { schema: { type: object, required: [model], properties: { model: { type: string }, input: {}, conversation: { oneOf: [{ type: string }, { type: object, required: [id], properties: { id: { type: string } }, additionalProperties: false }, { type: "null" }] }, store: { type: boolean, default: true }, stream: { type: boolean }, background: { type: boolean, default: false } }, additionalProperties: true } } } }
       responses: { "200": { description: Native or translated Responses JSON or lifecycle event stream }, default: { description: OpenAI-compatible error } }
   /responses/compact:
     post:

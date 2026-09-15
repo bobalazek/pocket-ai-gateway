@@ -146,6 +146,7 @@ type Conversation struct {
 	MetadataJson string        `json:"metadata_json"`
 	CreatedAt    int64         `json:"created_at"`
 	DeletedAt    sql.NullInt64 `json:"deleted_at"`
+	Revision     int64         `json:"revision"`
 }
 
 type ConversationItem struct {

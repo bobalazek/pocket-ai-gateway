@@ -96,6 +96,10 @@ describe("official SDK compatibility through the Go gateway", () => {
       items: [{ role: "user", content: "Hello" }],
     });
     expect(conversation).toMatchObject({ object: "conversation", metadata: { topic: "sdk" } });
+    const response = await client.responses.create({ model: "target-anthropic", input: "Continue", store: false, conversation: conversation.id });
+    expect(response.conversation).toEqual({ id: conversation.id });
+    const responseItemID = response.output[0]?.id;
+    expect(responseItemID).toMatch(/^citem_/);
     const added = await client.conversations.items.create(conversation.id, {
       items: [
         { type: "message", role: "user", content: [{ type: "input_text", text: "Next" }] },
@@ -110,6 +114,8 @@ describe("official SDK compatibility through the Go gateway", () => {
     const page = await client.conversations.items.list(conversation.id, { order: "asc", limit: 1 });
     expect(page.data).toHaveLength(1);
     expect(page.has_more).toBe(true);
+    const conversationItems = await client.conversations.items.list(conversation.id, { order: "asc", limit: 100 });
+    expect(conversationItems.data.some((item) => item.id === responseItemID)).toBe(true);
     expect((await client.conversations.update(conversation.id, { metadata: { topic: "updated" } })).metadata).toEqual({ topic: "updated" });
     expect((await client.conversations.items.delete(itemID, { conversation_id: conversation.id })).id).toBe(conversation.id);
     expect(await client.conversations.delete(conversation.id)).toMatchObject({ id: conversation.id, deleted: true });

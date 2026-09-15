@@ -1,9 +1,12 @@
 package gateway
 
 import (
+	"bytes"
 	"encoding/json"
 	"errors"
+	"io"
 	"net/http"
+	"net/http/httptest"
 	"strings"
 	"testing"
 	"time"
@@ -94,6 +97,163 @@ func TestConversationLifecycleAndKeyIsolation(t *testing.T) {
 	}
 }
 
+func TestResponseConversationAttachmentAcrossProviders(t *testing.T) {
+	responses := map[string]string{
+		"openai":    `{"id":"resp_upstream","object":"response","status":"completed","output":[{"id":"msg_upstream","type":"message","role":"assistant","status":"completed","content":[{"type":"output_text","text":"Hello","annotations":[]}]}],"usage":{"input_tokens":3,"output_tokens":1,"total_tokens":4}}`,
+		"anthropic": `{"id":"msg_upstream","content":[{"type":"text","text":"Hello"}],"stop_reason":"end_turn","usage":{"input_tokens":3,"output_tokens":1}}`,
+		"gemini":    `{"responseId":"gem_upstream","candidates":[{"content":{"parts":[{"text":"Hello"}]},"finishReason":"STOP"}],"usageMetadata":{"promptTokenCount":3,"candidatesTokenCount":1}}`,
+	}
+	for target, upstreamResponse := range responses {
+		t.Run(target, func(t *testing.T) {
+			var upstreamBody []byte
+			upstream := httptest.NewServer(http.HandlerFunc(func(response http.ResponseWriter, request *http.Request) {
+				upstreamBody, _ = io.ReadAll(request.Body)
+				_, _ = io.WriteString(response, upstreamResponse)
+			}))
+			defer upstream.Close()
+			ctx, store, owner, keyService, providerService, usageService := gatewayFixture(t)
+			defer store.Close()
+			connection, model := publishModel(t, ctx, providerService, owner, target, upstream.URL+"/v1", target+"-upstream", []string{"chat"})
+			_, secret, err := keyService.Create(ctx, owner.ID, keys.Input{Label: "Conversation", Scopes: []string{"responses:generate"}, ModelPatterns: []string{model.ID}, ConnectionIDs: []string{connection.ID}})
+			if err != nil {
+				t.Fatal(err)
+			}
+			handler := New(store.SystemDB(), keyService, providerService, usageService)
+			mux := http.NewServeMux()
+			handler.Register(mux)
+			created := performResponseRequest(t, mux, secret, http.MethodPost, "/api/openai/v1/conversations", `{"items":[{"role":"user","content":"First"}]}`)
+			var conversation conversation
+			if json.Unmarshal(created.Body.Bytes(), &conversation) != nil {
+				t.Fatalf("conversation = %s", created.Body.String())
+			}
+			attached := performResponseRequest(t, mux, secret, http.MethodPost, "/api/openai/v1/responses", `{"model":"`+model.ID+`","input":"Second","conversation":{"id":"`+conversation.ID+`"}}`)
+			if attached.Code != http.StatusOK || !bytes.Contains(attached.Body.Bytes(), []byte(`"conversation":{"id":"`+conversation.ID+`"}`)) {
+				t.Fatalf("attached = %d %s", attached.Code, attached.Body.String())
+			}
+			var attachedResponse struct {
+				ID     string `json:"id"`
+				Output []struct {
+					ID string `json:"id"`
+				} `json:"output"`
+			}
+			if json.Unmarshal(attached.Body.Bytes(), &attachedResponse) != nil || len(attachedResponse.Output) != 1 {
+				t.Fatalf("attached response = %s", attached.Body.String())
+			}
+			inputs := performResponseRequest(t, mux, secret, http.MethodGet, "/api/openai/v1/responses/"+attachedResponse.ID+"/input_items?order=asc", "")
+			var inputPage struct {
+				Data []struct {
+					ID string `json:"id"`
+				} `json:"data"`
+			}
+			if json.Unmarshal(inputs.Body.Bytes(), &inputPage) != nil || len(inputPage.Data) != 2 {
+				t.Fatalf("response inputs = %d %s", inputs.Code, inputs.Body.String())
+			}
+			if !bytes.Contains(upstreamBody, []byte("First")) || !bytes.Contains(upstreamBody, []byte("Second")) || bytes.Contains(upstreamBody, []byte(conversation.ID)) || bytes.Contains(upstreamBody, []byte("citem_")) {
+				t.Fatalf("upstream body = %s", upstreamBody)
+			}
+			continued := performResponseRequest(t, mux, secret, http.MethodPost, "/api/openai/v1/responses", `{"model":"`+model.ID+`","input":"Third","store":false,"conversation":"`+conversation.ID+`"}`)
+			if continued.Code != http.StatusOK || !bytes.Contains(upstreamBody, []byte("Hello")) || !bytes.Contains(upstreamBody, []byte("Third")) {
+				t.Fatalf("continued = %d %s upstream=%s", continued.Code, continued.Body.String(), upstreamBody)
+			}
+			listed := performResponseRequest(t, mux, secret, http.MethodGet, "/api/openai/v1/conversations/"+conversation.ID+"/items?order=asc&limit=100", "")
+			var page struct {
+				Data []struct {
+					ID string `json:"id"`
+				} `json:"data"`
+			}
+			if json.Unmarshal(listed.Body.Bytes(), &page) != nil || len(page.Data) != 5 || page.Data[0].ID != inputPage.Data[0].ID || page.Data[1].ID != inputPage.Data[1].ID || page.Data[2].ID != attachedResponse.Output[0].ID {
+				t.Fatalf("items = %d %s", listed.Code, listed.Body.String())
+			}
+		})
+	}
+}
+
+func TestResponseConversationAttachmentRejectsStaleHistory(t *testing.T) {
+	ctx, store, owner, keyService, providerService, usageService := gatewayFixture(t)
+	defer store.Close()
+	_, secret, err := keyService.Create(ctx, owner.ID, keys.Input{Label: "Conversation", Scopes: []string{"responses:generate"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	handler := New(store.SystemDB(), keyService, providerService, usageService)
+	mux := http.NewServeMux()
+	handler.Register(mux)
+	created := performResponseRequest(t, mux, secret, http.MethodPost, "/api/openai/v1/conversations", `{}`)
+	var conversation conversation
+	_ = json.Unmarshal(created.Body.Bytes(), &conversation)
+	principal, err := keyService.Authenticate(ctx, secret)
+	if err != nil {
+		t.Fatal(err)
+	}
+	envelope := map[string]json.RawMessage{
+		"model":        json.RawMessage(`"assistant"`),
+		"input":        json.RawMessage(`"stale"`),
+		"conversation": json.RawMessage(`"` + conversation.ID + `"`),
+	}
+	attachment, _, err := handler.prepareConversationResponse(ctx, principal, envelope)
+	if err != nil {
+		t.Fatal(err)
+	}
+	mutated := performResponseRequest(t, mux, secret, http.MethodPost, "/api/openai/v1/conversations/"+conversation.ID+"/items", `{"items":[{"role":"user","content":"newer"}]}`)
+	if mutated.Code != http.StatusOK {
+		t.Fatalf("mutation = %d %s", mutated.Code, mutated.Body.String())
+	}
+	if _, err := responseWithConversation([]byte(`{"object":"response","status":"completed","output":[]}`), &attachment); err != nil {
+		t.Fatal(err)
+	}
+	if err := handler.storeConversationTurn(ctx, attachment); !errors.Is(err, errConversationChanged) {
+		t.Fatalf("stale attachment error = %v", err)
+	}
+	var items int
+	_ = store.SystemDB().QueryRowContext(ctx, "SELECT COUNT(*) FROM conversation_items WHERE conversation_id=?", conversation.ID).Scan(&items)
+	if items != 1 {
+		t.Fatalf("stale attachment stored %d items", items)
+	}
+}
+
+func TestResponseConversationAttachmentIsAtomicAndKeyOwned(t *testing.T) {
+	upstreamCalls := 0
+	upstream := httptest.NewServer(http.HandlerFunc(func(response http.ResponseWriter, _ *http.Request) {
+		upstreamCalls++
+		_, _ = io.WriteString(response, `{"id":"resp_upstream","object":"response","status":"completed","output":[{"id":"msg_upstream","type":"message","role":"assistant","status":"completed","content":[{"type":"output_text","text":"Hello","annotations":[]}]}],"usage":{"input_tokens":1,"output_tokens":1,"total_tokens":2}}`)
+	}))
+	defer upstream.Close()
+	ctx, store, owner, keyService, providerService, usageService := gatewayFixture(t)
+	defer store.Close()
+	connection, model := publishModel(t, ctx, providerService, owner, "openai", upstream.URL+"/v1", "openai-upstream", []string{"chat"})
+	_, secret, err := keyService.Create(ctx, owner.ID, keys.Input{Label: "Conversation", Scopes: []string{"responses:generate"}, ModelPatterns: []string{model.ID}, ConnectionIDs: []string{connection.ID}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, sibling, err := keyService.Create(ctx, owner.ID, keys.Input{Label: "Sibling", Scopes: []string{"responses:generate"}, ModelPatterns: []string{model.ID}, ConnectionIDs: []string{connection.ID}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	handler := New(store.SystemDB(), keyService, providerService, usageService)
+	mux := http.NewServeMux()
+	handler.Register(mux)
+	created := performResponseRequest(t, mux, secret, http.MethodPost, "/api/openai/v1/conversations", `{}`)
+	var conversation conversation
+	_ = json.Unmarshal(created.Body.Bytes(), &conversation)
+	denied := performResponseRequest(t, mux, sibling, http.MethodPost, "/api/openai/v1/responses", `{"model":"`+model.ID+`","input":"No","store":false,"conversation":"`+conversation.ID+`"}`)
+	if denied.Code != http.StatusNotFound || upstreamCalls != 0 {
+		t.Fatalf("cross-key attachment = %d calls=%d", denied.Code, upstreamCalls)
+	}
+	if _, err := store.SystemDB().ExecContext(ctx, `CREATE TRIGGER block_conversation_turn BEFORE INSERT ON conversation_items BEGIN SELECT RAISE(ABORT,'blocked'); END`); err != nil {
+		t.Fatal(err)
+	}
+	failed := performResponseRequest(t, mux, secret, http.MethodPost, "/api/openai/v1/responses", `{"model":"`+model.ID+`","input":"Atomic","conversation":"`+conversation.ID+`"}`)
+	if failed.Code != http.StatusServiceUnavailable || upstreamCalls != 1 {
+		t.Fatalf("failed attachment = %d %s calls=%d", failed.Code, failed.Body.String(), upstreamCalls)
+	}
+	var responses, items int
+	_ = store.SystemDB().QueryRowContext(ctx, "SELECT COUNT(*) FROM stored_responses").Scan(&responses)
+	_ = store.SystemDB().QueryRowContext(ctx, "SELECT COUNT(*) FROM conversation_items WHERE conversation_id=?", conversation.ID).Scan(&items)
+	if responses != 0 || items != 0 {
+		t.Fatalf("partial storage responses=%d items=%d", responses, items)
+	}
+}
+
 func TestConversationValidation(t *testing.T) {
 	ctx, store, owner, keyService, providerService, usageService := gatewayFixture(t)
 	defer store.Close()
@@ -133,6 +293,19 @@ func TestConversationValidation(t *testing.T) {
 	forbidden := performResponseRequest(t, mux, denied, http.MethodGet, "/api/openai/v1/conversations/missing", "")
 	if forbidden.Code != http.StatusForbidden {
 		t.Fatalf("forbidden = %d %s", forbidden.Code, forbidden.Body.String())
+	}
+}
+
+func TestResponseConversationParameterValidation(t *testing.T) {
+	for _, raw := range []string{`1`, `{}`, `{"id":"conv_1","extra":true}`, `{"id":null}`} {
+		if _, err := responseConversationID(json.RawMessage(raw)); err == nil {
+			t.Fatalf("accepted conversation parameter %s", raw)
+		}
+	}
+	for _, raw := range []string{`"conv_1"`, `{"id":"conv_1"}`, `null`} {
+		if _, err := responseConversationID(json.RawMessage(raw)); err != nil {
+			t.Fatalf("rejected conversation parameter %s: %v", raw, err)
+		}
 	}
 }
 

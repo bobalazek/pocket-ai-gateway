@@ -11,6 +11,7 @@ import (
 	"io"
 	"net/http"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/bobalazek/pocket-ai-gateway/internal/credentials"
@@ -67,6 +68,45 @@ func (handler *Handler) responses(response http.ResponseWriter, request *http.Re
 	if raw, exists := envelope["background"]; exists && json.Unmarshal(raw, &background) != nil {
 		handler.writeError(response, "responses", http.StatusBadRequest, "invalid_request", "background must be a boolean")
 		return
+	}
+	conversationID, conversationErr := responseConversationID(envelope["conversation"])
+	if conversationErr != nil {
+		handler.writeError(response, "responses", http.StatusBadRequest, "invalid_request", conversationErr.Error())
+		return
+	}
+	if conversationID != "" {
+		if !principalHasScope(principal.Scopes, "responses:generate") {
+			handler.writeError(response, "responses", http.StatusForbidden, "permission_denied", "Responses access is not permitted")
+			return
+		}
+		var stream bool
+		if raw, exists := envelope["stream"]; exists && json.Unmarshal(raw, &stream) != nil {
+			handler.writeError(response, "responses", http.StatusBadRequest, "invalid_request", "stream must be a boolean")
+			return
+		}
+		if background || stream {
+			handler.writeError(response, "responses", http.StatusBadRequest, "unsupported_feature", "conversation attachment currently requires a synchronous JSON Response")
+			return
+		}
+		attachment, expanded, err := handler.prepareConversationResponse(request.Context(), principal, envelope)
+		if errors.Is(err, sql.ErrNoRows) {
+			handler.writeError(response, "responses", http.StatusNotFound, "not_found", "Conversation not found")
+			return
+		}
+		if errors.Is(err, errConversationRequest) {
+			handler.writeError(response, "responses", http.StatusBadRequest, "invalid_request", "Conversation input is invalid")
+			return
+		}
+		if errors.Is(err, errConversationContextTooLarge) {
+			handler.writeError(response, "responses", http.StatusRequestEntityTooLarge, "request_too_large", "Conversation context exceeds 16 MiB")
+			return
+		}
+		if err != nil {
+			handler.writeError(response, "responses", http.StatusServiceUnavailable, "gateway_unavailable", "Conversation is unavailable")
+			return
+		}
+		request = request.WithContext(context.WithValue(request.Context(), conversationAttachmentContextKey{}, attachment))
+		body = expanded
 	}
 	if !background {
 		handler.forwardAuthorized(response, request, "responses", "responses:generate", "responses", "", nil, principal, body)
@@ -282,7 +322,7 @@ func rewriteResponse(id, modelID string, background bool, createdAt time.Time, b
 	return json.Marshal(value)
 }
 
-func (handler *Handler) storeResponse(ctx context.Context, ownerID, keyID, modelID string, requestBody []byte, value preparedResponse) error {
+func (handler *Handler) storeResponse(ctx context.Context, ownerID, keyID, modelID string, requestBody []byte, value preparedResponse, attachment *conversationAttachment) error {
 	tx, err := handler.database.BeginTx(ctx, nil)
 	if err != nil {
 		return err
@@ -293,6 +333,11 @@ func (handler *Handler) storeResponse(ctx context.Context, ownerID, keyID, model
 	}
 	if _, err := tx.ExecContext(ctx, `INSERT INTO stored_responses(id,owner_user_id,key_id,model_id,body_json,created_at,expires_at,request_json) VALUES(?,?,?,?,?,?,?,?)`, value.id, ownerID, keyID, modelID, value.body, value.createdAt.UnixMilli(), value.createdAt.Add(storedResponseLifetime).UnixMilli(), requestBody); err != nil {
 		return err
+	}
+	if attachment != nil {
+		if err := appendConversationTurn(ctx, tx, *attachment, value.createdAt.UnixMilli()); err != nil {
+			return err
+		}
 	}
 	return tx.Commit()
 }
@@ -490,8 +535,12 @@ func inputItems(responseID string, requestBody []byte) ([]json.RawMessage, error
 		if json.Unmarshal(item, &value) != nil {
 			return nil, errors.New("invalid stored input item")
 		}
-		sum := sha256.Sum256([]byte(responseID + ":" + strconv.Itoa(index)))
-		value["id"], _ = json.Marshal("item_" + hex.EncodeToString(sum[:12]))
+		var existing string
+		_ = json.Unmarshal(value["id"], &existing)
+		if !strings.HasPrefix(existing, "citem_") {
+			sum := sha256.Sum256([]byte(responseID + ":" + strconv.Itoa(index)))
+			value["id"], _ = json.Marshal("item_" + hex.EncodeToString(sum[:12]))
+		}
 		items[index], _ = json.Marshal(value)
 	}
 	return items, nil

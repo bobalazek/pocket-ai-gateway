@@ -28,9 +28,12 @@ const (
 )
 
 var (
-	retainedConversationKeyBytes int64 = 128 << 20
-	errConversationLimit               = errors.New("conversation retention limit reached")
-	errConversationItemLimit           = errors.New("conversation item limit reached")
+	retainedConversationKeyBytes   int64 = 128 << 20
+	errConversationLimit                 = errors.New("conversation retention limit reached")
+	errConversationItemLimit             = errors.New("conversation item limit reached")
+	errConversationRequest               = errors.New("invalid conversation request")
+	errConversationContextTooLarge       = errors.New("conversation context exceeds request limit")
+	errConversationChanged               = errors.New("conversation changed")
 )
 
 type conversation struct {
@@ -38,6 +41,163 @@ type conversation struct {
 	Object    string         `json:"object"`
 	CreatedAt int64          `json:"created_at"`
 	Metadata  map[string]any `json:"metadata"`
+}
+
+type conversationAttachment struct {
+	id, keyID, ownerID string
+	revision           int64
+	newItems           []json.RawMessage
+	outputItems        []json.RawMessage
+	requestBody        []byte
+}
+
+type conversationAttachmentContextKey struct{}
+
+func responseConversationID(raw json.RawMessage) (string, error) {
+	trimmed := bytes.TrimSpace(raw)
+	if len(trimmed) == 0 || bytes.Equal(trimmed, []byte("null")) || bytes.Equal(trimmed, []byte(`""`)) {
+		return "", nil
+	}
+	var id string
+	if json.Unmarshal(trimmed, &id) == nil && id != "" {
+		return id, nil
+	}
+	var value map[string]json.RawMessage
+	if json.Unmarshal(trimmed, &value) != nil || len(value) != 1 || json.Unmarshal(value["id"], &id) != nil || id == "" {
+		return "", errors.New("conversation must be a conversation ID or an object containing only id")
+	}
+	return id, nil
+}
+
+func (handler *Handler) prepareConversationResponse(ctx context.Context, principal keys.Principal, envelope map[string]json.RawMessage) (conversationAttachment, []byte, error) {
+	id, err := responseConversationID(envelope["conversation"])
+	if err != nil || id == "" {
+		return conversationAttachment{}, nil, err
+	}
+	newItems, err := responseRequestConversationItems(envelope["input"])
+	if err != nil {
+		return conversationAttachment{}, nil, errConversationRequest
+	}
+	tx, err := handler.database.BeginTx(ctx, nil)
+	if err != nil {
+		return conversationAttachment{}, nil, err
+	}
+	defer tx.Rollback()
+	var revision int64
+	if err := tx.QueryRowContext(ctx, "SELECT revision FROM conversations WHERE id=? AND key_id=? AND deleted_at IS NULL", id, principal.KeyID).Scan(&revision); err != nil {
+		return conversationAttachment{}, nil, err
+	}
+	rows, err := tx.QueryContext(ctx, "SELECT body_json FROM conversation_items WHERE conversation_id=? ORDER BY ordinal", id)
+	if err != nil {
+		return conversationAttachment{}, nil, err
+	}
+	defer rows.Close()
+	var history []json.RawMessage
+	for rows.Next() {
+		var body []byte
+		if err := rows.Scan(&body); err != nil {
+			return conversationAttachment{}, nil, err
+		}
+		history = append(history, json.RawMessage(body))
+	}
+	if err := rows.Err(); err != nil {
+		return conversationAttachment{}, nil, err
+	}
+	if err := rows.Close(); err != nil {
+		return conversationAttachment{}, nil, err
+	}
+	if err := tx.Commit(); err != nil {
+		return conversationAttachment{}, nil, err
+	}
+	storedItems := append(append([]json.RawMessage{}, history...), newItems...)
+	storedInput, _ := json.Marshal(storedItems)
+	envelope["input"] = storedInput
+	delete(envelope, "conversation")
+	storedBody, _ := json.Marshal(envelope)
+	dispatch := make([]json.RawMessage, 0, len(storedItems))
+	for _, item := range storedItems {
+		var value map[string]json.RawMessage
+		if json.Unmarshal(item, &value) != nil {
+			return conversationAttachment{}, nil, errors.New("conversation contains an invalid item")
+		}
+		delete(value, "id")
+		encoded, _ := json.Marshal(value)
+		dispatch = append(dispatch, encoded)
+	}
+	encodedItems, _ := json.Marshal(dispatch)
+	envelope["input"] = encodedItems
+	body, err := json.Marshal(envelope)
+	if err == nil && len(body) > maxInferenceBody {
+		err = errConversationContextTooLarge
+	}
+	return conversationAttachment{id: id, keyID: principal.KeyID, ownerID: principal.OwnerUserID, revision: revision, newItems: newItems, requestBody: storedBody}, body, err
+}
+
+func responseRequestConversationItems(raw json.RawMessage) ([]json.RawMessage, error) {
+	trimmed := bytes.TrimSpace(raw)
+	if len(trimmed) == 0 || bytes.Equal(trimmed, []byte("null")) {
+		return []json.RawMessage{}, nil
+	}
+	var text string
+	if json.Unmarshal(trimmed, &text) == nil {
+		item, _ := json.Marshal(map[string]any{"type": "message", "role": "user", "content": text})
+		return normalizeConversationItemsLimit([]json.RawMessage{item}, true, maxItemsPerConversation)
+	}
+	var items []json.RawMessage
+	if json.Unmarshal(trimmed, &items) != nil {
+		return nil, errors.New("input must be text or an input-item array")
+	}
+	return normalizeConversationItemsLimit(items, true, maxItemsPerConversation)
+}
+
+func responseWithConversation(body []byte, attachment *conversationAttachment) ([]byte, error) {
+	var value map[string]json.RawMessage
+	if json.Unmarshal(body, &value) != nil || value == nil {
+		return nil, errors.New("provider response is not a JSON object")
+	}
+	var object, status string
+	if json.Unmarshal(value["object"], &object) != nil || object != "response" || json.Unmarshal(value["status"], &status) != nil || status == "" {
+		return nil, errors.New("provider response is not a valid Response object")
+	}
+	var output []json.RawMessage
+	if json.Unmarshal(value["output"], &output) != nil {
+		return nil, errors.New("provider response output is invalid")
+	}
+	normalized, err := normalizeConversationItemsLimit(output, true, maxItemsPerConversation)
+	if err != nil {
+		return nil, err
+	}
+	attachment.outputItems = normalized
+	value["output"], _ = json.Marshal(normalized)
+	value["conversation"], _ = json.Marshal(map[string]string{"id": attachment.id})
+	return json.Marshal(value)
+}
+
+func appendConversationTurn(ctx context.Context, tx *sql.Tx, attachment conversationAttachment, now int64) error {
+	result, err := tx.ExecContext(ctx, "UPDATE conversations SET revision=revision+1 WHERE id=? AND key_id=? AND deleted_at IS NULL AND revision=?", attachment.id, attachment.keyID, attachment.revision)
+	if err != nil {
+		return err
+	}
+	if changed, _ := result.RowsAffected(); changed != 1 {
+		return errConversationChanged
+	}
+	items := append(append([]json.RawMessage{}, attachment.newItems...), attachment.outputItems...)
+	if err := checkConversationCapacity(ctx, tx, attachment.ownerID, attachment.keyID, 0, conversationItemsSize(items)); err != nil {
+		return err
+	}
+	return insertConversationItems(ctx, tx, attachment.id, items, now)
+}
+
+func (handler *Handler) storeConversationTurn(ctx context.Context, attachment conversationAttachment) error {
+	tx, err := handler.database.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	if err := appendConversationTurn(ctx, tx, attachment, time.Now().UnixMilli()); err != nil {
+		return err
+	}
+	return tx.Commit()
 }
 
 func (handler *Handler) createConversation(response http.ResponseWriter, request *http.Request) {
@@ -86,6 +246,9 @@ func (handler *Handler) createConversation(response http.ResponseWriter, request
 	}
 	if err == nil {
 		err = insertConversationItems(request.Context(), tx, id, items, now)
+	}
+	if err == nil {
+		_, err = tx.ExecContext(request.Context(), "UPDATE conversations SET revision=revision+1 WHERE id=?", id)
 	}
 	if err == nil {
 		err = tx.Commit()
@@ -231,6 +394,9 @@ func (handler *Handler) createConversationItems(response http.ResponseWriter, re
 		err = insertConversationItems(request.Context(), tx, id, items, now)
 	}
 	if err == nil {
+		_, err = tx.ExecContext(request.Context(), "UPDATE conversations SET revision=revision+1 WHERE id=?", id)
+	}
+	if err == nil {
 		err = tx.Commit()
 	}
 	if errors.Is(err, sql.ErrNoRows) {
@@ -316,7 +482,14 @@ func (handler *Handler) deleteConversationItem(response http.ResponseWriter, req
 		return
 	}
 	id, itemID := request.PathValue("conversation_id"), request.PathValue("item_id")
-	result, err := handler.database.ExecContext(request.Context(), `DELETE FROM conversation_items WHERE conversation_id=? AND id=? AND EXISTS(SELECT 1 FROM conversations WHERE id=? AND key_id=? AND deleted_at IS NULL)`, id, itemID, id, principal.KeyID)
+	tx, err := handler.database.BeginTx(request.Context(), nil)
+	if err == nil {
+		defer tx.Rollback()
+	}
+	var result sql.Result
+	if err == nil {
+		result, err = tx.ExecContext(request.Context(), `DELETE FROM conversation_items WHERE conversation_id=? AND id=? AND EXISTS(SELECT 1 FROM conversations WHERE id=? AND key_id=? AND deleted_at IS NULL)`, id, itemID, id, principal.KeyID)
+	}
 	if err != nil {
 		handler.writeError(response, "responses", http.StatusServiceUnavailable, "gateway_unavailable", "Conversation item could not be deleted")
 		return
@@ -325,9 +498,17 @@ func (handler *Handler) deleteConversationItem(response http.ResponseWriter, req
 		handler.writeError(response, "responses", http.StatusNotFound, "not_found", "Conversation item not found")
 		return
 	}
-	value, err := readConversation(request.Context(), handler.database, id, principal.KeyID)
+	if _, err = tx.ExecContext(request.Context(), "UPDATE conversations SET revision=revision+1 WHERE id=?", id); err != nil {
+		handler.writeError(response, "responses", http.StatusServiceUnavailable, "gateway_unavailable", "Conversation item could not be deleted")
+		return
+	}
+	value, err := readConversation(request.Context(), tx, id, principal.KeyID)
 	if err != nil {
 		handler.writeError(response, "responses", http.StatusServiceUnavailable, "gateway_unavailable", "Conversation is unavailable")
+		return
+	}
+	if err := tx.Commit(); err != nil {
+		handler.writeError(response, "responses", http.StatusServiceUnavailable, "gateway_unavailable", "Conversation item could not be deleted")
 		return
 	}
 	writeJSON(response, value)
@@ -373,11 +554,18 @@ func conversationMetadata(raw json.RawMessage) (map[string]any, error) {
 }
 
 func normalizeConversationItems(raw []json.RawMessage, allowEmpty bool) ([]json.RawMessage, error) {
+	return normalizeConversationItemsLimit(raw, allowEmpty, 20)
+}
+
+func normalizeConversationItemsLimit(raw []json.RawMessage, allowEmpty bool, limit int) ([]json.RawMessage, error) {
 	if len(raw) == 0 && allowEmpty {
 		return []json.RawMessage{}, nil
 	}
-	if len(raw) < 1 || len(raw) > 20 {
-		return nil, errors.New("items must contain between 1 and 20 objects")
+	if len(raw) < 1 {
+		return nil, errors.New("items must contain at least one object")
+	}
+	if len(raw) > limit {
+		return nil, errors.New("too many conversation items")
 	}
 	items := make([]json.RawMessage, 0, len(raw))
 	for _, source := range raw {
