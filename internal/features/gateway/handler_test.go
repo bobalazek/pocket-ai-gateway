@@ -381,6 +381,139 @@ func TestInputTokenCountingRespectsPublishedCapabilities(t *testing.T) {
 	}
 }
 
+func TestNativeOpenAIImageGenerationUsesScopedModel(t *testing.T) {
+	var path, authorization, model string
+	calls := 0
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		calls++
+		path, authorization = r.URL.Path, r.Header.Get("Authorization")
+		var body map[string]any
+		_ = json.NewDecoder(r.Body).Decode(&body)
+		model, _ = body["model"].(string)
+		io.WriteString(w, `{"created":1764967971,"data":[{"b64_json":"eA=="}],"usage":{"input_tokens":5,"input_tokens_details":{"image_tokens":0,"text_tokens":5},"output_tokens":7,"total_tokens":12}}`)
+	}))
+	defer upstream.Close()
+	ctx, store, owner, keyService, providerService, usageService := gatewayFixture(t)
+	defer store.Close()
+	connection, publicModel := publishModel(t, ctx, providerService, owner, "openai", upstream.URL+"/v1", "image-upstream", []string{"images"})
+	_, secret, err := keyService.Create(ctx, owner.ID, keys.Input{Label: "Images", Scopes: []string{"images:generate"}, ModelPatterns: []string{publicModel.ID}, ConnectionIDs: []string{connection.ID}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, denied, err := keyService.Create(ctx, owner.ID, keys.Input{Label: "No images", Scopes: []string{"chat:generate"}, ModelPatterns: []string{publicModel.ID}, ConnectionIDs: []string{connection.ID}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	mux := http.NewServeMux()
+	New(store.SystemDB(), keyService, providerService, usageService).Register(mux)
+	server := httptest.NewServer(mux)
+	defer server.Close()
+	generate := func(key, payload string) (int, []byte) {
+		request, _ := http.NewRequest(http.MethodPost, server.URL+"/api/openai/v1/images/generations", strings.NewReader(payload))
+		request.Header.Set("Authorization", "Bearer "+key)
+		response, err := http.DefaultClient.Do(request)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer response.Body.Close()
+		body, _ := io.ReadAll(response.Body)
+		return response.StatusCode, body
+	}
+	status, body := generate(secret, `{"model":"`+publicModel.ID+`","prompt":"A black dot","n":2}`)
+	if status != http.StatusOK || !bytes.Contains(body, []byte(`"b64_json":"eA=="`)) || path != "/v1/images/generations" || authorization != "Bearer provider-secret" || model != "image-upstream" {
+		t.Fatalf("status=%d body=%s upstream=%s %s %s", status, body, path, authorization, model)
+	}
+	var inputTokens, outputTokens int64
+	if err := store.SystemDB().QueryRowContext(ctx, "SELECT input_tokens,output_tokens FROM attempts WHERE state='succeeded'").Scan(&inputTokens, &outputTokens); err != nil || inputTokens != 5 || outputTokens != 7 {
+		t.Fatalf("usage=%d/%d err=%v", inputTokens, outputTokens, err)
+	}
+	for _, invalid := range []string{
+		`{"model":"` + publicModel.ID + `","prompt":""}`,
+		`{"model":"` + publicModel.ID + `","prompt":"x","n":0}`,
+		`{"model":"` + publicModel.ID + `","prompt":"x","n":11}`,
+		`{"model":"` + publicModel.ID + `","prompt":"x","n":1.5}`,
+		`{"model":"` + publicModel.ID + `","prompt":"x","output_compression":101}`,
+		`{"model":"` + publicModel.ID + `","prompt":"x","stream":true}`,
+		`{"model":"` + publicModel.ID + `","prompt":"x","partial_images":0}`,
+	} {
+		if status, _ = generate(secret, invalid); status != http.StatusBadRequest {
+			t.Fatalf("invalid status=%d payload=%s", status, invalid)
+		}
+	}
+	routed, err := providerService.ConfigureRoute(ctx, owner, publicModel.ID, publicModel.Revision, providers.RouteConfigInput{Strategy: "lowest_cost", Targets: []providers.RouteTargetInput{{UpstreamModelID: publicModel.TargetModelID, Priority: 1, Enabled: true}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	status, _ = generate(secret, `{"model":"`+publicModel.ID+`","prompt":"x"}`)
+	if status != http.StatusNotFound || calls != 1 {
+		t.Fatalf("lowest-cost status=%d upstream calls=%d", status, calls)
+	}
+	if _, err = providerService.ConfigureRoute(ctx, owner, publicModel.ID, routed.Revision, providers.RouteConfigInput{Strategy: "fixed", Targets: []providers.RouteTargetInput{{UpstreamModelID: publicModel.TargetModelID, Priority: 1, Enabled: true}}}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err = usageService.CreatePolicy(ctx, owner, usage.PolicyInput{ScopeKind: "instance", Metric: "output_tokens", Algorithm: "ceiling", LimitUnits: 1}); err != nil {
+		t.Fatal(err)
+	}
+	status, _ = generate(secret, `{"model":"`+publicModel.ID+`","prompt":"x"}`)
+	if status != http.StatusTooManyRequests || calls != 1 {
+		t.Fatalf("bounded-policy status=%d upstream calls=%d", status, calls)
+	}
+	status, _ = generate(denied, `{"model":"`+publicModel.ID+`","prompt":"x"}`)
+	if status != http.StatusNotFound || calls != 1 {
+		t.Fatalf("denied status=%d upstream calls=%d", status, calls)
+	}
+}
+
+func TestImageGenerationDoesNotFallbackAfterDispatch(t *testing.T) {
+	var primaryCalls, fallbackCalls int
+	primary := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		primaryCalls++
+		w.Header().Set("Content-Length", "1000")
+		io.WriteString(w, `{"created":1,"data":[`)
+	}))
+	defer primary.Close()
+	fallback := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		fallbackCalls++
+		io.WriteString(w, `{"created":1,"data":[{"b64_json":"eA=="}]}`)
+	}))
+	defer fallback.Close()
+	ctx, store, owner, keyService, providerService, usageService := gatewayFixture(t)
+	defer store.Close()
+	primaryConnection, publicModel := publishModel(t, ctx, providerService, owner, "openai", primary.URL+"/v1", "primary-image", []string{"images"})
+	fallbackConnection, err := providerService.CreateConnection(ctx, owner, providers.ConnectionInput{Name: "fallback-image", Adapter: "openai", BaseURL: fallback.URL + "/v1", Enabled: true, AllowPrivateNetwork: true, TimeoutMS: 5000})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err = providerService.PutCredential(ctx, owner, fallbackConnection.ID, "provider-secret", ""); err != nil {
+		t.Fatal(err)
+	}
+	fallbackModel, err := providerService.CreateUpstreamModel(ctx, owner, fallbackConnection.ID, "fallback-image", []string{"images"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err = providerService.ConfigureRoute(ctx, owner, publicModel.ID, publicModel.Revision, providers.RouteConfigInput{Strategy: "ordered_fallback", Targets: []providers.RouteTargetInput{{UpstreamModelID: publicModel.TargetModelID, Priority: 1, Enabled: true}, {UpstreamModelID: fallbackModel.ID, Priority: 2, Enabled: true}}}); err != nil {
+		t.Fatal(err)
+	}
+	_, secret, err := keyService.Create(ctx, owner.ID, keys.Input{Label: "Images", Scopes: []string{"images:generate"}, ModelPatterns: []string{publicModel.ID}, ConnectionIDs: []string{primaryConnection.ID, fallbackConnection.ID}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	mux := http.NewServeMux()
+	New(store.SystemDB(), keyService, providerService, usageService).Register(mux)
+	server := httptest.NewServer(mux)
+	defer server.Close()
+	request, _ := http.NewRequest(http.MethodPost, server.URL+"/api/openai/v1/images/generations", strings.NewReader(`{"model":"`+publicModel.ID+`","prompt":"x"}`))
+	request.Header.Set("Authorization", "Bearer "+secret)
+	response, err := http.DefaultClient.Do(request)
+	if err != nil {
+		t.Fatal(err)
+	}
+	response.Body.Close()
+	if response.StatusCode != http.StatusBadGateway || primaryCalls != 1 || fallbackCalls != 0 {
+		t.Fatalf("status=%d primary=%d fallback=%d", response.StatusCode, primaryCalls, fallbackCalls)
+	}
+}
+
 func TestOpenAIModelListUsesEligibleCountTarget(t *testing.T) {
 	ctx, store, owner, keyService, providerService, usageService := gatewayFixture(t)
 	defer store.Close()

@@ -171,7 +171,7 @@ func TestCatalogValidationAndPresets(t *testing.T) {
 	if PresetSupports("fireworks", "responses") || PresetSupports("fireworks", "embeddings") || !PresetSupports("fireworks", "chat/completions") || !PresetSupports("gemini", "models/test:generateContent") || !PresetSupports("custom", "anything") {
 		t.Fatal("preset operation limits are not enforced")
 	}
-	if !PresetSupports("openai", "moderations") || !PresetSupports("openai", "responses/input_tokens") || PresetSupports("anthropic", "moderations") || !PresetSupportsCapabilities("openai", []string{"moderations", "count_tokens"}) {
+	if !PresetSupports("openai", "moderations") || !PresetSupports("openai", "responses/input_tokens") || !PresetSupports("openai", "images/generations") || PresetSupports("anthropic", "moderations") || !PresetSupportsCapabilities("openai", []string{"moderations", "count_tokens", "images"}) {
 		t.Fatal("OpenAI preset capability mapping is incorrect")
 	}
 }

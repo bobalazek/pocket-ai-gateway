@@ -98,7 +98,7 @@ Free models require explicit zero pricing with provenance and freshness. Unknown
 
 ### API-01 — OpenAI, Anthropic, and Gemini interfaces
 
-Expose OpenAI Chat Completions/Responses/Responses input-token counting/embeddings/moderations/models under /api/openai/v1/, Anthropic Messages/count_tokens/models under /api/anthropic/v1/, and native Gemini generateContent/streamGenerateContent/countTokens/embedContent/batchEmbedContents/models under /api/gemini/v1beta/. The path selects the protocol; headers never switch dialects. Global aliases are disabled by default. Preserve each dialect's response/error/event shape without a gateway JSON envelope.
+Expose OpenAI Chat Completions/Responses/Responses input-token counting/embeddings/moderations/non-streaming image generation/models under /api/openai/v1/, Anthropic Messages/count_tokens/models under /api/anthropic/v1/, and native Gemini generateContent/streamGenerateContent/countTokens/embedContent/batchEmbedContents/models under /api/gemini/v1beta/. The path selects the protocol; headers never switch dialects. Global aliases are disabled by default. Preserve each dialect's response/error/event shape without a gateway JSON envelope.
 
 Support ordinary text, multi-turn system/user/assistant content, function tool calls/results, and incremental SSE. Each of the three client formats can reach all three provider families for supported operations. OpenAI includes both Chat and Responses translation. Capability mismatches fail explicitly; no route silently discards requested semantics.
 

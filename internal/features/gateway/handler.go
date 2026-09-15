@@ -74,6 +74,9 @@ func (handler *Handler) Register(mux *http.ServeMux) {
 	mux.HandleFunc("POST /api/openai/v1/moderations", func(w http.ResponseWriter, r *http.Request) {
 		handler.forward(w, r, "openai", "moderations:classify", "moderations", "", nil)
 	})
+	mux.HandleFunc("POST /api/openai/v1/images/generations", func(w http.ResponseWriter, r *http.Request) {
+		handler.forward(w, r, "openai", "images:generate", "images/generations", "", nil)
+	})
 	mux.HandleFunc("GET /api/anthropic/v1/models", handler.anthropicModels)
 	mux.HandleFunc("GET /api/anthropic/v1/models/{model}", handler.anthropicModel)
 	mux.HandleFunc("POST /api/anthropic/v1/messages", func(w http.ResponseWriter, r *http.Request) {
@@ -148,6 +151,12 @@ func (handler *Handler) forwardAuthorized(response http.ResponseWriter, request 
 			return
 		}
 	}
+	if upstreamPath == "images/generations" {
+		if err = validateImageGeneration(envelope); err != nil {
+			handler.writeError(response, dialect, http.StatusBadRequest, "invalid_request", err.Error())
+			return
+		}
+	}
 	stream := false
 	_ = json.Unmarshal(envelope["stream"], &stream)
 	if streamOverride != nil {
@@ -156,8 +165,13 @@ func (handler *Handler) forwardAuthorized(response http.ResponseWriter, request 
 	inputEstimate := originalBodyBytes
 	outputEstimate := maximumOutput(envelope)
 	batchItems := int64(0)
+	imageGeneration := upstreamPath == "images/generations"
 	if upstreamPath == "embeddings" || upstreamPath == "moderations" {
 		batchItems = jsonCardinality(envelope["input"])
+	} else if imageGeneration {
+		batchItems = 1
+		_ = json.Unmarshal(envelope["n"], &batchItems)
+		outputEstimate = 0
 	} else if dialect == "gemini" {
 		var object map[string]any
 		_ = json.Unmarshal(body, &object)
@@ -172,8 +186,8 @@ func (handler *Handler) forwardAuthorized(response http.ResponseWriter, request 
 	if dialect == "responses_compact" {
 		outputEstimate, outputBounded = inputEstimate, true
 	}
-	generation := scope == "chat:generate" || scope == "responses:generate"
-	if generation && outputEstimate == 0 {
+	generation := scope == "chat:generate" || scope == "responses:generate" || scope == "images:generate"
+	if generation && outputEstimate == 0 && !imageGeneration {
 		outputEstimate = 4096
 	}
 	translationBody := body
@@ -193,6 +207,9 @@ func (handler *Handler) forwardAuthorized(response http.ResponseWriter, request 
 		native := nativeTarget(dialect, target.Adapter)
 		if !hasCapability(target.Capabilities, scope) || !hasCapability(target.UpstreamCapabilities, scope) {
 			return false, "unsupported_capability"
+		}
+		if imageGeneration && target.RoutingStrategy == "lowest_cost" {
+			return false, "cost_estimate_unavailable"
 		}
 		if !native && scope != "chat:generate" && scope != "responses:generate" {
 			return false, "translation_unsupported"
@@ -373,7 +390,7 @@ func (handler *Handler) forwardAuthorized(response http.ResponseWriter, request 
 			_ = handler.providers.RecordRouteOutcome(context.WithoutCancel(request.Context()), target, clientOperation, stream, success, attemptWriter.FirstByte(started), time.Since(started))
 		}
 		retryableDispatchError := !semanticResponseError && (native && dispatchErr != nil || errors.Is(dispatchErr, errUpstreamResponseInterrupted))
-		retry := !terminalStreamFailure && index+1 < len(plan.Targets) && (retryableDispatchError || retryableResult(result, copyErr)) && !attemptWriter.Committed()
+		retry := !imageGeneration && !terminalStreamFailure && index+1 < len(plan.Targets) && (retryableDispatchError || retryableResult(result, copyErr)) && !attemptWriter.Committed()
 		state, status := "succeeded", "provider_reported"
 		if estimatedUsage {
 			status = "estimated"
@@ -645,6 +662,30 @@ func validateResponseInputTokens(raw []byte) (int64, error) {
 		return 0, errors.New("provider returned an invalid input-token count")
 	}
 	return *count, nil
+}
+
+func validateImageGeneration(envelope map[string]json.RawMessage) error {
+	var prompt string
+	if json.Unmarshal(envelope["prompt"], &prompt) != nil || strings.TrimSpace(prompt) == "" || len([]rune(prompt)) > 32_000 {
+		return errors.New("prompt must contain 1-32000 characters")
+	}
+	for name, bounds := range map[string][2]int64{"n": {1, 10}, "output_compression": {0, 100}} {
+		raw := bytes.TrimSpace(envelope[name])
+		if len(raw) == 0 || bytes.Equal(raw, []byte("null")) {
+			continue
+		}
+		var value int64
+		if json.Unmarshal(raw, &value) != nil || value < bounds[0] || value > bounds[1] {
+			return fmt.Errorf("%s must be an integer between %d and %d", name, bounds[0], bounds[1])
+		}
+	}
+	if raw := bytes.TrimSpace(envelope["stream"]); len(raw) > 0 && !bytes.Equal(raw, []byte("null")) && !bytes.Equal(raw, []byte("false")) {
+		return errors.New("streaming image generation is not supported")
+	}
+	if raw := bytes.TrimSpace(envelope["partial_images"]); len(raw) > 0 && !bytes.Equal(raw, []byte("null")) {
+		return errors.New("partial_images requires streaming image generation")
+	}
+	return nil
 }
 
 func validateResponses(envelope map[string]json.RawMessage) (bool, error) {
@@ -930,7 +971,7 @@ func modelVisibleInDialect(dialect string, model providers.PublicModel, target p
 		return false
 	}
 	operations := map[string][]struct{ scope, operation string }{
-		"openai":    {{"embeddings:generate", "embeddings"}, {"moderations:classify", "moderations"}, {"tokens:count", "responses/input_tokens"}},
+		"openai":    {{"embeddings:generate", "embeddings"}, {"moderations:classify", "moderations"}, {"tokens:count", "responses/input_tokens"}, {"images:generate", "images/generations"}},
 		"anthropic": {{"tokens:count", "messages/count_tokens"}},
 		"gemini":    {{"embeddings:generate", "embedContent"}, {"tokens:count", "countTokens"}},
 	}[dialect]
@@ -1093,7 +1134,7 @@ func nativeAdapter(dialect, adapter string) bool {
 	return dialect == adapter || (dialect == "openai" && adapter == "openai_compatible")
 }
 func hasCapability(values []string, scope string) bool {
-	wanted := map[string]string{"chat:generate": "chat", "responses:generate": "chat", "embeddings:generate": "embeddings", "tokens:count": "count_tokens", "moderations:classify": "moderations"}[scope]
+	wanted := map[string]string{"chat:generate": "chat", "responses:generate": "chat", "embeddings:generate": "embeddings", "tokens:count": "count_tokens", "moderations:classify": "moderations", "images:generate": "images"}[scope]
 	for _, v := range values {
 		if v == wanted || v == strings.ReplaceAll(scope, ":", "_") {
 			return true

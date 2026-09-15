@@ -25,10 +25,10 @@ var (
 )
 
 var adapters = map[string][]string{
-	"openai":            {"chat", "embeddings", "moderations", "count_tokens"},
+	"openai":            {"chat", "embeddings", "moderations", "count_tokens", "images"},
 	"anthropic":         {"messages", "count_tokens"},
 	"gemini":            {"generate_content", "count_tokens", "embeddings"},
-	"openai_compatible": {"chat", "embeddings", "moderations", "count_tokens"},
+	"openai_compatible": {"chat", "embeddings", "moderations", "count_tokens", "images"},
 }
 
 type Service struct {
@@ -631,7 +631,7 @@ func normalizeCapabilities(values []string) []string {
 }
 func validCapabilities(values []string) bool {
 	for _, value := range values {
-		if value != "chat" && value != "embeddings" && value != "count_tokens" && value != "moderations" {
+		if value != "chat" && value != "embeddings" && value != "count_tokens" && value != "moderations" && value != "images" {
 			return false
 		}
 	}

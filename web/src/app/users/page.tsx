@@ -10,7 +10,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { GatewayAPIError, gatewayAPI, type ManagedUser } from "@/lib/api-client";
 
-const scopes = ["chat:generate", "responses:generate", "embeddings:generate", "moderations:classify", "models:read", "tokens:count"];
+const scopes = ["chat:generate", "responses:generate", "embeddings:generate", "moderations:classify", "images:generate", "models:read", "tokens:count"];
 const list = (value: FormDataEntryValue | null) => String(value ?? "").split(",").map((item) => item.trim()).filter(Boolean);
 
 export default function UsersPage() {

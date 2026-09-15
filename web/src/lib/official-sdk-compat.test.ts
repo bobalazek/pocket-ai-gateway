@@ -97,6 +97,11 @@ describe("official SDK compatibility through the Go gateway", () => {
     expect(result).toMatchObject({ object: "response.input_tokens", input_tokens: 12 });
   });
 
+  it("decodes native OpenAI image generation", async () => {
+    const result = await openAI().images.generate({ model: "target-openai", prompt: "A black dot", n: 1 });
+    expect(result).toMatchObject({ data: [{ b64_json: "eA==" }], usage: { input_tokens: 5, input_tokens_details: { image_tokens: 0, text_tokens: 5 }, output_tokens: 7 } });
+  });
+
   it("manages gateway-owned OpenAI conversations", async () => {
     const client = openAI();
     const empty = await client.conversations.create();
