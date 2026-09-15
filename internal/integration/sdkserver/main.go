@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -54,7 +55,7 @@ func main() {
 		must(providerService.PutCredential(ctx, owner, connection.ID, "provider-secret", ""))
 		capabilities := []string{"chat"}
 		if adapter == "openai" {
-			capabilities = append(capabilities, "moderations", "count_tokens", "images", "audio_speech")
+			capabilities = append(capabilities, "moderations", "count_tokens", "images", "audio_speech", "audio_transcription")
 		}
 		upstreamModel, err := providerService.CreateUpstreamModel(ctx, owner, connection.ID, adapter+"-upstream", capabilities)
 		must(err)
@@ -63,7 +64,7 @@ func main() {
 		connections = append(connections, connection.ID)
 	}
 	keyService := keys.New(store.SystemDB())
-	_, secret, err := keyService.Create(ctx, owner.ID, keys.Input{Label: "Official SDK matrix", Scopes: []string{"chat:generate", "responses:generate", "moderations:classify", "images:generate", "audio:speech", "models:read", "tokens:count"}, ModelPatterns: []string{"target-*"}, ConnectionIDs: connections})
+	_, secret, err := keyService.Create(ctx, owner.ID, keys.Input{Label: "Official SDK matrix", Scopes: []string{"chat:generate", "responses:generate", "moderations:classify", "images:generate", "audio:speech", "audio:transcribe", "models:read", "tokens:count"}, ModelPatterns: []string{"target-*"}, ConnectionIDs: connections})
 	must(err)
 
 	mux := http.NewServeMux()
@@ -89,10 +90,14 @@ func upstreamHandler(response http.ResponseWriter, request *http.Request) {
 		case <-time.After(time.Second):
 		}
 	}
-	stream := strings.Contains(string(body), `"stream":true`) || strings.Contains(request.URL.Path, "streamGenerateContent")
+	stream := strings.Contains(string(body), `"stream":true`) || strings.Contains(request.URL.Path, "streamGenerateContent") || strings.HasSuffix(request.URL.Path, "/audio/transcriptions") && bytes.Contains(body, []byte("\r\n\r\ntrue\r\n"))
 	response.Header().Set("Content-Type", map[bool]string{true: "text/event-stream", false: "application/json"}[stream])
 	target := strings.Split(strings.TrimPrefix(request.URL.Path, "/"), "/")[0]
 	if stream {
+		if strings.HasSuffix(request.URL.Path, "/audio/transcriptions") {
+			io.WriteString(response, "event: transcript.text.delta\ndata: {\"type\":\"transcript.text.delta\",\"delta\":\"gateway \"}\n\nevent: transcript.text.delta\ndata: {\"type\":\"transcript.text.delta\",\"delta\":\"stream\"}\n\nevent: transcript.text.done\ndata: {\"type\":\"transcript.text.done\",\"text\":\"gateway stream\",\"usage\":{\"type\":\"tokens\",\"input_tokens\":3,\"output_tokens\":2,\"total_tokens\":5}}\n\n")
+			return
+		}
 		if target == "openai" && strings.HasSuffix(request.URL.Path, "/responses") {
 			if strings.Contains(string(body), "Fail stream") {
 				io.WriteString(response, "event: response.created\ndata: {\"type\":\"response.created\",\"response\":{\"id\":\"resp_failed\",\"object\":\"response\",\"status\":\"in_progress\",\"output\":[]}}\n\nevent: response.failed\ndata: {\"type\":\"response.failed\",\"response\":{\"id\":\"resp_failed\",\"object\":\"response\",\"status\":\"failed\",\"output\":[],\"usage\":{\"input_tokens\":2,\"output_tokens\":1,\"total_tokens\":3}}}\n\n")
@@ -113,6 +118,10 @@ func upstreamHandler(response http.ResponseWriter, request *http.Request) {
 	}
 	switch target {
 	case "openai":
+		if strings.HasSuffix(request.URL.Path, "/audio/transcriptions") {
+			io.WriteString(response, `{"text":"gateway transcript"}`)
+			return
+		}
 		if strings.HasSuffix(request.URL.Path, "/audio/speech") {
 			response.Header().Set("Content-Type", "audio/mpeg")
 			response.Write([]byte("ID3gateway-audio"))

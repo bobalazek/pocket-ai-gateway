@@ -30,6 +30,7 @@ The prefix names the **client API specification**, not a forced upstream provide
 | POST /api/openai/v1/responses/input_tokens | Native OpenAI input-token count for direct model/input requests; no provider-owned references |
 | POST /api/openai/v1/images/generations | Native non-streaming image generation; explicit public model and `images:generate` scope; no automatic fallback, strict token/spend/free-only policies, or lowest-cost routing |
 | POST /api/openai/v1/audio/speech | Native built-in-voice text-to-speech with buffered audio up to 16 MiB; explicit public model and `audio:speech`; no custom voice references, SSE, automatic fallback, strict token/spend/free-only policies, or lowest-cost routing |
+| POST /api/openai/v1/audio/transcriptions | Native multipart audio transcription; one supported audio file up to 25 MB, 16 MiB non-streaming response limit, explicit public model and `audio:transcribe`; provider fields and streaming pass through; no automatic fallback, strict token/spend/free-only policies, or lowest-cost routing |
 | GET/DELETE /api/openai/v1/responses/{id} | Creating-key retrieval and deletion of gateway-owned stored Responses |
 | POST /api/openai/v1/responses/{id}/cancel | Cancels a queued or in-progress background Response |
 | GET /api/openai/v1/responses/{id}/input_items | Bounded cursor pagination over the stored original input |
@@ -52,7 +53,7 @@ The prefix names the **client API specification**, not a forced upstream provide
 
 The model name in Gemini's path and the model field in other protocols resolve to the same stable published-model object. No raw upstream name bypasses publication.
 
-Official schema references: [OpenAI Chat](https://developers.openai.com/api/reference/cli/resources/chat/subresources/completions), [OpenAI Responses](https://developers.openai.com/api/docs/guides/migrate-to-responses), [OpenAI Responses input tokens](https://developers.openai.com/api/reference/resources/responses/subresources/input_tokens/methods/count), [OpenAI Moderations](https://developers.openai.com/api/reference/resources/moderations/methods/create), [OpenAI Images](https://developers.openai.com/api/reference/resources/images/methods/generate), [OpenAI Speech](https://developers.openai.com/api/reference/resources/audio/subresources/speech/methods/create), [Anthropic API](https://platform.claude.com/docs/en/api/overview), [Gemini generation](https://ai.google.dev/api/generate-content), [Gemini token counting](https://ai.google.dev/api/tokens), [Gemini embeddings](https://ai.google.dev/api/embeddings).
+Official schema references: [OpenAI Chat](https://developers.openai.com/api/reference/cli/resources/chat/subresources/completions), [OpenAI Responses](https://developers.openai.com/api/docs/guides/migrate-to-responses), [OpenAI Responses input tokens](https://developers.openai.com/api/reference/resources/responses/subresources/input_tokens/methods/count), [OpenAI Moderations](https://developers.openai.com/api/reference/resources/moderations/methods/create), [OpenAI Images](https://developers.openai.com/api/reference/resources/images/methods/generate), [OpenAI Speech](https://developers.openai.com/api/reference/resources/audio/subresources/speech/methods/create), [OpenAI Transcriptions](https://developers.openai.com/api/reference/resources/audio/subresources/transcriptions/methods/create), [Anthropic API](https://platform.claude.com/docs/en/api/overview), [Gemini generation](https://ai.google.dev/api/generate-content), [Gemini token counting](https://ai.google.dev/api/tokens), [Gemini embeddings](https://ai.google.dev/api/embeddings).
 
 ## SDK base URLs and authentication
 
@@ -81,6 +82,7 @@ Every generation cell below has deterministic request/response coverage. Feature
 | OpenAI Moderations | Native only | Unsupported | Unsupported |
 | OpenAI image generation | Native only | Unsupported | Unsupported |
 | OpenAI text-to-speech | Native only | Unsupported | Unsupported |
+| OpenAI audio transcription | Native only | Unsupported | Unsupported |
 
 This is nine protocol-family paths, plus OpenAI's distinct Chat/Responses cases. Embeddings and moderations run only on providers/models implementing those native operations; Anthropic text models do not become embedding or moderation targets. Counting uses the target's tokenizer/provider capability or returns an explicit unsupported operation.
 

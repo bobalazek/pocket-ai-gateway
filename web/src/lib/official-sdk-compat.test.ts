@@ -2,7 +2,7 @@ import Anthropic from "@anthropic-ai/sdk";
 import { GoogleGenAI } from "@google/genai";
 import { spawn, type ChildProcess } from "node:child_process";
 import { createInterface } from "node:readline";
-import OpenAI from "openai";
+import OpenAI, { toFile } from "openai";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 
 let gateway: ChildProcess;
@@ -106,6 +106,19 @@ describe("official SDK compatibility through the Go gateway", () => {
     const result = await openAI().audio.speech.create({ model: "target-openai", input: "Hello", voice: "alloy", instructions: "Warm" });
     expect(Buffer.from(await result.arrayBuffer()).toString()).toBe("ID3gateway-audio");
     expect(result.headers.get("content-type")).toBe("audio/mpeg");
+  });
+
+  it("decodes native OpenAI audio transcription", async () => {
+    const result = await openAI().audio.transcriptions.create({ model: "target-openai", file: await toFile(Buffer.from("RIFFaudio"), "recording.wav") });
+    expect(result.text).toBe("gateway transcript");
+  });
+
+  it("streams native OpenAI audio transcription", async () => {
+    let text = "";
+    for await (const event of await openAI().audio.transcriptions.create({ model: "target-openai", file: await toFile(Buffer.from("RIFFaudio"), "recording.wav"), stream: true })) {
+      if (event.type === "transcript.text.delta") text += event.delta;
+    }
+    expect(text).toBe("gateway stream");
   });
 
   it("manages gateway-owned OpenAI conversations", async () => {

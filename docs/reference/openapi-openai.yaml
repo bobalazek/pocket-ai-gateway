@@ -45,6 +45,28 @@ paths:
       description: Generates speech through a native audio-speech-capable OpenAI target. The gateway accepts built-in voices, buffers at most 16 MiB, and returns the provider audio content type. Custom voice references, SSE, automatic post-dispatch fallback, lowest-cost/free-only routing, and operation under active token/output/spend policies are not supported.
       requestBody: { required: true, content: { application/json: { schema: { type: object, required: [model, input, voice], properties: { model: { type: string }, input: { type: string, minLength: 1, maxLength: 4096 }, voice: { type: string, enum: [alloy, ash, ballad, coral, echo, fable, onyx, nova, sage, shimmer, verse, marin, cedar] }, instructions: { oneOf: [{ type: string }, { type: "null" }] }, response_format: { oneOf: [{ type: string, enum: [mp3, opus, aac, flac, wav, pcm] }, { type: "null" }] }, stream_format: { oneOf: [{ const: audio }, { type: "null" }] }, stream: { oneOf: [{ const: false }, { type: "null" }] }, speed: { oneOf: [{ type: number, minimum: 0.25, maximum: 4 }, { type: "null" }] } }, additionalProperties: true } } } }
       responses: { "200": { description: Buffered audio file from the provider }, "404": { description: No capable native target }, default: { description: OpenAI-compatible error } }
+  /audio/transcriptions:
+    post:
+      operationId: createTranscription
+      description: Transcribes one audio upload through a native audio-transcription-capable OpenAI target. Multipart bodies are limited to 26 MiB, the audio file to 25 MB, and non-streaming responses to 16 MiB. The gateway preserves supported provider fields and rewrites only the model. Streaming responses pass through. Automatic post-dispatch fallback, lowest-cost/free-only routing, and operation under active token/output/spend policies are not supported.
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              required: [file, model]
+              properties:
+                file: { type: string, format: binary }
+                model: { type: string }
+                language: { type: string }
+                prompt: { type: string }
+                response_format: { type: string }
+                stream: { oneOf: [{ type: boolean }, { type: "null" }], default: false }
+                temperature: { type: number }
+                timestamp_granularities: { type: array, items: { type: string } }
+              additionalProperties: true
+      responses: { "200": { description: Native transcription response or event stream }, "404": { description: No capable native target }, default: { description: OpenAI-compatible error } }
   /responses/{response_id}:
     parameters: [{ name: response_id, in: path, required: true, schema: { type: string } }]
     get:

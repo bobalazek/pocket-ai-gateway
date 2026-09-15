@@ -58,7 +58,11 @@ func (handler *Handler) dispatch(response http.ResponseWriter, request *http.Req
 	if err != nil {
 		return 0, nil, err
 	}
-	upstream.Header.Set("Content-Type", "application/json")
+	requestContentType := "application/json"
+	if multipart, ok := multipartRequest(request); ok {
+		requestContentType = multipart.contentType
+	}
+	upstream.Header.Set("Content-Type", requestContentType)
 	setProviderCredential(upstream, target.Adapter, target.Preset, target.Credential)
 	copyProtocolHeaders(upstream.Header, request.Header, target.Adapter)
 	client := safeClient(time.Duration(target.TimeoutMS)*time.Millisecond, target.AllowPrivateNetwork)
@@ -100,8 +104,21 @@ func (handler *Handler) dispatch(response http.ResponseWriter, request *http.Req
 		return result.StatusCode, nil, errors.New("streaming is unsupported by the response writer")
 	}
 	capture := &limitedCapture{limit: 8 << 20}
-	_, err = io.Copy(flushWriter{writer: response, flusher: flusher}, io.TeeReader(result.Body, capture))
-	return result.StatusCode, capture.Bytes(), err
+	captureWriter := io.Writer(capture)
+	var tail *tailCapture
+	if relative == "audio/transcriptions" {
+		tail = &tailCapture{limit: maxInferenceBody}
+		captureWriter = tail
+	}
+	_, err = io.Copy(flushWriter{writer: response, flusher: flusher}, io.TeeReader(result.Body, captureWriter))
+	raw := capture.Bytes()
+	if tail != nil {
+		raw = tail.Bytes()
+		if err == nil {
+			err = validateAudioTranscriptionStream(contentType, raw)
+		}
+	}
+	return result.StatusCode, raw, err
 }
 
 func (handler *Handler) dispatchTranslated(response http.ResponseWriter, request *http.Request, target providers.Target, relative string, body []byte, dialect, publicModel string, stream bool, releaseDispatch func()) (int, []byte, error) {
@@ -229,6 +246,48 @@ type limitedCapture struct {
 	bytes.Buffer
 	limit    int64
 	overflow bool
+}
+
+type tailCapture struct {
+	data        []byte
+	limit, size int
+	next        int
+}
+
+func (capture *tailCapture) Write(value []byte) (int, error) {
+	count := len(value)
+	if capture.limit <= 0 {
+		return count, nil
+	}
+	if count >= capture.limit {
+		capture.data = append(capture.data[:0], value[count-capture.limit:]...)
+		capture.size, capture.next = capture.limit, 0
+		return count, nil
+	}
+	if capture.size < capture.limit {
+		growth := min(len(value), capture.limit-capture.size)
+		capture.data = append(capture.data, value[:growth]...)
+		capture.size += growth
+		capture.next = capture.size % capture.limit
+		value = value[growth:]
+	}
+	for len(value) > 0 {
+		written := copy(capture.data[capture.next:], value)
+		capture.next = (capture.next + written) % capture.limit
+		capture.size = min(capture.limit, capture.size+written)
+		value = value[written:]
+	}
+	return count, nil
+}
+
+func (capture *tailCapture) Bytes() []byte {
+	if capture.size < capture.limit {
+		return append([]byte(nil), capture.data[:capture.size]...)
+	}
+	value := make([]byte, capture.limit)
+	copy(value, capture.data[capture.next:])
+	copy(value[capture.limit-capture.next:], capture.data[:capture.next])
+	return value
 }
 
 func (capture *limitedCapture) Write(value []byte) (int, error) {
