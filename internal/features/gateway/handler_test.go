@@ -448,7 +448,15 @@ func TestNativeOpenAIImageGenerationUsesScopedModel(t *testing.T) {
 	if status != http.StatusNotFound || calls != 1 {
 		t.Fatalf("lowest-cost status=%d upstream calls=%d", status, calls)
 	}
-	if _, err = providerService.ConfigureRoute(ctx, owner, publicModel.ID, routed.Revision, providers.RouteConfigInput{Strategy: "fixed", Targets: []providers.RouteTargetInput{{UpstreamModelID: publicModel.TargetModelID, Priority: 1, Enabled: true}}}); err != nil {
+	freeOnly, err := providerService.ConfigureRoute(ctx, owner, publicModel.ID, routed.Revision, providers.RouteConfigInput{Strategy: "fixed", FreeOnly: true, Targets: []providers.RouteTargetInput{{UpstreamModelID: publicModel.TargetModelID, Priority: 1, Enabled: true}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	status, _ = generate(secret, `{"model":"`+publicModel.ID+`","prompt":"x"}`)
+	if status != http.StatusNotFound || calls != 1 {
+		t.Fatalf("free-only status=%d upstream calls=%d", status, calls)
+	}
+	if _, err = providerService.ConfigureRoute(ctx, owner, publicModel.ID, freeOnly.Revision, providers.RouteConfigInput{Strategy: "fixed", Targets: []providers.RouteTargetInput{{UpstreamModelID: publicModel.TargetModelID, Priority: 1, Enabled: true}}}); err != nil {
 		t.Fatal(err)
 	}
 	if _, err = usageService.CreatePolicy(ctx, owner, usage.PolicyInput{ScopeKind: "instance", Metric: "output_tokens", Algorithm: "ceiling", LimitUnits: 1}); err != nil {
@@ -503,6 +511,154 @@ func TestImageGenerationDoesNotFallbackAfterDispatch(t *testing.T) {
 	server := httptest.NewServer(mux)
 	defer server.Close()
 	request, _ := http.NewRequest(http.MethodPost, server.URL+"/api/openai/v1/images/generations", strings.NewReader(`{"model":"`+publicModel.ID+`","prompt":"x"}`))
+	request.Header.Set("Authorization", "Bearer "+secret)
+	response, err := http.DefaultClient.Do(request)
+	if err != nil {
+		t.Fatal(err)
+	}
+	response.Body.Close()
+	if response.StatusCode != http.StatusBadGateway || primaryCalls != 1 || fallbackCalls != 0 {
+		t.Fatalf("status=%d primary=%d fallback=%d", response.StatusCode, primaryCalls, fallbackCalls)
+	}
+}
+
+func TestNativeOpenAISpeechUsesScopedModel(t *testing.T) {
+	var path, authorization, model string
+	calls := 0
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		calls++
+		path, authorization = r.URL.Path, r.Header.Get("Authorization")
+		var body map[string]any
+		_ = json.NewDecoder(r.Body).Decode(&body)
+		model, _ = body["model"].(string)
+		w.Header().Set("Content-Type", "audio/mpeg")
+		w.Write([]byte("ID3speech"))
+	}))
+	defer upstream.Close()
+	ctx, store, owner, keyService, providerService, usageService := gatewayFixture(t)
+	defer store.Close()
+	connection, publicModel := publishModel(t, ctx, providerService, owner, "openai", upstream.URL+"/v1", "speech-upstream", []string{"audio_speech"})
+	_, secret, err := keyService.Create(ctx, owner.ID, keys.Input{Label: "Speech", Scopes: []string{"audio:speech"}, ModelPatterns: []string{publicModel.ID}, ConnectionIDs: []string{connection.ID}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, denied, err := keyService.Create(ctx, owner.ID, keys.Input{Label: "No speech", Scopes: []string{"chat:generate"}, ModelPatterns: []string{publicModel.ID}, ConnectionIDs: []string{connection.ID}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	mux := http.NewServeMux()
+	New(store.SystemDB(), keyService, providerService, usageService).Register(mux)
+	server := httptest.NewServer(mux)
+	defer server.Close()
+	speak := func(key, payload string) (int, string, []byte) {
+		request, _ := http.NewRequest(http.MethodPost, server.URL+"/api/openai/v1/audio/speech", strings.NewReader(payload))
+		request.Header.Set("Authorization", "Bearer "+key)
+		response, err := http.DefaultClient.Do(request)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer response.Body.Close()
+		body, _ := io.ReadAll(response.Body)
+		return response.StatusCode, response.Header.Get("Content-Type"), body
+	}
+	status, contentType, body := speak(secret, `{"model":"`+publicModel.ID+`","input":"Hello","voice":"alloy","instructions":"Warm","response_format":"mp3","speed":1}`)
+	if status != http.StatusOK || contentType != "audio/mpeg" || string(body) != "ID3speech" || path != "/v1/audio/speech" || authorization != "Bearer provider-secret" || model != "speech-upstream" {
+		t.Fatalf("status=%d content-type=%s body=%q upstream=%s %s %s", status, contentType, body, path, authorization, model)
+	}
+	var accounting string
+	if err := store.SystemDB().QueryRowContext(ctx, "SELECT usage_status FROM attempts WHERE state='succeeded'").Scan(&accounting); err != nil || accounting != "unknown" {
+		t.Fatalf("accounting=%q err=%v", accounting, err)
+	}
+	for _, invalid := range []string{
+		`{"model":"` + publicModel.ID + `","input":"","voice":"alloy"}`,
+		`{"model":"` + publicModel.ID + `","input":"` + strings.Repeat("a", 4097) + `","voice":"alloy"}`,
+		`{"model":"` + publicModel.ID + `","input":"x","voice":""}`,
+		`{"model":"` + publicModel.ID + `","input":"x","voice":{}}`,
+		`{"model":"` + publicModel.ID + `","input":"x","voice":{"id":"voice_123"}}`,
+		`{"model":"` + publicModel.ID + `","input":"x","voice":"voice_123"}`,
+		`{"model":"` + publicModel.ID + `","input":"x","voice":"alloy","response_format":"mp4"}`,
+		`{"model":"` + publicModel.ID + `","input":"x","voice":"alloy","stream_format":"sse"}`,
+		`{"model":"` + publicModel.ID + `","input":"x","voice":"alloy","stream":true}`,
+		`{"model":"` + publicModel.ID + `","input":"x","voice":"alloy","speed":0.1}`,
+		`{"model":"` + publicModel.ID + `","input":"x","voice":"alloy","speed":4.1}`,
+		`{"model":"` + publicModel.ID + `","input":"x","voice":"alloy","instructions":1}`,
+	} {
+		if status, _, _ = speak(secret, invalid); status != http.StatusBadRequest {
+			t.Fatalf("invalid status=%d payload=%s", status, invalid)
+		}
+	}
+	routed, err := providerService.ConfigureRoute(ctx, owner, publicModel.ID, publicModel.Revision, providers.RouteConfigInput{Strategy: "lowest_cost", Targets: []providers.RouteTargetInput{{UpstreamModelID: publicModel.TargetModelID, Priority: 1, Enabled: true}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	status, _, _ = speak(secret, `{"model":"`+publicModel.ID+`","input":"x","voice":"alloy"}`)
+	if status != http.StatusNotFound || calls != 1 {
+		t.Fatalf("lowest-cost status=%d upstream calls=%d", status, calls)
+	}
+	freeOnly, err := providerService.ConfigureRoute(ctx, owner, publicModel.ID, routed.Revision, providers.RouteConfigInput{Strategy: "fixed", FreeOnly: true, Targets: []providers.RouteTargetInput{{UpstreamModelID: publicModel.TargetModelID, Priority: 1, Enabled: true}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	status, _, _ = speak(secret, `{"model":"`+publicModel.ID+`","input":"x","voice":"alloy"}`)
+	if status != http.StatusNotFound || calls != 1 {
+		t.Fatalf("free-only status=%d upstream calls=%d", status, calls)
+	}
+	if _, err = providerService.ConfigureRoute(ctx, owner, publicModel.ID, freeOnly.Revision, providers.RouteConfigInput{Strategy: "fixed", Targets: []providers.RouteTargetInput{{UpstreamModelID: publicModel.TargetModelID, Priority: 1, Enabled: true}}}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err = usageService.CreatePolicy(ctx, owner, usage.PolicyInput{ScopeKind: "instance", Metric: "output_tokens", Algorithm: "ceiling", LimitUnits: 1}); err != nil {
+		t.Fatal(err)
+	}
+	status, _, _ = speak(secret, `{"model":"`+publicModel.ID+`","input":"x","voice":"alloy"}`)
+	if status != http.StatusTooManyRequests || calls != 1 {
+		t.Fatalf("strict-policy status=%d upstream calls=%d", status, calls)
+	}
+	status, _, _ = speak(denied, `{"model":"`+publicModel.ID+`","input":"x","voice":"alloy"}`)
+	if status != http.StatusNotFound || calls != 1 {
+		t.Fatalf("denied status=%d upstream calls=%d", status, calls)
+	}
+}
+
+func TestSpeechDoesNotFallbackAfterDispatch(t *testing.T) {
+	var primaryCalls, fallbackCalls int
+	primary := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		primaryCalls++
+		w.Header().Set("Content-Length", "1000")
+		w.Write([]byte("partial"))
+	}))
+	defer primary.Close()
+	fallback := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		fallbackCalls++
+		w.Header().Set("Content-Type", "audio/mpeg")
+		w.Write([]byte("ID3fallback"))
+	}))
+	defer fallback.Close()
+	ctx, store, owner, keyService, providerService, usageService := gatewayFixture(t)
+	defer store.Close()
+	primaryConnection, publicModel := publishModel(t, ctx, providerService, owner, "openai", primary.URL+"/v1", "primary-speech", []string{"audio_speech"})
+	fallbackConnection, err := providerService.CreateConnection(ctx, owner, providers.ConnectionInput{Name: "fallback-speech", Adapter: "openai", BaseURL: fallback.URL + "/v1", Enabled: true, AllowPrivateNetwork: true, TimeoutMS: 5000})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err = providerService.PutCredential(ctx, owner, fallbackConnection.ID, "provider-secret", ""); err != nil {
+		t.Fatal(err)
+	}
+	fallbackModel, err := providerService.CreateUpstreamModel(ctx, owner, fallbackConnection.ID, "fallback-speech", []string{"audio_speech"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err = providerService.ConfigureRoute(ctx, owner, publicModel.ID, publicModel.Revision, providers.RouteConfigInput{Strategy: "ordered_fallback", Targets: []providers.RouteTargetInput{{UpstreamModelID: publicModel.TargetModelID, Priority: 1, Enabled: true}, {UpstreamModelID: fallbackModel.ID, Priority: 2, Enabled: true}}}); err != nil {
+		t.Fatal(err)
+	}
+	_, secret, err := keyService.Create(ctx, owner.ID, keys.Input{Label: "Speech", Scopes: []string{"audio:speech"}, ModelPatterns: []string{publicModel.ID}, ConnectionIDs: []string{primaryConnection.ID, fallbackConnection.ID}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	mux := http.NewServeMux()
+	New(store.SystemDB(), keyService, providerService, usageService).Register(mux)
+	server := httptest.NewServer(mux)
+	defer server.Close()
+	request, _ := http.NewRequest(http.MethodPost, server.URL+"/api/openai/v1/audio/speech", strings.NewReader(`{"model":"`+publicModel.ID+`","input":"x","voice":"alloy"}`))
 	request.Header.Set("Authorization", "Bearer "+secret)
 	response, err := http.DefaultClient.Do(request)
 	if err != nil {

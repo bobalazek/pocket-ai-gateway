@@ -25,13 +25,14 @@ Base URL: `/api/openai/v1`.
 | `POST /responses/input_tokens` | Native target only | Counts direct model/input requests; provider-owned response, conversation, item, file, and container references are rejected |
 | `POST /embeddings` | Native target only | Preserves order, dimensions, encoding, and usage; no cross-model fallback |
 | `POST /moderations` | Native target only | Preserves the upstream OpenAI moderation taxonomy; requires `moderations:classify` and a moderation-capable model |
-| `POST /images/generations` | Constrained, native target only | Non-streaming JSON only; explicit public model, `images:generate`, token accounting when reported, 16 MiB request/response bounds, no post-dispatch fallback, and rejection under token/output/spend policies or lowest-cost routing because the request has no portable output bound |
+| `POST /images/generations` | Constrained, native target only | Non-streaming JSON only; explicit public model, `images:generate`, token accounting when reported, 16 MiB request/response bounds, no post-dispatch fallback, and rejection under token/output/spend/free-only policies or lowest-cost routing because the request has no portable output/price contract |
+| `POST /audio/speech` | Constrained, native target only | Built-in voices and buffered audio output up to 16 MiB; explicit public model, `audio:speech`, no custom voice references, SSE, post-dispatch fallback, token/output/spend/free-only policies, or lowest-cost routing |
 | `GET /responses/{id}`, `DELETE /responses/{id}` | Implemented, gateway-owned | Creating-key retrieval and deletion; the gateway replaces the upstream ID and keeps upstream storage disabled |
 | `POST /responses/{id}/cancel`, `GET /responses/{id}/input_items` | Constrained, gateway-owned | Creating-key cancellation and bounded cursor pagination over stored input; `include[]` projections and input from pre-migration Responses return an explicit unsupported-feature error |
 | Conversations and conversation items | Constrained, gateway-owned | Resource/item CRUD plus synchronous/background/buffered-stream Response attachment, key isolation, storage bounds, and cursor pagination are implemented; provider references/projections remain pending |
 | Files, uploads, and vector stores | Pending | Needs encrypted object storage, quotas, scanning, and lifecycle rules |
 | Batches | Pending | Needs durable jobs, cancellation, billing, result retention, and restart recovery |
-| Image edits/variations, audio, and video | Pending | Each media format needs its own bounded upload/download and accounting contract |
+| Image edits/variations, audio transcription/translation, and video | Pending | Each media format needs its own bounded upload/download and accounting contract |
 | Realtime | Pending | Needs WebSocket/WebRTC authentication, event limits, connection accounting, and protocol tests |
 | Fine-tuning and evaluations | Pending | Administrative provider resources need ownership, polling, and cost controls |
 | Legacy Assistants, Threads, and Runs | Pending | No compatibility alias is exposed |

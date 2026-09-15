@@ -13,6 +13,7 @@ import (
 	"net"
 	"net/http"
 	"net/url"
+	"slices"
 	"strconv"
 	"strings"
 	"sync"
@@ -76,6 +77,9 @@ func (handler *Handler) Register(mux *http.ServeMux) {
 	})
 	mux.HandleFunc("POST /api/openai/v1/images/generations", func(w http.ResponseWriter, r *http.Request) {
 		handler.forward(w, r, "openai", "images:generate", "images/generations", "", nil)
+	})
+	mux.HandleFunc("POST /api/openai/v1/audio/speech", func(w http.ResponseWriter, r *http.Request) {
+		handler.forward(w, r, "openai", "audio:speech", "audio/speech", "", nil)
 	})
 	mux.HandleFunc("GET /api/anthropic/v1/models", handler.anthropicModels)
 	mux.HandleFunc("GET /api/anthropic/v1/models/{model}", handler.anthropicModel)
@@ -157,6 +161,12 @@ func (handler *Handler) forwardAuthorized(response http.ResponseWriter, request 
 			return
 		}
 	}
+	if upstreamPath == "audio/speech" {
+		if err = validateSpeech(envelope); err != nil {
+			handler.writeError(response, dialect, http.StatusBadRequest, "invalid_request", err.Error())
+			return
+		}
+	}
 	stream := false
 	_ = json.Unmarshal(envelope["stream"], &stream)
 	if streamOverride != nil {
@@ -166,11 +176,15 @@ func (handler *Handler) forwardAuthorized(response http.ResponseWriter, request 
 	outputEstimate := maximumOutput(envelope)
 	batchItems := int64(0)
 	imageGeneration := upstreamPath == "images/generations"
+	speechGeneration := upstreamPath == "audio/speech"
+	unboundedGeneration := imageGeneration || speechGeneration
 	if upstreamPath == "embeddings" || upstreamPath == "moderations" {
 		batchItems = jsonCardinality(envelope["input"])
-	} else if imageGeneration {
+	} else if unboundedGeneration {
 		batchItems = 1
-		_ = json.Unmarshal(envelope["n"], &batchItems)
+		if imageGeneration {
+			_ = json.Unmarshal(envelope["n"], &batchItems)
+		}
 		outputEstimate = 0
 	} else if dialect == "gemini" {
 		var object map[string]any
@@ -186,8 +200,8 @@ func (handler *Handler) forwardAuthorized(response http.ResponseWriter, request 
 	if dialect == "responses_compact" {
 		outputEstimate, outputBounded = inputEstimate, true
 	}
-	generation := scope == "chat:generate" || scope == "responses:generate" || scope == "images:generate"
-	if generation && outputEstimate == 0 && !imageGeneration {
+	generation := scope == "chat:generate" || scope == "responses:generate" || scope == "images:generate" || scope == "audio:speech"
+	if generation && outputEstimate == 0 && !unboundedGeneration {
 		outputEstimate = 4096
 	}
 	translationBody := body
@@ -208,8 +222,11 @@ func (handler *Handler) forwardAuthorized(response http.ResponseWriter, request 
 		if !hasCapability(target.Capabilities, scope) || !hasCapability(target.UpstreamCapabilities, scope) {
 			return false, "unsupported_capability"
 		}
-		if imageGeneration && target.RoutingStrategy == "lowest_cost" {
+		if unboundedGeneration && target.RoutingStrategy == "lowest_cost" {
 			return false, "cost_estimate_unavailable"
+		}
+		if unboundedGeneration && target.FreeOnly {
+			return false, "free_price_contract_unavailable"
 		}
 		if !native && scope != "chat:generate" && scope != "responses:generate" {
 			return false, "translation_unsupported"
@@ -390,7 +407,7 @@ func (handler *Handler) forwardAuthorized(response http.ResponseWriter, request 
 			_ = handler.providers.RecordRouteOutcome(context.WithoutCancel(request.Context()), target, clientOperation, stream, success, attemptWriter.FirstByte(started), time.Since(started))
 		}
 		retryableDispatchError := !semanticResponseError && (native && dispatchErr != nil || errors.Is(dispatchErr, errUpstreamResponseInterrupted))
-		retry := !imageGeneration && !terminalStreamFailure && index+1 < len(plan.Targets) && (retryableDispatchError || retryableResult(result, copyErr)) && !attemptWriter.Committed()
+		retry := !unboundedGeneration && !terminalStreamFailure && index+1 < len(plan.Targets) && (retryableDispatchError || retryableResult(result, copyErr)) && !attemptWriter.Committed()
 		state, status := "succeeded", "provider_reported"
 		if estimatedUsage {
 			status = "estimated"
@@ -688,6 +705,45 @@ func validateImageGeneration(envelope map[string]json.RawMessage) error {
 	return nil
 }
 
+func validateSpeech(envelope map[string]json.RawMessage) error {
+	var input string
+	if json.Unmarshal(envelope["input"], &input) != nil || strings.TrimSpace(input) == "" || len([]rune(input)) > 4096 {
+		return errors.New("input must contain 1-4096 characters")
+	}
+	var voice string
+	if json.Unmarshal(envelope["voice"], &voice) != nil || !slices.Contains([]string{"alloy", "ash", "ballad", "coral", "echo", "fable", "onyx", "nova", "sage", "shimmer", "verse", "marin", "cedar"}, voice) {
+		return errors.New("voice must be a built-in OpenAI voice; custom voice references are not supported")
+	}
+	if raw := bytes.TrimSpace(envelope["response_format"]); len(raw) > 0 && !bytes.Equal(raw, []byte("null")) {
+		var format string
+		if json.Unmarshal(raw, &format) != nil || !slices.Contains([]string{"mp3", "opus", "aac", "flac", "wav", "pcm"}, format) {
+			return errors.New("response_format must be mp3, opus, aac, flac, wav, or pcm")
+		}
+	}
+	if raw := bytes.TrimSpace(envelope["stream_format"]); len(raw) > 0 && !bytes.Equal(raw, []byte("null")) {
+		var format string
+		if json.Unmarshal(raw, &format) != nil || format != "audio" {
+			return errors.New("stream_format must be audio; SSE speech is not supported")
+		}
+	}
+	if raw := bytes.TrimSpace(envelope["stream"]); len(raw) > 0 && !bytes.Equal(raw, []byte("null")) && !bytes.Equal(raw, []byte("false")) {
+		return errors.New("streaming speech responses are not supported")
+	}
+	if raw := bytes.TrimSpace(envelope["speed"]); len(raw) > 0 && !bytes.Equal(raw, []byte("null")) {
+		var speed float64
+		if json.Unmarshal(raw, &speed) != nil || speed < 0.25 || speed > 4 {
+			return errors.New("speed must be between 0.25 and 4")
+		}
+	}
+	if raw := bytes.TrimSpace(envelope["instructions"]); len(raw) > 0 && !bytes.Equal(raw, []byte("null")) {
+		var instructions string
+		if json.Unmarshal(raw, &instructions) != nil {
+			return errors.New("instructions must be a string")
+		}
+	}
+	return nil
+}
+
 func validateResponses(envelope map[string]json.RawMessage) (bool, error) {
 	stored := true
 	if raw, exists := envelope["store"]; exists && json.Unmarshal(raw, &stored) != nil {
@@ -971,7 +1027,7 @@ func modelVisibleInDialect(dialect string, model providers.PublicModel, target p
 		return false
 	}
 	operations := map[string][]struct{ scope, operation string }{
-		"openai":    {{"embeddings:generate", "embeddings"}, {"moderations:classify", "moderations"}, {"tokens:count", "responses/input_tokens"}, {"images:generate", "images/generations"}},
+		"openai":    {{"embeddings:generate", "embeddings"}, {"moderations:classify", "moderations"}, {"tokens:count", "responses/input_tokens"}, {"images:generate", "images/generations"}, {"audio:speech", "audio/speech"}},
 		"anthropic": {{"tokens:count", "messages/count_tokens"}},
 		"gemini":    {{"embeddings:generate", "embedContent"}, {"tokens:count", "countTokens"}},
 	}[dialect]
@@ -1134,7 +1190,7 @@ func nativeAdapter(dialect, adapter string) bool {
 	return dialect == adapter || (dialect == "openai" && adapter == "openai_compatible")
 }
 func hasCapability(values []string, scope string) bool {
-	wanted := map[string]string{"chat:generate": "chat", "responses:generate": "chat", "embeddings:generate": "embeddings", "tokens:count": "count_tokens", "moderations:classify": "moderations", "images:generate": "images"}[scope]
+	wanted := map[string]string{"chat:generate": "chat", "responses:generate": "chat", "embeddings:generate": "embeddings", "tokens:count": "count_tokens", "moderations:classify": "moderations", "images:generate": "images", "audio:speech": "audio_speech"}[scope]
 	for _, v := range values {
 		if v == wanted || v == strings.ReplaceAll(scope, ":", "_") {
 			return true

@@ -102,6 +102,12 @@ describe("official SDK compatibility through the Go gateway", () => {
     expect(result).toMatchObject({ data: [{ b64_json: "eA==" }], usage: { input_tokens: 5, input_tokens_details: { image_tokens: 0, text_tokens: 5 }, output_tokens: 7 } });
   });
 
+  it("downloads native OpenAI speech", async () => {
+    const result = await openAI().audio.speech.create({ model: "target-openai", input: "Hello", voice: "alloy", instructions: "Warm" });
+    expect(Buffer.from(await result.arrayBuffer()).toString()).toBe("ID3gateway-audio");
+    expect(result.headers.get("content-type")).toBe("audio/mpeg");
+  });
+
   it("manages gateway-owned OpenAI conversations", async () => {
     const client = openAI();
     const empty = await client.conversations.create();

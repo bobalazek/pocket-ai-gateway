@@ -36,9 +36,15 @@ paths:
   /images/generations:
     post:
       operationId: generateImage
-      description: Generates images through a native image-capable OpenAI target. Streaming, partial images, edits, variations, automatic post-dispatch fallback, lowest-cost routing, and operation under active token/output/spend policies are not supported. Request and response bodies are limited to 16 MiB.
+      description: Generates images through a native image-capable OpenAI target. Streaming, partial images, edits, variations, automatic post-dispatch fallback, lowest-cost/free-only routing, and operation under active token/output/spend policies are not supported. Request and response bodies are limited to 16 MiB.
       requestBody: { required: true, content: { application/json: { schema: { type: object, required: [model, prompt], properties: { model: { type: string }, prompt: { type: string, minLength: 1, maxLength: 32000 }, n: { oneOf: [{ type: integer, minimum: 1, maximum: 10 }, { type: "null" }] }, output_compression: { oneOf: [{ type: integer, minimum: 0, maximum: 100 }, { type: "null" }] }, stream: { oneOf: [{ const: false }, { type: "null" }] } }, additionalProperties: true } } } }
       responses: { "200": { description: Native OpenAI images response }, "404": { description: No capable native target }, default: { description: OpenAI-compatible error } }
+  /audio/speech:
+    post:
+      operationId: createSpeech
+      description: Generates speech through a native audio-speech-capable OpenAI target. The gateway accepts built-in voices, buffers at most 16 MiB, and returns the provider audio content type. Custom voice references, SSE, automatic post-dispatch fallback, lowest-cost/free-only routing, and operation under active token/output/spend policies are not supported.
+      requestBody: { required: true, content: { application/json: { schema: { type: object, required: [model, input, voice], properties: { model: { type: string }, input: { type: string, minLength: 1, maxLength: 4096 }, voice: { type: string, enum: [alloy, ash, ballad, coral, echo, fable, onyx, nova, sage, shimmer, verse, marin, cedar] }, instructions: { oneOf: [{ type: string }, { type: "null" }] }, response_format: { oneOf: [{ type: string, enum: [mp3, opus, aac, flac, wav, pcm] }, { type: "null" }] }, stream_format: { oneOf: [{ const: audio }, { type: "null" }] }, stream: { oneOf: [{ const: false }, { type: "null" }] }, speed: { oneOf: [{ type: number, minimum: 0.25, maximum: 4 }, { type: "null" }] } }, additionalProperties: true } } } }
+      responses: { "200": { description: Buffered audio file from the provider }, "404": { description: No capable native target }, default: { description: OpenAI-compatible error } }
   /responses/{response_id}:
     parameters: [{ name: response_id, in: path, required: true, schema: { type: string } }]
     get:
