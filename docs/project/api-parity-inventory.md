@@ -36,7 +36,8 @@ Base URL: `/api/openai/v1`.
 | Conversations and conversation items | Constrained, gateway-owned | Resource/item CRUD plus synchronous/background/buffered-stream Response attachment, key isolation, storage bounds, and cursor pagination are implemented; provider references/projections remain pending |
 | Files, uploads, and vector stores | Pending | Needs encrypted object storage, quotas, scanning, and lifecycle rules |
 | Batches | Pending | Needs durable jobs, cancellation, billing, result retention, and restart recovery |
-| DALL-E 2 edits, image streaming, and video | Pending | Each media format needs its own bounded upload/download, event, and accounting contract |
+| DALL-E 2 edits | Deferred | OpenAI marks [DALL-E 2](https://developers.openai.com/api/docs/models/dall-e-2) deprecated; the gateway avoids extra routing complexity for its legacy edit contract |
+| Image streaming and video | Pending | Each media format needs its own bounded upload/download, event, and accounting contract |
 | Realtime | Pending | Needs WebSocket/WebRTC authentication, event limits, connection accounting, and protocol tests |
 | Fine-tuning and evaluations | Pending | Administrative provider resources need ownership, polling, and cost controls |
 | Legacy Assistants, Threads, and Runs | Pending | No compatibility alias is exposed |
