@@ -23,21 +23,3 @@ export type GatewaySession = {
   authenticated_at: string;
   user_agent: string;
 };
-
-export const inferenceScopes = [
-  "chat:generate",
-  "responses:generate",
-  "responses:web_search",
-  "embeddings:generate",
-  "moderations:classify",
-  "images:generate",
-  "images:edit",
-  "images:variation",
-  "audio:speech",
-  "audio:transcribe",
-  "audio:translate",
-  "models:read",
-  "tokens:count",
-] as const;
-
-export type InferenceScope = (typeof inferenceScopes)[number];

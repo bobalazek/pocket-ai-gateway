@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState, type FormEvent } from "react";
 
 import { useGatewayUser } from "@/components/setup-gate";
-import { inferenceScopes } from "@/features/auth/types/auth.types";
+import { inferenceScopes } from "@/features/auth/constants/inference-scopes.constants";
 import type { ManagedUser, OneTimeCode } from "@/features/users/types/users.types";
 import { pocketAIGatewayAdmin } from "@/lib/pocket-ai-gateway-admin.client";
 import { GatewayAPIError } from "@/lib/pocket-ai-gateway-admin.client";

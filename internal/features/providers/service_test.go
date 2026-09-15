@@ -25,11 +25,13 @@ func TestPromptCacheCapabilityRequiresAnthropicPreset(t *testing.T) {
 	}
 }
 
-func TestWebSearchCapabilityRequiresOpenAIPresetAndChat(t *testing.T) {
-	if !PresetSupportsCapabilities("openai", []string{"chat", "web_search"}) {
-		t.Fatal("OpenAI preset rejected web_search")
+func TestWebSearchCapabilityRequiresNativePresetAndChat(t *testing.T) {
+	for _, preset := range []string{"openai", "anthropic"} {
+		if !PresetSupportsCapabilities(preset, []string{"chat", "web_search"}) {
+			t.Fatalf("%s preset rejected web_search", preset)
+		}
 	}
-	for _, preset := range []string{"custom", "openai_compatible", "anthropic", "gemini"} {
+	for _, preset := range []string{"custom", "openai_compatible", "gemini"} {
 		if PresetSupportsCapabilities(preset, []string{"chat", "web_search"}) {
 			t.Fatalf("%s preset accepted web_search", preset)
 		}
@@ -46,7 +48,7 @@ func TestWebSearchCapabilityRequiresOpenAIPresetAndChat(t *testing.T) {
 		for _, capability := range capabilities {
 			hasWebSearch = hasWebSearch || capability == "web_search"
 		}
-		if hasWebSearch != (provider["id"] == "openai") {
+		if hasWebSearch != (provider["id"] == "openai" || provider["id"] == "anthropic") {
 			t.Fatalf("provider capability publication = %#v", provider)
 		}
 	}

@@ -6,7 +6,7 @@ type Capability = (typeof providerCapabilities)[number];
 const adapterCapabilities: Record<ProviderConnection["adapter"], Capability[]> = {
   openai: [...providerCapabilities],
   openai_compatible: [...providerCapabilities],
-  anthropic: ["chat", "count_tokens", "prompt_cache"],
+  anthropic: ["chat", "count_tokens", "prompt_cache", "web_search"],
   gemini: ["chat", "embeddings", "count_tokens"],
 };
 
@@ -22,7 +22,7 @@ const capabilityOperations: Record<Capability, string[]> = {
   audio_transcription: ["audio/transcriptions"],
   audio_translation: ["audio/translations"],
   prompt_cache: ["messages"],
-  web_search: ["responses"],
+  web_search: ["responses", "messages"],
 };
 
 export function availableCapabilities(connection: ProviderConnection, presets: ProviderPreset[]) {
@@ -31,7 +31,10 @@ export function availableCapabilities(connection: ProviderConnection, presets: P
   const operations = presets.find((preset) => preset.id === connection.preset)?.operations ?? [];
   return supported.filter((capability) => {
     if (capability === "prompt_cache") return connection.preset === "anthropic";
-    if (capability === "web_search") return connection.preset === "openai" && operations.includes("responses");
+    if (capability === "web_search") {
+      return connection.preset === "openai" && operations.includes("responses")
+        || connection.preset === "anthropic" && operations.includes("messages");
+    }
     return capabilityOperations[capability].some((operation) => operations.includes(operation));
   });
 }

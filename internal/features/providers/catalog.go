@@ -114,7 +114,7 @@ func PresetSupportsCapabilities(presetID string, capabilities []string) bool {
 			return false
 		}
 		if capability == "web_search" {
-			if presetID == "openai" {
+			if presetID == "openai" || presetID == "anthropic" {
 				continue
 			}
 			return false

@@ -86,6 +86,66 @@ func TestWebSearchSettlementIsUnpricedBoundedAndProjectedOnce(t *testing.T) {
 	}
 }
 
+func TestAnthropicWebSearchUsesSharedAccountingContract(t *testing.T) {
+	ctx, service, owner, keyID, store := testService(t)
+	defer store.Close()
+	policy := createPolicy(t, ctx, service, owner, PolicyInput{ScopeKind: "key", ScopeID: keyID, Metric: "tokens", Algorithm: "quota", Period: "lifetime", LimitUnits: 1000})
+	price, err := service.CreatePrice(ctx, owner, PriceInput{ConnectionID: "conn_test", ModelID: "model_test", InputUSDPerMillion: "1", OutputUSDPerMillion: "1", Source: "test", EffectiveFrom: time.Now().Add(-time.Hour).UTC().Format(time.RFC3339)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	admission, err := service.Admit(ctx, AdmissionInput{KeyID: keyID, ConnectionID: "conn_test", ModelID: "model_test", Operation: "messages", TargetOperation: "messages", Scope: "chat:generate", Dialect: "anthropic", TargetDialect: "anthropic", WebSearchMaxCalls: 4, EstimatedInputTokens: 80, EstimatedOutputTokens: 20, OutputBounded: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if consumed, reserved, err := service.debugCounters(ctx, policy.ID); err != nil || consumed != 0 || reserved != 100 {
+		t.Fatalf("admitted tokens=%d/%d err=%v", consumed, reserved, err)
+	}
+	var admittedMax int64
+	var priceID sql.NullString
+	if err := store.SystemDB().QueryRowContext(ctx, "SELECT web_search_max_calls,price_version_id FROM attempts WHERE id=?", admission.AttemptID).Scan(&admittedMax, &priceID); err != nil || admittedMax != 4 || priceID.Valid {
+		t.Fatalf("admission max=%d price=%v err=%v", admittedMax, priceID, err)
+	}
+	// Even a restored row with a base token price must retain unknown hosted-search cost.
+	if _, err := store.SystemDB().ExecContext(ctx, "UPDATE attempts SET price_version_id=? WHERE id=?", price.ID, admission.AttemptID); err != nil {
+		t.Fatal(err)
+	}
+	input, output, calls := int64(70), int64(15), int64(3)
+	settlement := SettlementInput{IdempotencyKey: "anthropic-web-search-settle", State: "succeeded", UsageStatus: "provider_reported", InputTokens: &input, OutputTokens: &output, WebSearchCallCount: &calls, FinalRequest: true}
+	if err := service.Settle(ctx, admission.AttemptID, settlement); err != nil {
+		t.Fatal(err)
+	}
+	if err := service.Settle(ctx, admission.AttemptID, settlement); err != nil {
+		t.Fatalf("idempotent settlement: %v", err)
+	}
+	if consumed, reserved, err := service.debugCounters(ctx, policy.ID); err != nil || consumed != 85 || reserved != 0 {
+		t.Fatalf("settled tokens=%d/%d err=%v", consumed, reserved, err)
+	}
+	if delivered, err := ProjectOutbox(ctx, store, 100); err != nil || delivered == 0 {
+		t.Fatalf("project=%d err=%v", delivered, err)
+	}
+	var projected int64
+	if err := store.DataDB().QueryRowContext(ctx, "SELECT web_search_calls FROM usage_daily").Scan(&projected); err != nil || projected != 3 {
+		t.Fatalf("projected=%d err=%v", projected, err)
+	}
+	summary, err := service.Summary(ctx, owner, UsageQuery{Dialect: "anthropic"})
+	if err != nil || summary.WebSearchCalls != 3 || len(summary.Points) != 1 || summary.Points[0].WebSearchCalls != 3 {
+		t.Fatalf("summary=%#v err=%v", summary, err)
+	}
+	requests, _, err := service.ListRequests(ctx, owner, UsageQuery{Dialect: "anthropic"})
+	if err != nil || len(requests) != 1 || len(requests[0].Attempts) != 1 {
+		t.Fatalf("requests=%#v err=%v", requests, err)
+	}
+	attempt := requests[0].Attempts[0]
+	if attempt.TargetDialect != "anthropic" || attempt.TargetOperation != "messages" || attempt.WebSearchMaxCalls == nil || *attempt.WebSearchMaxCalls != 4 || attempt.WebSearchCallCount == nil || *attempt.WebSearchCallCount != 3 || attempt.CostUSD != nil {
+		t.Fatalf("attempt=%#v", attempt)
+	}
+	reprice := RepriceInput{ConnectionID: "conn_test", ModelID: "model_test", From: time.Now().Add(-time.Hour).UTC().Format(time.RFC3339), To: time.Now().Add(time.Hour).UTC().Format(time.RFC3339), IdempotencyKey: "anthropic-web-search-reprice"}
+	if preview, err := service.PreviewReprice(ctx, owner, reprice); err != nil || preview.AffectedAttempts != 0 || preview.MissingPrices != 0 || preview.DeltaUSD != "0" {
+		t.Fatalf("preview=%#v err=%v", preview, err)
+	}
+}
+
 func TestWebSearchSettlementRequiresExactTerminalCount(t *testing.T) {
 	tests := []struct {
 		name      string
