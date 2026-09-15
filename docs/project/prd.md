@@ -214,7 +214,7 @@ Provide protected local snapshots and passphrase/recipient-encrypted portable ba
 
 ### OPS-02 — Distribution and upgrades
 
-Ship and smoke-test Linux/macOS amd64/arm64 and Windows amd64 binaries, plus Linux amd64/arm64 Docker images with persistent volumes and non-root execution. Advertise other platforms only after testing.
+Ship and smoke-test Linux amd64/arm64 binaries and Docker images with persistent volumes and non-root execution. Docker is the primary deployment path. Advertise other platforms only after native testing is added.
 
 Versioned releases include checksums, signature/provenance verification, dependency notices/SBOM, compatibility results, release notes, and migration instructions. Upgrades retain the data directory, snapshot before schema changes, and reject unsupported newer schemas. Rollback restores a matching backup and binary.
 

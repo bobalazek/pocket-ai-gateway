@@ -15,7 +15,7 @@ Keep protocol namespaces separate, route frontend requests through `web/src/lib/
 
 ## Go conventions
 
-- Let `gofmt` define formatting. The verification script also runs `go vet`, Staticcheck, tests, race checks, and cross-builds.
+- Let `gofmt` define formatting. The verification script also runs `go vet`, Staticcheck, tests, race checks, and a Linux build.
 - Keep packages feature-focused and place types near the code that owns them. Split a file when it contains separate responsibilities or becomes difficult to review; there is no fixed line limit.
 - Prefer the standard library and concrete types. Add an interface at the consuming boundary only when it has a real alternate implementation or test seam.
 - Share validation and security invariants that must not drift. Keep small feature-specific error mappings local instead of building a generic handler framework.

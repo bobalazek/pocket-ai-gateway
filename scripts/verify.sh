@@ -10,7 +10,8 @@ cd "$root"
 ./scripts/check-frontend-boundaries.sh
 go run ./scripts/check-openapi.go docs/reference/openapi.yaml
 ./scripts/build.sh
-go run ./scripts/notices -binary dist/pocket-ai-gateway -web web -output "$scratch/THIRD_PARTY_NOTICES.md"
+CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -trimpath -o "$scratch/pocket-ai-gateway-linux-amd64" ./cmd/pocket-ai-gateway
+go run ./scripts/notices -binary "$scratch/pocket-ai-gateway-linux-amd64" -web web -output "$scratch/THIRD_PARTY_NOTICES.md"
 cmp THIRD_PARTY_NOTICES.md "$scratch/THIRD_PARTY_NOTICES.md"
 
 unformatted=$(gofmt -l cmd internal web/embed.go)
@@ -31,5 +32,4 @@ go test ./...
 go test -race ./internal/storage ./internal/server ./internal/app ./internal/features/auth ./internal/features/users ./internal/features/keys ./internal/features/usage ./internal/features/providers ./internal/features/operations ./internal/features/gateway
 pnpm --dir web typecheck
 pnpm --dir web test
-./scripts/cross-build.sh
 ./scripts/smoke.sh "$root/dist/pocket-ai-gateway"

@@ -149,7 +149,7 @@ Create checksummed platform archives with:
 ./scripts/package.sh v0.1.0
 ```
 
-The release workflow builds Linux, macOS, and Windows archives for amd64 and arm64, plus checksums, an SBOM, attestations, and Linux amd64/arm64 container images.
+The release workflow builds Linux archives and container images for amd64 and arm64, plus checksums, an SBOM, and attestations. Docker is the primary deployment path.
 
 ## Documentation
 
