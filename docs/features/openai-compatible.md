@@ -1,6 +1,6 @@
 # OpenAI-compatible feature
 
-Root: /api/openai/v1 · Backend owner: internal/features/gateway · Requirement: API-01/02/03
+Root: /api/openai/v1 · Backend owner: internal/gateway · Requirement: API-01/02/03
 
 Own routes, OpenAI wire types/errors, Chat and Responses event codecs, model-list schema, upstream encoding, and fixtures. No login/session management, independent retry loop, or independent quota logic here.
 

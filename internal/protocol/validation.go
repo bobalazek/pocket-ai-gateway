@@ -1,4 +1,4 @@
-package gateway
+package protocol
 
 import (
 	"errors"

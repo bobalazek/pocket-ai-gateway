@@ -15,10 +15,10 @@ import (
 	"time"
 
 	"github.com/bobalazek/pocket-ai-gateway/internal/features/auth"
-	"github.com/bobalazek/pocket-ai-gateway/internal/features/gateway"
 	"github.com/bobalazek/pocket-ai-gateway/internal/features/keys"
 	"github.com/bobalazek/pocket-ai-gateway/internal/features/providers"
 	"github.com/bobalazek/pocket-ai-gateway/internal/features/usage"
+	"github.com/bobalazek/pocket-ai-gateway/internal/gateway"
 	"github.com/bobalazek/pocket-ai-gateway/internal/storage"
 )
 

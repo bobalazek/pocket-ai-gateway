@@ -15,12 +15,12 @@ import (
 
 	"github.com/bobalazek/pocket-ai-gateway/internal/credentials"
 	"github.com/bobalazek/pocket-ai-gateway/internal/features/auth"
-	"github.com/bobalazek/pocket-ai-gateway/internal/features/gateway"
 	"github.com/bobalazek/pocket-ai-gateway/internal/features/keys"
 	"github.com/bobalazek/pocket-ai-gateway/internal/features/operations"
 	"github.com/bobalazek/pocket-ai-gateway/internal/features/providers"
 	"github.com/bobalazek/pocket-ai-gateway/internal/features/usage"
 	"github.com/bobalazek/pocket-ai-gateway/internal/features/users"
+	"github.com/bobalazek/pocket-ai-gateway/internal/gateway"
 	dashboard "github.com/bobalazek/pocket-ai-gateway/web"
 )
 
