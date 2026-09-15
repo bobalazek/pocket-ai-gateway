@@ -20,7 +20,7 @@ const codeLifetime = 24 * time.Hour
 
 var allowedScopes = map[string]bool{
 	"chat:generate": true, "responses:generate": true, "embeddings:generate": true,
-	"models:read": true, "tokens:count": true, "moderations:classify": true, "images:generate": true, "audio:speech": true, "audio:transcribe": true,
+	"models:read": true, "tokens:count": true, "moderations:classify": true, "images:generate": true, "audio:speech": true, "audio:transcribe": true, "audio:translate": true,
 }
 
 var (

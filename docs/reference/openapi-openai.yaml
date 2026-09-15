@@ -67,6 +67,25 @@ paths:
                 timestamp_granularities: { type: array, items: { type: string } }
               additionalProperties: true
       responses: { "200": { description: Native transcription response or event stream }, "404": { description: No capable native target }, default: { description: OpenAI-compatible error } }
+  /audio/translations:
+    post:
+      operationId: createAudioTranslation
+      description: Translates one audio upload into English through a native audio-translation-capable OpenAI target. The OpenAI preset currently requires upstream model whisper-1; custom OpenAI-compatible endpoints remain operator-declared. Multipart bodies are limited to 26 MiB, the audio file to 25 MB, and responses to 16 MiB. The gateway preserves supported provider fields and rewrites only the model. Streaming, automatic post-dispatch fallback, lowest-cost/free-only routing, and operation under active token/output/spend policies are not supported.
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              required: [file, model]
+              properties:
+                file: { type: string, format: binary }
+                model: { type: string }
+                prompt: { type: string }
+                response_format: { type: string, enum: [json, text, srt, verbose_json, vtt] }
+                temperature: { type: number, minimum: 0, maximum: 1 }
+              additionalProperties: true
+      responses: { "200": { description: Native translation response }, "404": { description: No capable native target }, default: { description: OpenAI-compatible error } }
   /responses/{response_id}:
     parameters: [{ name: response_id, in: path, required: true, schema: { type: string } }]
     get:

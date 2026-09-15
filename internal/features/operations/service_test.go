@@ -85,6 +85,10 @@ func TestConfigPreviewRejectsUnsafeProviderAndRetentionPreservesEnforcement(t *t
 	if _, err := PreviewConfig(bundle); err == nil {
 		t.Fatal("config import accepted capabilities outside the provider preset")
 	}
+	bundle = ConfigBundle{Format: 1, Settings: Settings{BackupIntervalHours: 24, BackupRetention: 14, BackupDestination: "local", S3Region: "us-east-1", S3AccessKeyEnv: "AWS_ACCESS_KEY_ID", S3SecretKeyEnv: "AWS_SECRET_ACCESS_KEY", RequestRetention: 90, AuditRetention: 365}, Catalog: ConfigCatalog{RefreshIntervalHours: 24}, Connections: []ConfigConnection{{ID: "con_test", Name: "OpenAI", Adapter: "openai", BaseURL: "https://api.openai.com/v1", Enabled: true, TimeoutMS: 60000, Preset: "openai"}}, UpstreamModels: []ConfigUpstream{{ID: "up_test", ConnectionID: "con_test", UpstreamID: "gpt-4o-transcribe", Capabilities: []string{"audio_translation"}, Active: true}}}
+	if _, err := PreviewConfig(bundle); err == nil {
+		t.Fatal("config import accepted a non-whisper OpenAI translation model")
+	}
 
 	ctx := context.Background()
 	store, err := storage.Open(ctx, filepath.Join(t.TempDir(), "data"))
@@ -274,16 +278,19 @@ func TestConfigImportRejectsIncompatiblePreservedModel(t *testing.T) {
 	if _, err = store.SystemDB().ExecContext(ctx, `INSERT INTO upstream_models(id,connection_id,upstream_id,capabilities_json,created_at,updated_at) VALUES('up_test','con_test','embedding','["embeddings"]',?,?)`, now, now); err != nil {
 		t.Fatal(err)
 	}
+	if _, err = store.SystemDB().ExecContext(ctx, `INSERT INTO upstream_models(id,connection_id,upstream_id,capabilities_json,created_at,updated_at) VALUES('up_translation','con_test','provider-translation','["audio_translation"]',?,?)`, now, now); err != nil {
+		t.Fatal(err)
+	}
 	service := New(store, providers.New(store.SystemDB(), make([]byte, 32)), "test", func(string) string { return "" })
 	bundle, err := service.ExportConfig(ctx)
 	if err != nil {
 		t.Fatal(err)
 	}
-	bundle.Connections[0].Preset = "fireworks"
-	bundle.Connections[0].BaseURL = "https://api.fireworks.ai/inference/v1"
+	bundle.Connections[0].Preset = "openai"
+	bundle.Connections[0].BaseURL = "https://api.openai.com/v1"
 	bundle.UpstreamModels = nil
 	if _, err = service.ImportConfig(ctx, "usr_owner", bundle); err == nil {
-		t.Fatal("partial import stranded a preserved embedding model")
+		t.Fatal("partial import stranded a preserved non-whisper OpenAI translation model")
 	}
 }
 

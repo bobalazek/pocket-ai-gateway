@@ -85,7 +85,7 @@ func nativeAdapter(dialect, adapter string) bool {
 	return dialect == adapter || (dialect == "openai" && adapter == "openai_compatible")
 }
 func hasCapability(values []string, scope string) bool {
-	wanted := map[string]string{"chat:generate": "chat", "responses:generate": "chat", "embeddings:generate": "embeddings", "tokens:count": "count_tokens", "moderations:classify": "moderations", "images:generate": "images", "audio:speech": "audio_speech", "audio:transcribe": "audio_transcription"}[scope]
+	wanted := map[string]string{"chat:generate": "chat", "responses:generate": "chat", "embeddings:generate": "embeddings", "tokens:count": "count_tokens", "moderations:classify": "moderations", "images:generate": "images", "audio:speech": "audio_speech", "audio:transcribe": "audio_transcription", "audio:translate": "audio_translation"}[scope]
 	for _, v := range values {
 		if v == wanted || v == strings.ReplaceAll(scope, ":", "_") {
 			return true
