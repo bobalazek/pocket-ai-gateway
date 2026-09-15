@@ -26,6 +26,8 @@ Base URL: `/api/openai/v1`.
 | `POST /embeddings` | Native target only | Preserves order, dimensions, encoding, and usage; no cross-model fallback |
 | `POST /moderations` | Native target only | Preserves the upstream OpenAI moderation taxonomy; requires `moderations:classify` and a moderation-capable model |
 | `POST /images/generations` | Constrained, native target only | Non-streaming JSON only; explicit public model, `images:generate`, token accounting when reported, 16 MiB request/response bounds, no post-dispatch fallback, and rejection under token/output/spend/free-only policies or lowest-cost routing because the request has no portable output/price contract |
+| `POST /images/edits` | Constrained, native target only | Non-streaming GPT Image multipart edit with 1-16 validated PNG/JPEG/WebP inputs, optional same-size PNG mask, 64 MiB aggregate upload and 16 MiB response bounds; explicit public model, prompt, and `images:edit`; DALL-E 2 edits, post-dispatch fallback, token/output/spend/free-only policies, and lowest-cost routing remain unsupported |
+| `POST /images/variations` | Constrained, native target only | One square PNG under 4 MB; explicit public model and `images:variation`; OpenAI preset restricted to upstream `dall-e-2`, custom compatible endpoints operator-declared; 64 MiB body and 16 MiB response bounds; no post-dispatch fallback, token/output/spend/free-only policies, or lowest-cost routing |
 | `POST /audio/speech` | Constrained, native target only | Built-in voices and buffered audio output up to 16 MiB; explicit public model, `audio:speech`, no custom voice references, SSE, post-dispatch fallback, token/output/spend/free-only policies, or lowest-cost routing |
 | `POST /audio/transcriptions` | Constrained, native target only | Multipart upload with one supported audio file up to 25 MB; explicit public model, `audio:transcribe`, provider fields and streaming preserved, no post-dispatch fallback, token/output/spend/free-only policies, or lowest-cost routing |
 | `POST /audio/translations` | Constrained, native target only | Multipart audio-to-English translation with one supported file up to 25 MB; explicit public model, `audio:translate`, OpenAI preset restricted to upstream `whisper-1`, custom compatible endpoints operator-declared, 16 MiB response bound, no streaming, post-dispatch fallback, token/output/spend/free-only policies, or lowest-cost routing |
@@ -34,7 +36,7 @@ Base URL: `/api/openai/v1`.
 | Conversations and conversation items | Constrained, gateway-owned | Resource/item CRUD plus synchronous/background/buffered-stream Response attachment, key isolation, storage bounds, and cursor pagination are implemented; provider references/projections remain pending |
 | Files, uploads, and vector stores | Pending | Needs encrypted object storage, quotas, scanning, and lifecycle rules |
 | Batches | Pending | Needs durable jobs, cancellation, billing, result retention, and restart recovery |
-| Image edits/variations and video | Pending | Each media format needs its own bounded upload/download and accounting contract |
+| DALL-E 2 edits, image streaming, and video | Pending | Each media format needs its own bounded upload/download, event, and accounting contract |
 | Realtime | Pending | Needs WebSocket/WebRTC authentication, event limits, connection accounting, and protocol tests |
 | Fine-tuning and evaluations | Pending | Administrative provider resources need ownership, polling, and cost controls |
 | Legacy Assistants, Threads, and Runs | Pending | No compatibility alias is exposed |

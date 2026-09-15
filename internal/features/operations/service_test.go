@@ -89,6 +89,10 @@ func TestConfigPreviewRejectsUnsafeProviderAndRetentionPreservesEnforcement(t *t
 	if _, err := PreviewConfig(bundle); err == nil {
 		t.Fatal("config import accepted a non-whisper OpenAI translation model")
 	}
+	bundle.UpstreamModels[0] = ConfigUpstream{ID: "up_test", ConnectionID: "con_test", UpstreamID: "gpt-image-1", Capabilities: []string{"image_variation"}, Active: true}
+	if _, err := PreviewConfig(bundle); err == nil {
+		t.Fatal("config import accepted a non-dall-e-2 OpenAI variation model")
+	}
 
 	ctx := context.Background()
 	store, err := storage.Open(ctx, filepath.Join(t.TempDir(), "data"))

@@ -26,7 +26,7 @@ var (
 
 var allowedScopes = map[string]bool{
 	"chat:generate": true, "responses:generate": true, "embeddings:generate": true,
-	"models:read": true, "tokens:count": true, "moderations:classify": true, "images:generate": true, "audio:speech": true, "audio:transcribe": true, "audio:translate": true,
+	"models:read": true, "tokens:count": true, "moderations:classify": true, "images:generate": true, "images:edit": true, "images:variation": true, "audio:speech": true, "audio:transcribe": true, "audio:translate": true,
 }
 
 type Service struct{ database *sql.DB }
@@ -62,7 +62,7 @@ type Principal struct {
 }
 
 func (principal Principal) Allows(scope, model, connectionID string) bool {
-	if !contains(principal.Scopes, scope) || !contains(principal.ConnectionIDs, connectionID) {
+	if !principal.AllowsScope(scope) || !contains(principal.ConnectionIDs, connectionID) {
 		return false
 	}
 	for _, pattern := range principal.ModelPatterns {
@@ -72,6 +72,8 @@ func (principal Principal) Allows(scope, model, connectionID string) bool {
 	}
 	return false
 }
+
+func (principal Principal) AllowsScope(scope string) bool { return contains(principal.Scopes, scope) }
 
 func New(database *sql.DB) *Service { return &Service{database: database} }
 

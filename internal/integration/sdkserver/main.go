@@ -65,10 +65,20 @@ func main() {
 		must(err)
 		_, err = providerService.CreatePublicModel(ctx, owner, "target-"+adapter, "Target "+adapter, "", upstreamModel.ID, capabilities)
 		must(err)
+		if adapter == "openai" {
+			editModel, createErr := providerService.CreateUpstreamModel(ctx, owner, connection.ID, "gpt-image-1", []string{"image_edit"})
+			must(createErr)
+			_, createErr = providerService.CreatePublicModel(ctx, owner, "target-openai-edit", "Target OpenAI edit", "", editModel.ID, editModel.Capabilities)
+			must(createErr)
+			variationModel, createErr := providerService.CreateUpstreamModel(ctx, owner, connection.ID, "dall-e-2", []string{"image_variation"})
+			must(createErr)
+			_, createErr = providerService.CreatePublicModel(ctx, owner, "target-openai-variation", "Target OpenAI variation", "", variationModel.ID, variationModel.Capabilities)
+			must(createErr)
+		}
 		connections = append(connections, connection.ID)
 	}
 	keyService := keys.New(store.SystemDB())
-	_, secret, err := keyService.Create(ctx, owner.ID, keys.Input{Label: "Official SDK matrix", Scopes: []string{"chat:generate", "responses:generate", "moderations:classify", "images:generate", "audio:speech", "audio:transcribe", "audio:translate", "models:read", "tokens:count"}, ModelPatterns: []string{"target-*"}, ConnectionIDs: connections})
+	_, secret, err := keyService.Create(ctx, owner.ID, keys.Input{Label: "Official SDK matrix", Scopes: []string{"chat:generate", "responses:generate", "moderations:classify", "images:generate", "images:edit", "images:variation", "audio:speech", "audio:transcribe", "audio:translate", "models:read", "tokens:count"}, ModelPatterns: []string{"target-*"}, ConnectionIDs: connections})
 	must(err)
 
 	mux := http.NewServeMux()
@@ -122,6 +132,14 @@ func upstreamHandler(response http.ResponseWriter, request *http.Request) {
 	}
 	switch target {
 	case "openai":
+		if strings.HasSuffix(request.URL.Path, "/images/edits") {
+			io.WriteString(response, `{"created":1,"data":[{"b64_json":"ZWRpdA=="}]}`)
+			return
+		}
+		if strings.HasSuffix(request.URL.Path, "/images/variations") {
+			io.WriteString(response, `{"created":1,"data":[{"b64_json":"dmFyaWF0aW9u"}]}`)
+			return
+		}
 		if strings.HasSuffix(request.URL.Path, "/audio/translations") {
 			io.WriteString(response, `{"text":"gateway translation"}`)
 			return

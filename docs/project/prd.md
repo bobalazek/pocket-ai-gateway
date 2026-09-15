@@ -68,7 +68,7 @@ Enforce the actor matrix on the server for every resource and field. Role change
 
 Create, label, expire, disable, revoke, and rotate high-entropy keys; show plaintext once and store only a verifier plus non-secret prefix. Every key belongs to a user. Rotation preserves logical key identity, counters, and grants, with explicit overlap/expiry if supported.
 
-Scopes: chat:generate, responses:generate, embeddings:generate, moderations:classify, images:generate, audio:speech, audio:transcribe, audio:translate, models:read, tokens:count. Effective access intersects user grants, key grants, public-model publication, allowed connections, capability support, and all limits. Empty grants deny; unrestricted access requires an explicit administrator-controlled mode.
+Scopes: chat:generate, responses:generate, embeddings:generate, moderations:classify, images:generate, images:edit, images:variation, audio:speech, audio:transcribe, audio:translate, models:read, tokens:count. Effective access intersects user grants, key grants, public-model publication, allowed connections, capability support, and all limits. Empty grants deny; unrestricted access requires an explicit administrator-controlled mode.
 
 Members may create narrower keys, never raise their own ceiling. New keys share the user's aggregate quota. Public model IDs are stable; deleting and recreating a public name does not inherit grants.
 
@@ -98,7 +98,7 @@ Free models require explicit zero pricing with provenance and freshness. Unknown
 
 ### API-01 — OpenAI, Anthropic, and Gemini interfaces
 
-Expose OpenAI Chat Completions/Responses/Responses input-token counting/embeddings/moderations/non-streaming image generation/buffered speech/models under /api/openai/v1/, Anthropic Messages/count_tokens/models under /api/anthropic/v1/, and native Gemini generateContent/streamGenerateContent/countTokens/embedContent/batchEmbedContents/models under /api/gemini/v1beta/. The path selects the protocol; headers never switch dialects. Global aliases are disabled by default. Preserve each dialect's response/error/event shape without a gateway JSON envelope.
+Expose OpenAI Chat Completions/Responses/Responses input-token counting/embeddings/moderations/non-streaming image generation/GPT Image edits/DALL-E 2 variations/buffered speech/models under /api/openai/v1/, Anthropic Messages/count_tokens/models under /api/anthropic/v1/, and native Gemini generateContent/streamGenerateContent/countTokens/embedContent/batchEmbedContents/models under /api/gemini/v1beta/. DALL-E 2 edits remain unsupported until their distinct multipart contract is implemented. The path selects the protocol; headers never switch dialects. Global aliases are disabled by default. Preserve each dialect's response/error/event shape without a gateway JSON envelope.
 
 Support ordinary text, multi-turn system/user/assistant content, function tool calls/results, and incremental SSE. Each of the three client formats can reach all three provider families for supported operations. OpenAI includes both Chat and Responses translation. Capability mismatches fail explicitly; no route silently discards requested semantics.
 

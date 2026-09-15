@@ -30,6 +30,7 @@ type Handler struct {
 	epoch     string
 	activeMu  sync.Mutex
 	active    map[string]context.CancelFunc
+	uploads   chan struct{}
 	lastOwner string
 	lastKey   string
 }
@@ -39,7 +40,7 @@ func New(database *sql.DB, keyService *keys.Service, providerService *providers.
 	if err != nil {
 		epoch = strconv.FormatInt(time.Now().UnixNano(), 10)
 	}
-	return &Handler{database: database, keys: keyService, providers: providerService, usage: usageService, wake: make(chan struct{}, 1), epoch: epoch, active: map[string]context.CancelFunc{}}
+	return &Handler{database: database, keys: keyService, providers: providerService, usage: usageService, wake: make(chan struct{}, 1), epoch: epoch, active: map[string]context.CancelFunc{}, uploads: make(chan struct{}, 1)}
 }
 
 func (handler *Handler) Register(mux *http.ServeMux) {
@@ -72,6 +73,8 @@ func (handler *Handler) Register(mux *http.ServeMux) {
 	mux.HandleFunc("POST /api/openai/v1/images/generations", func(w http.ResponseWriter, r *http.Request) {
 		handler.forward(w, r, "openai", "images:generate", "images/generations", "", nil)
 	})
+	mux.HandleFunc("POST /api/openai/v1/images/edits", handler.imageEdit)
+	mux.HandleFunc("POST /api/openai/v1/images/variations", handler.imageVariation)
 	mux.HandleFunc("POST /api/openai/v1/audio/speech", func(w http.ResponseWriter, r *http.Request) {
 		handler.forward(w, r, "openai", "audio:speech", "audio/speech", "", nil)
 	})
@@ -175,15 +178,18 @@ func (handler *Handler) forwardAuthorized(response http.ResponseWriter, request 
 	outputEstimate := maximumOutput(envelope)
 	batchItems := int64(0)
 	imageGeneration := upstreamPath == "images/generations"
+	imageEdit := upstreamPath == "images/edits"
+	imageVariation := upstreamPath == "images/variations"
 	speechGeneration := upstreamPath == "audio/speech"
 	audioTranscription := upstreamPath == "audio/transcriptions"
 	audioTranslation := upstreamPath == "audio/translations"
-	opaqueMedia := imageGeneration || speechGeneration || audioTranscription || audioTranslation
+	imageOperation := imageGeneration || imageEdit || imageVariation
+	opaqueMedia := imageOperation || speechGeneration || audioTranscription || audioTranslation
 	if upstreamPath == "embeddings" || upstreamPath == "moderations" {
 		batchItems = jsonCardinality(envelope["input"])
 	} else if opaqueMedia {
 		batchItems = 1
-		if imageGeneration {
+		if imageOperation {
 			_ = json.Unmarshal(envelope["n"], &batchItems)
 		}
 		outputEstimate = 0
@@ -201,7 +207,7 @@ func (handler *Handler) forwardAuthorized(response http.ResponseWriter, request 
 	if dialect == "responses_compact" {
 		outputEstimate, outputBounded = inputEstimate, true
 	}
-	generation := scope == "chat:generate" || scope == "responses:generate" || scope == "images:generate" || scope == "audio:speech" || scope == "audio:transcribe" || scope == "audio:translate"
+	generation := scope == "chat:generate" || scope == "responses:generate" || scope == "images:generate" || scope == "images:edit" || scope == "images:variation" || scope == "audio:speech" || scope == "audio:transcribe" || scope == "audio:translate"
 	if generation && outputEstimate == 0 && !opaqueMedia {
 		outputEstimate = 4096
 	}
