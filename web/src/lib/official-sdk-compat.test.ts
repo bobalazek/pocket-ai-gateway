@@ -110,6 +110,18 @@ describe("official SDK compatibility through the Go gateway", () => {
     expect(backgroundCompleted).toMatchObject({ status: "completed", conversation: { id: conversation.id } });
     const backgroundItemID = backgroundCompleted.output[0]?.id;
     expect(backgroundItemID).toMatch(/^citem_/);
+    let streamedText = "";
+    for await (const event of await client.responses.create({ model: "target-anthropic", input: "Stream", store: false, stream: true, conversation: conversation.id })) {
+      if (event.type === "response.output_text.delta") streamedText += event.delta;
+    }
+    expect(streamedText).toBe("Hello");
+		const beforeFailure = await client.conversations.items.list(conversation.id, { order: "asc", limit: 100 });
+		let failedEvent = false;
+		for await (const event of await client.responses.create({ model: "target-openai", input: "Fail stream", store: false, stream: true, conversation: conversation.id })) {
+			if (event.type === "response.failed") failedEvent = true;
+		}
+		expect(failedEvent).toBe(true);
+		expect((await client.conversations.items.list(conversation.id, { order: "asc", limit: 100 })).data).toHaveLength(beforeFailure.data.length);
     const added = await client.conversations.items.create(conversation.id, {
       items: [
         { type: "message", role: "user", content: [{ type: "input_text", text: "Next" }] },

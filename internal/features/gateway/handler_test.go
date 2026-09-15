@@ -804,7 +804,7 @@ func TestOrderedFallbackRecordsEachAttempt(t *testing.T) {
 
 func TestAttemptWriterCommitsStreamOnlyAfterFlush(t *testing.T) {
 	recorder := httptest.NewRecorder()
-	writer := newAttemptWriter(recorder, true)
+	writer := newAttemptWriter(recorder, true, 0)
 	writer.WriteHeader(http.StatusOK)
 	if writer.Committed() {
 		t.Fatal("stream headers committed before output")
@@ -817,6 +817,12 @@ func TestAttemptWriterCommitsStreamOnlyAfterFlush(t *testing.T) {
 	if !writer.Committed() || recorder.Body.String() != "data: first\n\n" {
 		t.Fatalf("committed=%v body=%q", writer.Committed(), recorder.Body.String())
 	}
+	buffered := newAttemptWriter(httptest.NewRecorder(), false, maxInferenceBody)
+	_, _ = buffered.Write([]byte("data: buffered\n\n"))
+	buffered.Flush()
+	if buffered.Committed() {
+		t.Fatal("buffered stream committed on flush")
+	}
 }
 
 func TestNativeNonStreamResponseIsBounded(t *testing.T) {
@@ -825,7 +831,7 @@ func TestNativeNonStreamResponseIsBounded(t *testing.T) {
 	}))
 	defer upstream.Close()
 	recorder := httptest.NewRecorder()
-	writer := newAttemptWriter(recorder, false)
+	writer := newAttemptWriter(recorder, false, 0)
 	request := httptest.NewRequest(http.MethodPost, "/", nil)
 	status, _, err := new(Handler).dispatch(writer, request, providers.Target{BaseURL: upstream.URL, AllowPrivateNetwork: true, TimeoutMS: 5000}, "v1/chat", nil, false, "openai", func() {})
 	writer.Commit()

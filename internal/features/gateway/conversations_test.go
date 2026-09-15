@@ -3,6 +3,7 @@ package gateway
 import (
 	"bytes"
 	"context"
+	"database/sql"
 	"encoding/json"
 	"errors"
 	"io"
@@ -13,6 +14,7 @@ import (
 	"time"
 
 	"github.com/bobalazek/pocket-ai-gateway/internal/features/keys"
+	"github.com/bobalazek/pocket-ai-gateway/internal/features/providers"
 )
 
 func TestConversationLifecycleAndKeyIsolation(t *testing.T) {
@@ -430,6 +432,248 @@ func TestBackgroundConversationCompletionIsAtomic(t *testing.T) {
 	_ = store.SystemDB().QueryRowContext(ctx, "SELECT COUNT(*) FROM conversation_items WHERE conversation_id=?", conversation.ID).Scan(&count)
 	if state != "running" || count != 0 {
 		t.Fatalf("partial completion state=%s items=%d", state, count)
+	}
+}
+
+func TestResponseConversationStreamRewritesItemIdentity(t *testing.T) {
+	attachment := conversationAttachment{id: "conv_test", keyID: "key_test", ownerID: "usr_test"}
+	stream := []byte("event: response.created\ndata: {\"type\":\"response.created\",\"response\":{\"id\":\"resp_upstream\",\"object\":\"response\",\"status\":\"in_progress\",\"output\":[]}}\n\n" +
+		"event: response.output_item.added\ndata: {\"type\":\"response.output_item.added\",\"output_index\":0,\"item\":{\"id\":\"msg_upstream\",\"type\":\"message\",\"role\":\"assistant\",\"status\":\"in_progress\",\"content\":[]}}\n\n" +
+		"event: response.output_text.delta\ndata: {\"type\":\"response.output_text.delta\",\"item_id\":\"msg_upstream\",\"output_index\":0,\"content_index\":0,\"delta\":\"Hello\"}\n\n" +
+		"event: response.output_item.done\ndata: {\"type\":\"response.output_item.done\",\"output_index\":0,\"item\":{\"id\":\"msg_upstream\",\"type\":\"message\",\"role\":\"assistant\",\"status\":\"completed\",\"content\":[{\"type\":\"output_text\",\"text\":\"Hello\",\"annotations\":[]}]}}\n\n" +
+		"event: response.completed\ndata: {\"type\":\"response.completed\",\"response\":{\"id\":\"resp_upstream\",\"object\":\"response\",\"status\":\"completed\",\"output\":[{\"id\":\"msg_upstream\",\"type\":\"message\",\"role\":\"assistant\",\"status\":\"completed\",\"content\":[{\"type\":\"output_text\",\"text\":\"Hello\",\"annotations\":[]}]}],\"usage\":{\"input_tokens\":1,\"output_tokens\":1,\"total_tokens\":2}}}\n\n")
+	rewritten, terminalSuccess, err := responseStreamWithConversation(stream, &attachment)
+	if err != nil || !terminalSuccess || len(attachment.outputItems) != 1 {
+		t.Fatalf("rewrite error=%v output=%s", err, rewritten)
+	}
+	var item map[string]any
+	_ = json.Unmarshal(attachment.outputItems[0], &item)
+	id := stringValue(item["id"])
+	if !strings.HasPrefix(id, "citem_") || bytes.Contains(rewritten, []byte("msg_upstream")) || strings.Count(string(rewritten), id) != 4 || strings.Count(string(rewritten), `"conversation":{"id":"conv_test"}`) != 2 {
+		t.Fatalf("id=%q stream=%s", id, rewritten)
+	}
+	if _, _, err := responseStreamWithConversation([]byte("event: response.created\ndata: {}\n\n"), &attachment); err == nil {
+		t.Fatal("incomplete stream unexpectedly accepted")
+	}
+	failed := []byte("event: response.failed\ndata: {\"type\":\"response.failed\",\"response\":{\"id\":\"resp_failed\",\"object\":\"response\",\"status\":\"failed\",\"output\":[],\"usage\":{\"input_tokens\":2,\"output_tokens\":1,\"total_tokens\":3}}}\n\n")
+	failedAttachment := conversationAttachment{id: "conv_test"}
+	rewritten, terminalSuccess, err = responseStreamWithConversation(failed, &failedAttachment)
+	if err != nil || terminalSuccess || !bytes.Contains(rewritten, []byte(`"type":"response.failed"`)) || !bytes.Contains(rewritten, []byte(`"conversation":{"id":"conv_test"}`)) || len(failedAttachment.outputItems) != 0 {
+		t.Fatalf("failed rewrite success=%v err=%v output=%s", terminalSuccess, err, rewritten)
+	}
+	errorEvent := []byte("event: error\ndata: {\"type\":\"error\",\"code\":\"server_error\",\"message\":\"failed\"}\n\n")
+	rewritten, terminalSuccess, err = responseStreamWithConversation(errorEvent, &attachment)
+	if err != nil || terminalSuccess || !bytes.Contains(rewritten, []byte(`"type":"error"`)) {
+		t.Fatalf("error rewrite success=%v err=%v output=%s", terminalSuccess, err, rewritten)
+	}
+	if _, _, err := responseStreamWithConversation(bytes.Repeat([]byte(": keepalive\n\n"), maxConversationStreamFrames+1), &attachment); err == nil || !strings.Contains(err.Error(), "too many events") {
+		t.Fatalf("frame limit error = %v", err)
+	}
+	manyLines := append(bytes.Repeat([]byte(":x\n"), 1_000_000), []byte("event: response.completed\ndata: {\"type\":\"response.completed\",\"response\":{\"object\":\"response\",\"status\":\"completed\",\"output\":[]}}\n\n")...)
+	if _, terminalSuccess, err := responseStreamWithConversation(manyLines, &conversationAttachment{id: "conv_lines"}); err != nil || !terminalSuccess {
+		t.Fatalf("many-line frame success=%v error=%v", terminalSuccess, err)
+	}
+	boundary := append(append([]byte{}, stream...), []byte(": "+strings.Repeat("x", maxInferenceBody-len(stream)-4)+"\n\n")...)
+	if len(boundary) != maxInferenceBody {
+		t.Fatalf("boundary size = %d", len(boundary))
+	}
+	if _, _, err := responseStreamWithConversation(boundary, &conversationAttachment{id: "conv_boundary"}); err == nil || !strings.Contains(err.Error(), "exceeds 16 MiB") {
+		t.Fatalf("rewritten boundary error = %v", err)
+	}
+}
+
+func TestStreamingResponseConversationAttachment(t *testing.T) {
+	var upstreamBody []byte
+	upstream := httptest.NewServer(http.HandlerFunc(func(response http.ResponseWriter, request *http.Request) {
+		upstreamBody, _ = io.ReadAll(request.Body)
+		response.Header().Set("Content-Type", "text/event-stream")
+		_, _ = io.WriteString(response, "event: message_start\ndata: {\"type\":\"message_start\",\"message\":{\"usage\":{\"input_tokens\":2,\"output_tokens\":0}}}\n\nevent: content_block_start\ndata: {\"type\":\"content_block_start\",\"index\":0,\"content_block\":{\"type\":\"text\",\"text\":\"\"}}\n\nevent: content_block_delta\ndata: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"text_delta\",\"text\":\"Hello\"}}\n\nevent: message_delta\ndata: {\"type\":\"message_delta\",\"delta\":{\"stop_reason\":\"end_turn\"},\"usage\":{\"output_tokens\":1}}\n\nevent: message_stop\ndata: {\"type\":\"message_stop\"}\n\n")
+	}))
+	defer upstream.Close()
+	ctx, store, owner, keyService, providerService, usageService := gatewayFixture(t)
+	defer store.Close()
+	connection, model := publishModel(t, ctx, providerService, owner, "anthropic", upstream.URL+"/v1", "anthropic-upstream", []string{"chat"})
+	_, secret, err := keyService.Create(ctx, owner.ID, keys.Input{Label: "Conversation", Scopes: []string{"responses:generate"}, ModelPatterns: []string{model.ID}, ConnectionIDs: []string{connection.ID}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	handler := New(store.SystemDB(), keyService, providerService, usageService)
+	mux := http.NewServeMux()
+	handler.Register(mux)
+	created := performResponseRequest(t, mux, secret, http.MethodPost, "/api/openai/v1/conversations", `{"items":[{"role":"user","content":"First"}]}`)
+	var conversation conversation
+	_ = json.Unmarshal(created.Body.Bytes(), &conversation)
+	streamed := performResponseRequest(t, mux, secret, http.MethodPost, "/api/openai/v1/responses", `{"model":"`+model.ID+`","input":"Second","stream":true,"store":false,"conversation":"`+conversation.ID+`"}`)
+	if streamed.Code != http.StatusOK || !strings.Contains(streamed.Body.String(), `"type":"response.output_text.delta"`) || !strings.Contains(streamed.Body.String(), `"conversation":{"id":"`+conversation.ID+`"}`) || strings.Contains(streamed.Body.String(), "msg_translated") {
+		t.Fatalf("stream = %d %s", streamed.Code, streamed.Body.String())
+	}
+	if !bytes.Contains(upstreamBody, []byte("First")) || !bytes.Contains(upstreamBody, []byte("Second")) || bytes.Contains(upstreamBody, []byte("citem_")) {
+		t.Fatalf("upstream body = %s", upstreamBody)
+	}
+	listed := performResponseRequest(t, mux, secret, http.MethodGet, "/api/openai/v1/conversations/"+conversation.ID+"/items?order=asc&limit=100", "")
+	var page struct {
+		Data []map[string]any `json:"data"`
+	}
+	if json.Unmarshal(listed.Body.Bytes(), &page) != nil || len(page.Data) != 3 || !strings.Contains(streamed.Body.String(), stringValue(page.Data[2]["id"])) {
+		t.Fatalf("items = %d %s", listed.Code, listed.Body.String())
+	}
+	rejected := performResponseRequest(t, mux, secret, http.MethodPost, "/api/openai/v1/responses", `{"model":"`+model.ID+`","input":"Stored","stream":true,"conversation":"`+conversation.ID+`"}`)
+	if rejected.Code != http.StatusBadRequest || !strings.Contains(rejected.Body.String(), "stored streaming Responses are not supported") {
+		t.Fatalf("stored stream = %d %s", rejected.Code, rejected.Body.String())
+	}
+	if _, err := store.SystemDB().ExecContext(ctx, `CREATE TRIGGER block_stream_turn BEFORE INSERT ON conversation_items BEGIN SELECT RAISE(ABORT,'blocked'); END`); err != nil {
+		t.Fatal(err)
+	}
+	failed := performResponseRequest(t, mux, secret, http.MethodPost, "/api/openai/v1/responses", `{"model":"`+model.ID+`","input":"Atomic","stream":true,"store":false,"conversation":"`+conversation.ID+`"}`)
+	if failed.Code != http.StatusServiceUnavailable || strings.Contains(failed.Body.String(), "event: response.") {
+		t.Fatalf("failed stream = %d %s", failed.Code, failed.Body.String())
+	}
+}
+
+func TestNativeResponseConversationStreamOutcomes(t *testing.T) {
+	tests := []struct {
+		name, stream, state, usageStatus string
+		status, items, input, output     int
+		contains                         string
+	}{
+		{
+			name:        "usage beyond accounting capture",
+			stream:      ": " + strings.Repeat("x", (8<<20)+1024) + "\n\nevent: response.completed\ndata: {\"type\":\"response.completed\",\"response\":{\"id\":\"resp_large\",\"object\":\"response\",\"status\":\"completed\",\"output\":[],\"usage\":{\"input_tokens\":7,\"output_tokens\":3,\"total_tokens\":10}}}\n\n",
+			state:       "succeeded",
+			usageStatus: "provider_reported",
+			status:      http.StatusOK,
+			items:       1,
+			input:       7,
+			output:      3,
+			contains:    "response.completed",
+		},
+		{
+			name:        "typed provider failure",
+			stream:      "event: response.failed\ndata: {\"type\":\"response.failed\",\"response\":{\"id\":\"resp_failed\",\"object\":\"response\",\"status\":\"failed\",\"output\":[],\"usage\":{\"input_tokens\":2,\"output_tokens\":1,\"total_tokens\":3}}}\n\n",
+			state:       "failed",
+			usageStatus: "provider_reported",
+			status:      http.StatusOK,
+			input:       2,
+			output:      1,
+			contains:    "response.failed",
+		},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			upstream := httptest.NewServer(http.HandlerFunc(func(response http.ResponseWriter, _ *http.Request) {
+				response.Header().Set("Content-Type", "text/event-stream")
+				_, _ = io.WriteString(response, test.stream)
+			}))
+			defer upstream.Close()
+			ctx, store, owner, keyService, providerService, usageService := gatewayFixture(t)
+			defer store.Close()
+			connection, model := publishModel(t, ctx, providerService, owner, "openai", upstream.URL+"/v1", "openai-upstream", []string{"chat"})
+			_, secret, err := keyService.Create(ctx, owner.ID, keys.Input{Label: "Conversation", Scopes: []string{"responses:generate"}, ModelPatterns: []string{model.ID}, ConnectionIDs: []string{connection.ID}})
+			if err != nil {
+				t.Fatal(err)
+			}
+			mux := http.NewServeMux()
+			New(store.SystemDB(), keyService, providerService, usageService).Register(mux)
+			created := performResponseRequest(t, mux, secret, http.MethodPost, "/api/openai/v1/conversations", `{}`)
+			var conversation conversation
+			_ = json.Unmarshal(created.Body.Bytes(), &conversation)
+			result := performResponseRequest(t, mux, secret, http.MethodPost, "/api/openai/v1/responses", `{"model":"`+model.ID+`","input":"Run","stream":true,"store":false,"conversation":"`+conversation.ID+`"}`)
+			if result.Code != test.status || !strings.Contains(result.Body.String(), test.contains) {
+				t.Fatalf("response = %d %s", result.Code, result.Body.String())
+			}
+			var state, usageStatus string
+			var input, output int
+			if err := store.SystemDB().QueryRowContext(ctx, "SELECT state,usage_status,input_tokens,output_tokens FROM attempts").Scan(&state, &usageStatus, &input, &output); err != nil || state != test.state || usageStatus != test.usageStatus || input != test.input || output != test.output {
+				t.Fatalf("attempt = %s/%s %d/%d, %v", state, usageStatus, input, output, err)
+			}
+			var items int
+			if err := store.SystemDB().QueryRowContext(ctx, "SELECT COUNT(*) FROM conversation_items WHERE conversation_id=?", conversation.ID).Scan(&items); err != nil || items != test.items {
+				t.Fatalf("items = %d, %v", items, err)
+			}
+		})
+	}
+
+	t.Run("buffer overflow", func(t *testing.T) {
+		upstream := httptest.NewServer(http.HandlerFunc(func(response http.ResponseWriter, _ *http.Request) {
+			response.Header().Set("Content-Type", "text/event-stream")
+			_, _ = io.WriteString(response, strings.Repeat("x", maxInferenceBody+1))
+		}))
+		defer upstream.Close()
+		ctx, store, owner, keyService, providerService, usageService := gatewayFixture(t)
+		defer store.Close()
+		connection, model := publishModel(t, ctx, providerService, owner, "openai", upstream.URL+"/v1", "openai-upstream", []string{"chat"})
+		_, secret, err := keyService.Create(ctx, owner.ID, keys.Input{Label: "Conversation", Scopes: []string{"responses:generate"}, ModelPatterns: []string{model.ID}, ConnectionIDs: []string{connection.ID}})
+		if err != nil {
+			t.Fatal(err)
+		}
+		mux := http.NewServeMux()
+		New(store.SystemDB(), keyService, providerService, usageService).Register(mux)
+		created := performResponseRequest(t, mux, secret, http.MethodPost, "/api/openai/v1/conversations", `{}`)
+		var conversation conversation
+		_ = json.Unmarshal(created.Body.Bytes(), &conversation)
+		result := performResponseRequest(t, mux, secret, http.MethodPost, "/api/openai/v1/responses", `{"model":"`+model.ID+`","input":"Run","stream":true,"store":false,"conversation":"`+conversation.ID+`"}`)
+		if result.Code != http.StatusBadGateway || strings.Contains(result.Body.String(), "event:") {
+			t.Fatalf("response = %d %s", result.Code, result.Body.String())
+		}
+		var input, output sql.NullInt64
+		if err := store.SystemDB().QueryRowContext(ctx, "SELECT input_tokens,output_tokens FROM attempts").Scan(&input, &output); err != nil || input.Valid || output.Valid {
+			t.Fatalf("usage = %v/%v, %v", input, output, err)
+		}
+	})
+}
+
+func TestAttachedTranslatedStreamDoesNotFallbackAfterSemanticFailure(t *testing.T) {
+	firstCalls := 0
+	first := httptest.NewServer(http.HandlerFunc(func(response http.ResponseWriter, _ *http.Request) {
+		firstCalls++
+		response.Header().Set("Content-Type", "text/event-stream")
+		if firstCalls == 1 {
+			_, _ = io.WriteString(response, "event: message_start\ndata: {\"type\":\"message_start\",\"padding\":\""+strings.Repeat("x", (8<<20)+1024)+"\",\"message\":{\"usage\":{\"input_tokens\":2,\"output_tokens\":0}}}\n\nevent: content_block_delta\ndata: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"text_delta\",\"text\":\"Hello\"}}\n\nevent: message_delta\ndata: {\"type\":\"message_delta\",\"delta\":{\"stop_reason\":\"end_turn\"},\"usage\":{\"output_tokens\":1}}\n\nevent: message_stop\ndata: {\"type\":\"message_stop\"}\n\n")
+			return
+		}
+		_, _ = io.WriteString(response, "event: content_block_delta\ndata: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"text_delta\",\"text\":\"Billed\"}}\n\nevent: message_stop\ndata: {\"type\":\"message_stop\"}\n\n")
+	}))
+	defer first.Close()
+	fallbackCalls := 0
+	second := httptest.NewServer(http.HandlerFunc(func(response http.ResponseWriter, _ *http.Request) {
+		fallbackCalls++
+		response.Header().Set("Content-Type", "text/event-stream")
+		_, _ = io.WriteString(response, "event: message_start\ndata: {\"type\":\"message_start\",\"message\":{\"usage\":{\"input_tokens\":2,\"output_tokens\":0}}}\n\nevent: message_stop\ndata: {\"type\":\"message_stop\"}\n\n")
+	}))
+	defer second.Close()
+	ctx, store, owner, keyService, providerService, usageService := gatewayFixture(t)
+	defer store.Close()
+	firstConnection, model := publishModel(t, ctx, providerService, owner, "anthropic", first.URL+"/v1", "first", []string{"chat"})
+	secondConnection, err := providerService.CreateConnection(ctx, owner, providers.ConnectionInput{Name: "fallback", Adapter: "anthropic", BaseURL: second.URL + "/v1", Enabled: true, AllowPrivateNetwork: true, TimeoutMS: 5000})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := providerService.PutCredential(ctx, owner, secondConnection.ID, "provider-secret", ""); err != nil {
+		t.Fatal(err)
+	}
+	secondModel, err := providerService.CreateUpstreamModel(ctx, owner, secondConnection.ID, "second", []string{"chat"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := providerService.ConfigureRoute(ctx, owner, model.ID, model.Revision, providers.RouteConfigInput{Strategy: "ordered_fallback", Targets: []providers.RouteTargetInput{{UpstreamModelID: model.TargetModelID, Priority: 1, Weight: 1, Enabled: true}, {UpstreamModelID: secondModel.ID, Priority: 2, Weight: 1, Enabled: true}}}); err != nil {
+		t.Fatal(err)
+	}
+	_, secret, err := keyService.Create(ctx, owner.ID, keys.Input{Label: "Conversation", Scopes: []string{"responses:generate"}, ModelPatterns: []string{model.ID}, ConnectionIDs: []string{firstConnection.ID, secondConnection.ID}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	mux := http.NewServeMux()
+	New(store.SystemDB(), keyService, providerService, usageService).Register(mux)
+	created := performResponseRequest(t, mux, secret, http.MethodPost, "/api/openai/v1/conversations", `{}`)
+	var conversation conversation
+	_ = json.Unmarshal(created.Body.Bytes(), &conversation)
+	large := performResponseRequest(t, mux, secret, http.MethodPost, "/api/openai/v1/responses", `{"model":"`+model.ID+`","input":"Large line","stream":true,"store":false,"conversation":"`+conversation.ID+`"}`)
+	if large.Code != http.StatusOK || !bytes.Contains(large.Body.Bytes(), []byte("response.completed")) || fallbackCalls != 0 {
+		t.Fatalf("large-line response=%d fallback calls=%d", large.Code, fallbackCalls)
+	}
+	result := performResponseRequest(t, mux, secret, http.MethodPost, "/api/openai/v1/responses", `{"model":"`+model.ID+`","input":"Run","stream":true,"store":false,"conversation":"`+conversation.ID+`"}`)
+	if result.Code != http.StatusBadGateway || fallbackCalls != 0 || strings.Contains(result.Body.String(), "Billed") {
+		t.Fatalf("response=%d %s fallback calls=%d", result.Code, result.Body.String(), fallbackCalls)
 	}
 }
 

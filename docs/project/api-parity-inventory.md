@@ -20,12 +20,12 @@ Base URL: `/api/openai/v1`.
 | --- | --- | --- |
 | `GET /models`, `GET /models/{id}` | Implemented, gateway-owned | Returns only public models visible to the key owner |
 | `POST /chat/completions` | Implemented | JSON and SSE; shared text, image, structured-output, tool, refusal, stop, and usage semantics translate across capable families |
-| `POST /responses` | Constrained | Non-streaming responses are gateway-stored for the creating API key by default for 30 days; `background:true` runs through the durable local queue; `store:false` supports JSON and lifecycle SSE; synchronous JSON and background jobs can atomically attach gateway Conversations; hosted tools are rejected |
+| `POST /responses` | Constrained | Non-streaming responses are gateway-stored for the creating API key by default for 30 days; `background:true` runs through the durable local queue; `store:false` supports JSON and lifecycle SSE; synchronous JSON, background jobs, and bounded buffered streams can atomically attach gateway Conversations; hosted tools are rejected |
 | `POST /responses/compact` | Native OpenAI preset only | Inline model/input requests are forwarded; response/conversation/item/file/container references and cross-provider approximations are rejected |
 | `POST /embeddings` | Native target only | Preserves order, dimensions, encoding, and usage; no cross-model fallback |
 | `GET /responses/{id}`, `DELETE /responses/{id}` | Implemented, gateway-owned | Creating-key retrieval and deletion; the gateway replaces the upstream ID and keeps upstream storage disabled |
 | `POST /responses/{id}/cancel`, `GET /responses/{id}/input_items` | Constrained, gateway-owned | Creating-key cancellation and bounded cursor pagination over stored input; `include[]` projections and input from pre-migration Responses return an explicit unsupported-feature error |
-| Conversations and conversation items | Constrained, gateway-owned | Resource/item CRUD plus synchronous/background Response attachment, key isolation, storage bounds, and cursor pagination are implemented; streaming attachment and provider references/projections remain pending |
+| Conversations and conversation items | Constrained, gateway-owned | Resource/item CRUD plus synchronous/background/buffered-stream Response attachment, key isolation, storage bounds, and cursor pagination are implemented; provider references/projections remain pending |
 | Files, uploads, and vector stores | Pending | Needs encrypted object storage, quotas, scanning, and lifecycle rules |
 | Batches | Pending | Needs durable jobs, cancellation, billing, result retention, and restart recovery |
 | Images, audio, video, and moderations | Pending | Each media format needs its own bounded upload/download and accounting contract |

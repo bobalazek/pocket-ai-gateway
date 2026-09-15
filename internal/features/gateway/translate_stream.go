@@ -12,6 +12,8 @@ import (
 	"strings"
 )
 
+var errUpstreamResponseInterrupted = errors.New("upstream response interrupted")
+
 type streamToolDelta struct {
 	Index     int
 	ID        string
@@ -194,8 +196,8 @@ func (handler *Handler) translateStream(response http.ResponseWriter, source io.
 		return emitErr
 	}
 
-	scanner := bufio.NewScanner(source)
-	scanner.Buffer(make([]byte, 4096), 8<<20)
+	scanner := bufio.NewScanner(io.LimitReader(source, maxStreamBytes+1))
+	scanner.Buffer(make([]byte, 4096), int(maxStreamBytes)+2)
 	for scanner.Scan() {
 		line := bytes.TrimSuffix(scanner.Bytes(), []byte{'\r'})
 		bytesRead += int64(len(line) + 1)
@@ -225,7 +227,7 @@ func (handler *Handler) translateStream(response http.ResponseWriter, source io.
 		}
 	}
 	if scanner.Err() != nil {
-		return http.StatusOK, metadata("incomplete"), scanner.Err()
+		return http.StatusOK, metadata("incomplete"), fmt.Errorf("%w: %v", errUpstreamResponseInterrupted, scanner.Err())
 	}
 	if data.Len() > 0 {
 		if err := consume(bytes.TrimSpace(data.Bytes())); err != nil {
@@ -233,7 +235,7 @@ func (handler *Handler) translateStream(response http.ResponseWriter, source io.
 		}
 	}
 	if !completed {
-		return http.StatusOK, metadata("incomplete"), io.ErrUnexpectedEOF
+		return http.StatusOK, metadata("incomplete"), fmt.Errorf("%w: terminal event missing", errUpstreamResponseInterrupted)
 	}
 	for _, tool := range tools {
 		if tool.Arguments == "" {

@@ -88,10 +88,6 @@ func (handler *Handler) responses(response http.ResponseWriter, request *http.Re
 			handler.writeError(response, "responses", http.StatusBadRequest, "invalid_request", "stream must be a boolean")
 			return
 		}
-		if stream {
-			handler.writeError(response, "responses", http.StatusBadRequest, "unsupported_feature", "conversation attachment does not support streaming Responses")
-			return
-		}
 		prepared, expanded, err := handler.prepareConversationResponse(request.Context(), principal, envelope)
 		if errors.Is(err, sql.ErrNoRows) {
 			handler.writeError(response, "responses", http.StatusNotFound, "not_found", "Conversation not found")

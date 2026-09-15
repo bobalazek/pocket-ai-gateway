@@ -8,6 +8,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"net"
 	"net/http"
@@ -275,7 +276,11 @@ func (handler *Handler) forwardAuthorized(response http.ResponseWriter, request 
 			handler.writeError(response, dialect, http.StatusServiceUnavailable, "gateway_unavailable", "Request could not be dispatched")
 			return
 		}
-		attemptWriter := newAttemptWriter(response, stream)
+		bufferedStream, bufferLimit := stream && attached != nil, int64(0)
+		if bufferedStream {
+			bufferLimit = maxInferenceBody
+		}
+		attemptWriter := newAttemptWriter(response, stream && !bufferedStream, bufferLimit)
 		started := time.Now()
 		var result int
 		var raw []byte
@@ -285,13 +290,35 @@ func (handler *Handler) forwardAuthorized(response http.ResponseWriter, request 
 		} else {
 			result, raw, copyErr = handler.dispatchTranslated(attemptWriter, request, target, targetPath, targetBody, dialect, publicID, stream, releaseDispatch)
 		}
+		dispatchErr := copyErr
+		accountDialect := recordDialect
+		if !native {
+			accountDialect = target.Adapter
+			if accountDialect == "openai_compatible" {
+				accountDialect = "openai"
+			}
+		}
+		accountRaw := raw
+		if native && bufferedStream {
+			accountRaw = attemptWriter.body.Bytes()
+		}
+		inputTokens, outputTokens, cost := parseUsage(accountDialect, accountRaw)
+		toolCalls, toolStatus := parseToolMetadata(accountDialect, accountRaw)
 		success := copyErr == nil && result >= 200 && result < 300
+		terminalStreamFailure := false
 		if success && attached != nil {
 			var attachedBody []byte
-			attachedBody, copyErr = responseWithConversation(attemptWriter.body.Bytes(), attached)
+			if stream {
+				var terminalSuccess bool
+				attachedBody, terminalSuccess, copyErr = responseStreamWithConversation(attemptWriter.body.Bytes(), attached)
+				terminalStreamFailure = copyErr == nil && !terminalSuccess
+			} else {
+				attachedBody, copyErr = responseWithConversation(attemptWriter.body.Bytes(), attached)
+			}
 			if copyErr == nil {
 				attemptWriter.body.Reset()
 				_, _ = attemptWriter.body.Write(attachedBody)
+				success = !terminalStreamFailure
 			} else {
 				success = false
 				attemptWriter.Reset()
@@ -308,17 +335,9 @@ func (handler *Handler) forwardAuthorized(response http.ResponseWriter, request 
 		if request.Context().Err() == nil && (success || copyErr != nil || retryableResult(result, nil)) {
 			_ = handler.providers.RecordRouteOutcome(context.WithoutCancel(request.Context()), target, clientOperation, stream, success, attemptWriter.FirstByte(started), time.Since(started))
 		}
-		retry := index+1 < len(plan.Targets) && retryableResult(result, copyErr) && !attemptWriter.Committed()
+		retryableDispatchError := native && dispatchErr != nil || errors.Is(dispatchErr, errUpstreamResponseInterrupted)
+		retry := !terminalStreamFailure && index+1 < len(plan.Targets) && (retryableDispatchError || retryableResult(result, copyErr)) && !attemptWriter.Committed()
 		state, status := "succeeded", "provider_reported"
-		accountDialect := recordDialect
-		if !native {
-			accountDialect = target.Adapter
-			if accountDialect == "openai_compatible" {
-				accountDialect = "openai"
-			}
-		}
-		inputTokens, outputTokens, cost := parseUsage(accountDialect, raw)
-		toolCalls, toolStatus := parseToolMetadata(accountDialect, raw)
 		if inputTokens == nil || outputTokens == nil {
 			status, cost = "unknown", nil
 		}
@@ -327,11 +346,14 @@ func (handler *Handler) forwardAuthorized(response http.ResponseWriter, request 
 			cost = &zero
 		}
 		if !success {
-			state, status = "failed", "unknown"
-			inputTokens, outputTokens, cost = nil, nil, nil
-			if result >= 400 && result < 500 && copyErr == nil {
-				zero := int64(0)
-				status, inputTokens, outputTokens, cost = "estimated", &zero, &zero, &zero
+			state = "failed"
+			if !terminalStreamFailure {
+				status = "unknown"
+				inputTokens, outputTokens, cost = nil, nil, nil
+				if result >= 400 && result < 500 && copyErr == nil {
+					zero := int64(0)
+					status, inputTokens, outputTokens, cost = "estimated", &zero, &zero, &zero
+				}
 			}
 		}
 		if copyErr != nil && toolCalls > 0 {
@@ -394,6 +416,9 @@ func (handler *Handler) forwardAuthorized(response http.ResponseWriter, request 
 			}
 			continue
 		}
+		if dispatchErr != nil && result >= 200 && result < 300 && !attemptWriter.Committed() {
+			attemptWriter.Reset()
+		}
 		if !success && attemptWriter.status == 0 {
 			handler.writeError(attemptWriter, dialect, http.StatusBadGateway, "upstream_error", "Provider request failed")
 		}
@@ -430,10 +455,11 @@ type attemptWriter struct {
 	body                 bytes.Buffer
 	streaming, committed bool
 	firstWrite           time.Time
+	bufferLimit          int64
 }
 
-func newAttemptWriter(destination http.ResponseWriter, streaming bool) *attemptWriter {
-	return &attemptWriter{destination: destination, header: make(http.Header), streaming: streaming}
+func newAttemptWriter(destination http.ResponseWriter, streaming bool, bufferLimit int64) *attemptWriter {
+	return &attemptWriter{destination: destination, header: make(http.Header), streaming: streaming, bufferLimit: bufferLimit}
 }
 func (writer *attemptWriter) Header() http.Header { return writer.header }
 func (writer *attemptWriter) WriteHeader(status int) {
@@ -452,13 +478,16 @@ func (writer *attemptWriter) Write(value []byte) (int, error) {
 	if writer.committed {
 		return writer.destination.Write(value)
 	}
+	if writer.bufferLimit > 0 && int64(writer.body.Len()+len(value)) > writer.bufferLimit {
+		return 0, errors.New("buffered response exceeds limit")
+	}
 	return writer.body.Write(value)
 }
 func (writer *attemptWriter) Flush() {
 	if writer.status == 0 {
 		writer.WriteHeader(http.StatusOK)
 	}
-	if writer.status >= 200 && writer.status < 300 {
+	if writer.streaming && writer.status >= 200 && writer.status < 300 {
 		writer.commitHeader()
 		if flusher, ok := writer.destination.(http.Flusher); ok {
 			flusher.Flush()
@@ -672,7 +701,11 @@ func (handler *Handler) dispatchTranslated(response http.ResponseWriter, request
 		return handler.translateStream(response, result.Body, dialect, target.Adapter, publicModel)
 	}
 	raw, err := io.ReadAll(io.LimitReader(result.Body, (16<<20)+1))
-	if err != nil || len(raw) > 16<<20 {
+	if err != nil {
+		handler.writeError(response, dialect, http.StatusBadGateway, "upstream_error", "Provider response could not be translated")
+		return result.StatusCode, nil, fmt.Errorf("%w: %v", errUpstreamResponseInterrupted, err)
+	}
+	if len(raw) > 16<<20 {
 		handler.writeError(response, dialect, http.StatusBadGateway, "upstream_error", "Provider response could not be translated")
 		return result.StatusCode, nil, errors.New("translated response exceeds 16 MiB")
 	}
@@ -1205,12 +1238,17 @@ func responseObjects(raw []byte) [][]byte {
 		return [][]byte{trimmed}
 	}
 	scanner := bufio.NewScanner(bytes.NewReader(raw))
-	scanner.Buffer(make([]byte, 4096), 8<<20)
+	scanner.Buffer(make([]byte, 4096), maxInferenceBody+1)
 	var data bytes.Buffer
 	var objects [][]byte
+	limitReached := false
 	flush := func() {
 		value := bytes.TrimSpace(data.Bytes())
 		if len(value) > 0 && !bytes.Equal(value, []byte("[DONE]")) {
+			if len(objects) >= maxConversationStreamFrames {
+				limitReached = true
+				return
+			}
 			objects = append(objects, append([]byte(nil), value...))
 		}
 		data.Reset()
@@ -1219,6 +1257,9 @@ func responseObjects(raw []byte) [][]byte {
 		line := scanner.Bytes()
 		if len(line) == 0 {
 			flush()
+			if limitReached {
+				break
+			}
 			continue
 		}
 		if bytes.HasPrefix(line, []byte("data:")) {

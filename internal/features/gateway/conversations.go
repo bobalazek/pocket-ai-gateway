@@ -25,6 +25,7 @@ const (
 	retainedKeyConversations       = 250
 	maxItemsPerConversation        = 10000
 	maxConversationBytes           = 64 << 20
+	maxConversationStreamFrames    = 131072
 )
 
 var (
@@ -184,6 +185,205 @@ func responseWithConversation(body []byte, attachment *conversationAttachment) (
 	value["output"], _ = json.Marshal(normalized)
 	value["conversation"], _ = json.Marshal(map[string]string{"id": attachment.id})
 	return json.Marshal(value)
+}
+
+func responseStreamWithConversation(body []byte, attachment *conversationAttachment) ([]byte, bool, error) {
+	body = bytes.ReplaceAll(body, []byte("\r\n"), []byte("\n"))
+	terminalType := ""
+	var normalizedResponse map[string]any
+	var originalOutput, normalizedOutput []any
+	err := walkConversationStreamFrames(body, func(frame []byte) error {
+		data := conversationStreamFrameData(frame)
+		if len(data) == 0 || bytes.Equal(data, []byte("[DONE]")) {
+			return nil
+		}
+		var value map[string]any
+		if json.Unmarshal(data, &value) != nil || value == nil {
+			return errors.New("response stream contains invalid JSON")
+		}
+		eventType := stringValue(value["type"])
+		if eventType != "response.completed" && eventType != "response.incomplete" && eventType != "response.failed" && eventType != "error" {
+			return nil
+		}
+		if terminalType != "" {
+			return errors.New("response stream contains multiple terminal events")
+		}
+		terminalType = eventType
+		if eventType == "error" {
+			return nil
+		}
+		response, ok := value["response"].(map[string]any)
+		if !ok || response["object"] != "response" || response["status"] != eventType[len("response."):] {
+			return errors.New("response stream terminal event is invalid")
+		}
+		if eventType == "response.failed" {
+			return nil
+		}
+		originalOutput, _ = response["output"].([]any)
+		encoded, _ := json.Marshal(response)
+		normalized, err := responseWithConversation(encoded, attachment)
+		if err != nil {
+			return err
+		}
+		if json.Unmarshal(normalized, &normalizedResponse) != nil {
+			return errors.New("response stream terminal event is invalid")
+		}
+		normalizedOutput, _ = normalizedResponse["output"].([]any)
+		return nil
+	})
+	if err != nil {
+		return nil, false, err
+	}
+	if terminalType == "" {
+		return nil, false, errors.New("response stream did not reach a terminal event")
+	}
+	terminalSuccess := terminalType == "response.completed" || terminalType == "response.incomplete"
+	if terminalSuccess && len(originalOutput) != len(normalizedOutput) {
+		return nil, false, errors.New("response stream output is invalid")
+	}
+	idsByIndex, idsByOld := make([]string, len(normalizedOutput)), map[string]string{}
+	for index, item := range normalizedOutput {
+		next := stringValue(objectMap(item)["id"])
+		if next == "" {
+			return nil, false, errors.New("response stream output is invalid")
+		}
+		idsByIndex[index] = next
+		if old := stringValue(objectMap(originalOutput[index])["id"]); old != "" {
+			idsByOld[old] = next
+		}
+	}
+	conversation := map[string]any{"id": attachment.id}
+	var rewritten bytes.Buffer
+	err = walkConversationStreamFrames(body, func(frame []byte) error {
+		data := conversationStreamFrameData(frame)
+		if len(data) == 0 {
+			rewritten.Write(frame)
+			rewritten.WriteString("\n\n")
+			if rewritten.Len() > maxInferenceBody {
+				return errors.New("response stream exceeds 16 MiB")
+			}
+			return nil
+		}
+		var encoded []byte
+		if bytes.Equal(data, []byte("[DONE]")) {
+			encoded = data
+		} else {
+			var value map[string]any
+			if json.Unmarshal(data, &value) != nil || value == nil {
+				return errors.New("response stream contains invalid JSON")
+			}
+			eventType := stringValue(value["type"])
+			if terminalSuccess && eventType == terminalType {
+				value["response"] = normalizedResponse
+			} else if response, ok := value["response"].(map[string]any); ok {
+				response["conversation"] = conversation
+				if terminalSuccess {
+					rewriteConversationStreamOutput(response["output"], -1, idsByIndex, idsByOld)
+				}
+			}
+			if terminalSuccess {
+				outputIndex := -1
+				if candidate, ok := integer(value["output_index"]); ok {
+					outputIndex = int(candidate)
+				}
+				rewriteConversationStreamOutput(value["item"], outputIndex, idsByIndex, idsByOld)
+				if old := stringValue(value["item_id"]); old != "" {
+					if next := idsByOld[old]; next != "" {
+						value["item_id"] = next
+					} else if outputIndex >= 0 && outputIndex < len(idsByIndex) {
+						value["item_id"] = idsByIndex[outputIndex]
+					}
+				}
+			}
+			encoded, _ = json.Marshal(value)
+		}
+		walkConversationStreamLines(frame, func(line []byte) {
+			if !bytes.HasPrefix(line, []byte("data:")) {
+				rewritten.Write(line)
+				rewritten.WriteByte('\n')
+			}
+		})
+		rewritten.WriteString("data: ")
+		rewritten.Write(encoded)
+		rewritten.WriteString("\n\n")
+		if rewritten.Len() > maxInferenceBody {
+			return errors.New("response stream exceeds 16 MiB")
+		}
+		return nil
+	})
+	if err != nil {
+		return nil, false, err
+	}
+	return rewritten.Bytes(), terminalSuccess, nil
+}
+
+func walkConversationStreamFrames(body []byte, visit func([]byte) error) error {
+	count := 0
+	for len(body) > 0 {
+		end := bytes.Index(body, []byte("\n\n"))
+		frame := body
+		if end >= 0 {
+			frame, body = body[:end], body[end+2:]
+		} else {
+			body = nil
+		}
+		if len(bytes.TrimSpace(frame)) == 0 {
+			continue
+		}
+		count++
+		if count > maxConversationStreamFrames {
+			return errors.New("response stream contains too many events")
+		}
+		if err := visit(frame); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func conversationStreamFrameData(frame []byte) []byte {
+	var data bytes.Buffer
+	walkConversationStreamLines(frame, func(line []byte) {
+		if !bytes.HasPrefix(line, []byte("data:")) {
+			return
+		}
+		if data.Len() > 0 {
+			data.WriteByte('\n')
+		}
+		data.Write(bytes.TrimSpace(bytes.TrimPrefix(line, []byte("data:"))))
+	})
+	return data.Bytes()
+}
+
+func walkConversationStreamLines(frame []byte, visit func([]byte)) {
+	for len(frame) > 0 {
+		end := bytes.IndexByte(frame, '\n')
+		line := frame
+		if end >= 0 {
+			line, frame = frame[:end], frame[end+1:]
+		} else {
+			frame = nil
+		}
+		visit(line)
+	}
+}
+
+func rewriteConversationStreamOutput(value any, outputIndex int, idsByIndex []string, idsByOld map[string]string) {
+	if output, ok := value.([]any); ok {
+		for index, item := range output {
+			rewriteConversationStreamOutput(item, index, idsByIndex, idsByOld)
+		}
+		return
+	}
+	item := objectMap(value)
+	if item == nil {
+		return
+	}
+	if next := idsByOld[stringValue(item["id"])]; next != "" {
+		item["id"] = next
+	} else if outputIndex >= 0 && outputIndex < len(idsByIndex) {
+		item["id"] = idsByIndex[outputIndex]
+	}
 }
 
 func appendConversationTurn(ctx context.Context, tx *sql.Tx, attachment conversationAttachment, now int64) error {
