@@ -297,6 +297,52 @@ paths:
     delete:
       operationId: deleteConversationItem
       responses: { "200": { description: Parent conversation after item deletion }, "404": { description: Item unavailable }, default: { description: OpenAI-compatible error } }
+  /batches:
+    post:
+      operationId: createOpenAIBatch
+      description: >-
+        Creates a gateway-owned Batch for the requesting API key. The input_file_id must identify an
+        unexpired same-key purpose=batch File containing one to four same-model, non-streaming
+        POST /v1/responses JSONL requests with unique 1–64-byte UTF-8 custom_id values. Only
+        completion_window 24h and endpoint /v1/responses are
+        accepted. The local worker uses ordinary Responses routing, admission, accounting, and prices;
+        OpenAI's provider Batch discount, rate pool, and larger limits do not apply.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/BatchCreateRequest"
+      responses:
+        "200": { description: Newly created gateway-owned Batch, content: { application/json: { schema: { $ref: "#/components/schemas/Batch" } } } }
+        "404": { description: Input File is missing, expired, or owned by another key }
+        default: { description: OpenAI-compatible error }
+    get:
+      operationId: listOpenAIBatches
+      description: Lists Batches owned by the requesting API key using bounded keyset pages.
+      parameters:
+        - { name: after, in: query, schema: { type: string } }
+        - { name: limit, in: query, schema: { type: integer, minimum: 1, maximum: 100, default: 20 } }
+      responses:
+        "200": { description: Cursor page of gateway-owned Batches, content: { application/json: { schema: { $ref: "#/components/schemas/BatchList" } } } }
+        default: { description: OpenAI-compatible error }
+  /batches/{batch_id}:
+    parameters: [{ name: batch_id, in: path, required: true, schema: { type: string } }]
+    get:
+      operationId: retrieveOpenAIBatch
+      responses:
+        "200": { description: Gateway-owned Batch, content: { application/json: { schema: { $ref: "#/components/schemas/Batch" } } } }
+        "404": { description: Missing or foreign-key Batch }
+        default: { description: OpenAI-compatible error }
+  /batches/{batch_id}/cancel:
+    parameters: [{ name: batch_id, in: path, required: true, schema: { type: string } }]
+    post:
+      operationId: cancelOpenAIBatch
+      description: Requests cancellation. Already-dispatched work may finish and remains available in partial output Files.
+      responses:
+        "200": { description: Cancelling or cancelled gateway-owned Batch, content: { application/json: { schema: { $ref: "#/components/schemas/Batch" } } } }
+        "404": { description: Missing or foreign-key Batch }
+        default: { description: OpenAI-compatible error }
   /files:
     post:
       operationId: createOpenAIFile
@@ -381,6 +427,116 @@ paths:
       responses: { "200": { description: Native OpenAI moderation response }, default: { description: OpenAI-compatible error } }
 components:
   schemas:
+    BatchCreateRequest:
+      type: object
+      additionalProperties: false
+      required: [input_file_id, endpoint, completion_window]
+      properties:
+        input_file_id: { type: string, pattern: "^file_", description: Unexpired same-key purpose=batch File }
+        endpoint: { const: /v1/responses }
+        completion_window: { const: 24h }
+        metadata:
+          type: [object, "null"]
+          maxProperties: 16
+          propertyNames: { maxLength: 64 }
+          additionalProperties: { type: string, maxLength: 512 }
+        output_expires_after:
+          type: object
+          additionalProperties: false
+          required: [anchor, seconds]
+          properties:
+            anchor: { const: created_at }
+            seconds: { type: integer, minimum: 3600, maximum: 2592000 }
+    Batch:
+      type: object
+      additionalProperties: false
+      required: [id, object, endpoint, input_file_id, completion_window, status, created_at]
+      properties:
+        id: { type: string, pattern: "^batch_" }
+        object: { const: batch }
+        endpoint: { const: /v1/responses }
+        input_file_id: { type: string, pattern: "^file_" }
+        completion_window: { const: 24h }
+        status: { type: string, enum: [validating, failed, in_progress, finalizing, completed, expired, cancelling, cancelled] }
+        created_at: { type: integer, minimum: 0, description: Unix timestamp in seconds }
+        in_progress_at: { type: [integer, "null"], minimum: 0 }
+        expires_at: { type: [integer, "null"], minimum: 0, description: 24-hour processing deadline }
+        finalizing_at: { type: [integer, "null"], minimum: 0 }
+        completed_at: { type: [integer, "null"], minimum: 0 }
+        failed_at: { type: [integer, "null"], minimum: 0 }
+        expired_at: { type: [integer, "null"], minimum: 0 }
+        cancelling_at: { type: [integer, "null"], minimum: 0 }
+        cancelled_at: { type: [integer, "null"], minimum: 0 }
+        output_file_id: { type: [string, "null"], pattern: "^file_" }
+        error_file_id: { type: [string, "null"], pattern: "^file_" }
+        metadata:
+          type: [object, "null"]
+          maxProperties: 16
+          propertyNames: { maxLength: 64 }
+          additionalProperties: { type: string, maxLength: 512 }
+        model: { type: [string, "null"], description: Single public model used by all input requests }
+        errors:
+          oneOf:
+            - $ref: "#/components/schemas/BatchErrors"
+            - { type: "null" }
+        request_counts:
+          oneOf:
+            - $ref: "#/components/schemas/BatchRequestCounts"
+            - { type: "null" }
+        usage:
+          oneOf:
+            - $ref: "#/components/schemas/BatchUsage"
+            - { type: "null" }
+    BatchErrors:
+      type: object
+      additionalProperties: false
+      properties:
+        object: { const: list }
+        data: { type: array, items: { $ref: "#/components/schemas/BatchError" } }
+    BatchError:
+      type: object
+      additionalProperties: false
+      properties:
+        code: { type: string }
+        line: { type: [integer, "null"], minimum: 1 }
+        message: { type: string }
+        param: { type: [string, "null"] }
+    BatchRequestCounts:
+      type: object
+      additionalProperties: false
+      required: [total, completed, failed]
+      properties:
+        total: { type: integer, minimum: 0, maximum: 4 }
+        completed: { type: integer, minimum: 0, maximum: 4 }
+        failed: { type: integer, minimum: 0, maximum: 4 }
+    BatchUsage:
+      type: object
+      additionalProperties: false
+      required: [input_tokens, input_tokens_details, output_tokens, output_tokens_details, total_tokens]
+      properties:
+        input_tokens: { type: integer, minimum: 0 }
+        input_tokens_details:
+          type: object
+          additionalProperties: false
+          required: [cached_tokens]
+          properties: { cached_tokens: { type: integer, minimum: 0 } }
+        output_tokens: { type: integer, minimum: 0 }
+        output_tokens_details:
+          type: object
+          additionalProperties: false
+          required: [reasoning_tokens]
+          properties: { reasoning_tokens: { type: integer, minimum: 0 } }
+        total_tokens: { type: integer, minimum: 0 }
+    BatchList:
+      type: object
+      additionalProperties: false
+      required: [object, data, first_id, last_id, has_more]
+      properties:
+        object: { const: list }
+        data: { type: array, items: { $ref: "#/components/schemas/Batch" } }
+        first_id: { type: [string, "null"] }
+        last_id: { type: [string, "null"] }
+        has_more: { type: boolean }
     FileObject:
       type: object
       additionalProperties: false

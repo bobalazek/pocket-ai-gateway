@@ -103,7 +103,7 @@ func (handler *Handler) createMessageBatch(response http.ResponseWriter, request
 	batch := messageBatchRow{id: "msgbatch_" + token, status: "in_progress", createdAt: now.UnixMilli(), retentionExpiresAt: now.Add(messageBatchResultsLifetime).UnixMilli()}
 	tx, err := handler.database.BeginTx(request.Context(), nil)
 	if err == nil {
-		err = checkMessageBatchQueueCapacity(request.Context(), tx, principal.OwnerUserID, principal.KeyID, int64(len(requests)), queueBytes)
+		err = checkBackgroundQueueCapacity(request.Context(), tx, principal.OwnerUserID, principal.KeyID, int64(len(requests)), queueBytes)
 	}
 	if err == nil {
 		err = checkRetainedResourceCapacity(request.Context(), tx, principal.OwnerUserID, principal.KeyID, int64(len(requests)), incomingBytes)
@@ -123,7 +123,7 @@ func (handler *Handler) createMessageBatch(response http.ResponseWriter, request
 		_ = tx.Rollback()
 	}
 	if err != nil {
-		if errors.Is(err, errRetainedResourceLimit) || errors.Is(err, errMessageBatchQueueLimit) {
+		if errors.Is(err, errRetainedResourceLimit) || errors.Is(err, errBackgroundQueueLimit) {
 			handler.writeError(response, "anthropic", http.StatusTooManyRequests, "rate_limit_error", "Message Batch capacity is exhausted")
 			return
 		}

@@ -1,0 +1,11 @@
+# 2026-09-15 — Gateway-owned OpenAI Responses Batches
+
+ID: ADR-024 · Status: accepted · Source: user decision
+
+**Context.** The gateway-owned Files contract provides bounded encrypted Batch input and output storage. Forwarding an OpenAI Batch to a provider would expose a shared provider credential, couple public ownership and lifecycle to one upstream, bypass ordinary gateway routing and accounting, and inherit provider limits and prices that the local gateway cannot promise.
+
+**Decision.** Implement the four official OpenAI Batch methods under `/api/openai/v1/batches`: create, retrieve, list, and cancel. A Batch belongs to its creating inference key and requires `batches:manage`; creation also requires `responses:generate` and an unexpired same-key `purpose=batch` input File previously uploaded with `files:manage`. The bounded first contract accepts `completion_window: "24h"`, `endpoint: "/v1/responses"`, and one to four JSONL requests with unique 1–64-byte UTF-8 `custom_id` values, `method: "POST"`, the matching URL, one public model, and non-streaming inline input. Nested background work, Conversations, provider-owned references, hosted tools, and File references are rejected.
+
+The local worker executes each item through ordinary Responses authorization, routing, limits, and accounting with upstream storage disabled. Successful and failed requests produce separate same-key `purpose=batch_output` JSONL Files referenced by `output_file_id` and `error_file_id`; line order is not guaranteed and callers correlate with `custom_id`. A Batch starts `in_progress`, may pass through `finalizing`, and ends as `completed`, `cancelled`, or `expired`. Cancellation preserves completed partial results, and unfinished work expires after 24 hours. Batch metadata expires 30 days after creation. Output Files expire after 30 days by default or the requested `output_expires_after` interval from 3,600 through 2,592,000 seconds.
+
+**Consequences.** The gateway uses ordinary local request pricing and capacity rather than OpenAI's provider-owned Batch pool. It does not claim OpenAI's 50% discount, 50,000-request or 200 MB limits, separate rate limits, or unlimited output-token behavior. Additional Batch endpoints, provider-owned batches, larger inputs, additional OpenAI operations, and Gemini batch resources remain separate contracts.

@@ -243,6 +243,58 @@ type MessageBatchItem struct {
 	FinishedAt          sql.NullInt64  `json:"finished_at"`
 }
 
+type OpenaiBatch struct {
+	ID                   string         `json:"id"`
+	OwnerUserID          string         `json:"owner_user_id"`
+	KeyID                string         `json:"key_id"`
+	InputFileID          string         `json:"input_file_id"`
+	Endpoint             string         `json:"endpoint"`
+	CompletionWindow     string         `json:"completion_window"`
+	ModelID              string         `json:"model_id"`
+	Status               string         `json:"status"`
+	CancelRequested      int64          `json:"cancel_requested"`
+	MetadataJson         []byte         `json:"metadata_json"`
+	OutputExpirySeconds  int64          `json:"output_expiry_seconds"`
+	OutputFileID         sql.NullString `json:"output_file_id"`
+	ErrorFileID          sql.NullString `json:"error_file_id"`
+	RequestTotal         int64          `json:"request_total"`
+	RequestCompleted     int64          `json:"request_completed"`
+	RequestFailed        int64          `json:"request_failed"`
+	UsageKnown           int64          `json:"usage_known"`
+	UsageInputTokens     int64          `json:"usage_input_tokens"`
+	UsageOutputTokens    int64          `json:"usage_output_tokens"`
+	UsageCachedTokens    int64          `json:"usage_cached_tokens"`
+	UsageReasoningTokens int64          `json:"usage_reasoning_tokens"`
+	CreatedAt            int64          `json:"created_at"`
+	InProgressAt         int64          `json:"in_progress_at"`
+	ExpiresAt            int64          `json:"expires_at"`
+	CancellingAt         sql.NullInt64  `json:"cancelling_at"`
+	TerminalAt           sql.NullInt64  `json:"terminal_at"`
+	RetentionExpiresAt   int64          `json:"retention_expires_at"`
+}
+
+type OpenaiBatchItem struct {
+	BatchID             string         `json:"batch_id"`
+	Ordinal             int64          `json:"ordinal"`
+	CustomID            string         `json:"custom_id"`
+	ResultID            string         `json:"result_id"`
+	RequestBytes        int64          `json:"request_bytes"`
+	RequestCiphertext   []byte         `json:"request_ciphertext"`
+	RequestNonce        []byte         `json:"request_nonce"`
+	State               string         `json:"state"`
+	ResultBytes         sql.NullInt64  `json:"result_bytes"`
+	ResultCiphertext    []byte         `json:"result_ciphertext"`
+	ResultNonce         []byte         `json:"result_nonce"`
+	RequestID           sql.NullString `json:"request_id"`
+	AttemptID           sql.NullString `json:"attempt_id"`
+	UsageKnown          int64          `json:"usage_known"`
+	ReservedResultBytes int64          `json:"reserved_result_bytes"`
+	LeaseEpoch          string         `json:"lease_epoch"`
+	ClaimedAt           sql.NullInt64  `json:"claimed_at"`
+	DispatchStartedAt   sql.NullInt64  `json:"dispatch_started_at"`
+	FinishedAt          sql.NullInt64  `json:"finished_at"`
+}
+
 type OpenaiFile struct {
 	ID          string `json:"id"`
 	OwnerUserID string `json:"owner_user_id"`

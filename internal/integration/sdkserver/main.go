@@ -93,11 +93,13 @@ func main() {
 		connections = append(connections, connection.ID)
 	}
 	keyService := keys.New(store.SystemDB())
-	_, secret, err := keyService.Create(ctx, owner.ID, keys.Input{Label: "Official SDK matrix", Scopes: []string{"chat:generate", "messages:batches", "messages:web_search", "responses:generate", "responses:web_search", "moderations:classify", "images:generate", "images:edit", "images:variation", "audio:speech", "audio:transcribe", "audio:translate", "models:read", "tokens:count", "files:manage"}, ModelPatterns: []string{"target-*"}, ConnectionIDs: connections})
+	_, secret, err := keyService.Create(ctx, owner.ID, keys.Input{Label: "Official SDK matrix", Scopes: []string{"chat:generate", "messages:batches", "messages:web_search", "responses:generate", "responses:web_search", "moderations:classify", "images:generate", "images:edit", "images:variation", "audio:speech", "audio:transcribe", "audio:translate", "models:read", "tokens:count", "files:manage", "batches:manage"}, ModelPatterns: []string{"target-*"}, ConnectionIDs: connections})
 	must(err)
-	_, otherSecret, err := keyService.Create(ctx, owner.ID, keys.Input{Label: "Official SDK ownership boundary", Scopes: []string{"files:manage"}, ModelPatterns: []string{"target-*"}, ConnectionIDs: connections})
+	_, otherSecret, err := keyService.Create(ctx, owner.ID, keys.Input{Label: "Official SDK ownership boundary", Scopes: []string{"files:manage", "batches:manage", "responses:generate"}, ModelPatterns: []string{"target-*"}, ConnectionIDs: connections})
 	must(err)
 	_, noFilesSecret, err := keyService.Create(ctx, owner.ID, keys.Input{Label: "Official SDK Files scope boundary", Scopes: []string{"chat:generate"}, ModelPatterns: []string{"target-*"}, ConnectionIDs: connections})
+	must(err)
+	_, noBatchesSecret, err := keyService.Create(ctx, owner.ID, keys.Input{Label: "Official SDK Batches scope boundary", Scopes: []string{"files:manage", "responses:generate"}, ModelPatterns: []string{"target-*"}, ConnectionIDs: connections})
 	must(err)
 
 	mux := http.NewServeMux()
@@ -108,7 +110,7 @@ func main() {
 	must(err)
 	server := &http.Server{Handler: mux}
 	go server.Serve(gatewayListener)
-	encoded, _ := json.Marshal(map[string]string{"url": "http://" + gatewayListener.Addr().String(), "key": secret, "otherKey": otherSecret, "noFilesKey": noFilesSecret})
+	encoded, _ := json.Marshal(map[string]string{"url": "http://" + gatewayListener.Addr().String(), "key": secret, "otherKey": otherSecret, "noFilesKey": noFilesSecret, "noBatchesKey": noBatchesSecret})
 	fmt.Println(string(encoded))
 	<-ctx.Done()
 	server.Shutdown(context.Background())
@@ -116,6 +118,12 @@ func main() {
 
 func upstreamHandler(response http.ResponseWriter, request *http.Request) {
 	body, _ := io.ReadAll(request.Body)
+	if strings.Contains(string(body), "Batch fail") {
+		response.Header().Set("Content-Type", "application/json")
+		response.WriteHeader(http.StatusBadRequest)
+		io.WriteString(response, `{"error":{"message":"Batch item failed","type":"invalid_request_error","code":"batch_item_failed"}}`)
+		return
+	}
 	if strings.Contains(string(body), "Cancel me") {
 		select {
 		case <-request.Context().Done():

@@ -238,18 +238,12 @@ func (handler *Handler) fileContent(response http.ResponseWriter, request *http.
 		return
 	}
 	// ponytail: one buffered transfer caps AEAD ciphertext+plaintext memory; use chunked encryption before raising concurrency.
-	select {
-	case handler.fileTransfers <- struct{}{}:
-		defer func() { <-handler.fileTransfers }()
-	default:
-		handler.writeError(response, "openai", http.StatusTooManyRequests, "rate_limit_exceeded", "Another file download is already in progress")
+	if !handler.acquireFileTransfer(response) {
 		return
 	}
-	var filename, purpose string
-	var size int64
-	var ciphertext, nonce []byte
+	defer handler.releaseFileTransfer()
 	id := request.PathValue("file_id")
-	err := handler.database.QueryRowContext(request.Context(), `SELECT filename,purpose,bytes,ciphertext,nonce FROM openai_files WHERE id=? AND key_id=? AND expires_at>?`, id, principal.KeyID, time.Now().UnixMilli()).Scan(&filename, &purpose, &size, &ciphertext, &nonce)
+	item, content, err := handler.loadOpenAIFileContent(request.Context(), principal.KeyID, id)
 	if errors.Is(err, sql.ErrNoRows) {
 		handler.writeError(response, "openai", http.StatusNotFound, "not_found", "File not found")
 		return
@@ -258,13 +252,8 @@ func (handler *Handler) fileContent(response http.ResponseWriter, request *http.
 		handler.writeError(response, "openai", http.StatusServiceUnavailable, "gateway_unavailable", "File content is unavailable")
 		return
 	}
-	content, err := credentials.Open(handler.masterKey, ciphertext, nonce, fileAdditionalData(id, principal.KeyID, purpose, size))
-	if err != nil {
-		handler.writeError(response, "openai", http.StatusServiceUnavailable, "gateway_unavailable", "File content is unavailable")
-		return
-	}
 	response.Header().Set("Content-Type", "application/octet-stream")
-	response.Header().Set("Content-Disposition", mime.FormatMediaType("attachment", map[string]string{"filename": filename}))
+	response.Header().Set("Content-Disposition", mime.FormatMediaType("attachment", map[string]string{"filename": item.Filename}))
 	response.Header().Set("Cache-Control", "no-store")
 	response.Header().Set("X-Content-Type-Options", "nosniff")
 	response.Header().Set("Content-Length", strconv.Itoa(len(content)))

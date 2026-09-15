@@ -1421,7 +1421,7 @@ components:
       required: [unrestricted, scopes, model_patterns, connection_ids]
       properties:
         unrestricted: { type: boolean, description: Read-only true for the owner; user writes are forced false }
-        scopes: { type: array, maxItems: 100, uniqueItems: true, items: { type: string, enum: [chat:generate, messages:batches, messages:web_search, responses:generate, responses:web_search, embeddings:generate, moderations:classify, images:generate, images:edit, images:variation, audio:speech, audio:transcribe, audio:translate, files:manage, models:read, tokens:count] } }
+        scopes: { type: array, maxItems: 100, uniqueItems: true, items: { type: string, enum: [chat:generate, messages:batches, messages:web_search, responses:generate, responses:web_search, embeddings:generate, moderations:classify, images:generate, images:edit, images:variation, audio:speech, audio:transcribe, audio:translate, batches:manage, files:manage, models:read, tokens:count] } }
         model_patterns: { type: array, maxItems: 100, uniqueItems: true, items: { type: string, minLength: 1, maxLength: 200 } }
         connection_ids: { type: array, maxItems: 100, uniqueItems: true, items: { type: string, minLength: 1, maxLength: 200 } }
     Session:
@@ -1442,7 +1442,7 @@ components:
       properties:
         label: { type: string, minLength: 1, maxLength: 100 }
         state: { type: string, enum: [active, disabled] }
-        scopes: { type: array, uniqueItems: true, items: { type: string, enum: [chat:generate, messages:batches, messages:web_search, responses:generate, responses:web_search, embeddings:generate, moderations:classify, images:generate, images:edit, images:variation, audio:speech, audio:transcribe, audio:translate, files:manage, models:read, tokens:count] } }
+        scopes: { type: array, uniqueItems: true, items: { type: string, enum: [chat:generate, messages:batches, messages:web_search, responses:generate, responses:web_search, embeddings:generate, moderations:classify, images:generate, images:edit, images:variation, audio:speech, audio:transcribe, audio:translate, batches:manage, files:manage, models:read, tokens:count] } }
         model_patterns: { type: array, maxItems: 100, uniqueItems: true, items: { type: string, minLength: 1, maxLength: 200 } }
         connection_ids: { type: array, maxItems: 100, uniqueItems: true, items: { type: string, minLength: 1, maxLength: 200 } }
         expires_at: { oneOf: [{ type: string, format: date-time }, { type: string, maxLength: 0 }] }

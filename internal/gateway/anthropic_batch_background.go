@@ -14,7 +14,7 @@ import (
 
 type messageBatchItemContextKey struct{}
 
-var errMessageBatchQueueLimit = errors.New("message batch queue limit reached")
+var errBackgroundQueueLimit = errors.New("background queue limit reached")
 
 type messageBatchJob struct {
 	batchID, ownerID, keyID, customID string
@@ -23,7 +23,7 @@ type messageBatchJob struct {
 	params                            []byte
 }
 
-func checkMessageBatchQueueCapacity(ctx context.Context, query responseQueryer, ownerID, keyID string, incomingCount, incomingBytes int64) error {
+func checkBackgroundQueueCapacity(ctx context.Context, query responseQueryer, ownerID, keyID string, incomingCount, incomingBytes int64) error {
 	var count, size, ownerCount, ownerSize, keyCount, keySize int64
 	err := query.QueryRowContext(ctx, `SELECT COUNT(*),COALESCE(SUM(size),0),
 		COALESCE(SUM(CASE WHEN owner_user_id=? THEN 1 ELSE 0 END),0),COALESCE(SUM(CASE WHEN owner_user_id=? THEN size ELSE 0 END),0),
@@ -32,12 +32,14 @@ func checkMessageBatchQueueCapacity(ctx context.Context, query responseQueryer, 
 			SELECT owner_user_id,key_id,length(request_json)+length(body_json)+COALESCE(length(conversation_items_json),0) AS size FROM stored_responses WHERE state IN ('queued','running')
 			UNION ALL
 			SELECT b.owner_user_id,b.key_id,length(i.params_json)+COALESCE(length(i.result_json),0) AS size FROM message_batch_items i JOIN message_batches b ON b.id=i.batch_id WHERE i.state IN ('queued','claimed','dispatching','settling')
+			UNION ALL
+			SELECT b.owner_user_id,b.key_id,length(i.request_ciphertext)+length(i.request_nonce)+COALESCE(length(i.result_ciphertext),0)+COALESCE(length(i.result_nonce),0) AS size FROM openai_batch_items i JOIN openai_batches b ON b.id=i.batch_id WHERE i.state IN ('queued','claimed','dispatching','settling')
 		)`, ownerID, ownerID, keyID, keyID).Scan(&count, &size, &ownerCount, &ownerSize, &keyCount, &keySize)
 	if err != nil {
 		return err
 	}
 	if count+incomingCount > backgroundQueueJobs || size+incomingBytes > backgroundQueueBytes || ownerCount+incomingCount > backgroundOwnerJobs || ownerSize+incomingBytes > backgroundOwnerBytes || keyCount+incomingCount > backgroundKeyJobs || keySize+incomingBytes > backgroundKeyBytes {
-		return errMessageBatchQueueLimit
+		return errBackgroundQueueLimit
 	}
 	return nil
 }

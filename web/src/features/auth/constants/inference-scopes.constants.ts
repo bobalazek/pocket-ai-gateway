@@ -12,6 +12,7 @@ export const inferenceScopes = [
   "audio:speech",
   "audio:transcribe",
   "audio:translate",
+  "batches:manage",
   "files:manage",
   "models:read",
   "tokens:count",

@@ -14,6 +14,12 @@ func TestAnthropicMessageBatchesScopeIsAnInferenceScope(t *testing.T) {
 	}
 }
 
+func TestOpenAIBatchesScopeIsAnInferenceScope(t *testing.T) {
+	if !ValidInferenceScope("batches:manage") {
+		t.Fatal("batches:manage must be accepted as an inference scope")
+	}
+}
+
 func TestOpenAIFilesScopeIsAnInferenceScope(t *testing.T) {
 	if !ValidInferenceScope("files:manage") {
 		t.Fatal("files:manage was rejected")

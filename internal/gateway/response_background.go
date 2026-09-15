@@ -110,8 +110,8 @@ func (handler *Handler) enqueueResponse(response http.ResponseWriter, request *h
 	tx, err := handler.database.BeginTx(request.Context(), nil)
 	if err == nil {
 		incoming := int64(len(requestBody) + len(conversationItems) + len(queued))
-		err = checkMessageBatchQueueCapacity(request.Context(), tx, principal.OwnerUserID, principal.KeyID, 1, incoming)
-		queueLimited = errors.Is(err, errMessageBatchQueueLimit)
+		err = checkBackgroundQueueCapacity(request.Context(), tx, principal.OwnerUserID, principal.KeyID, 1, incoming)
+		queueLimited = errors.Is(err, errBackgroundQueueLimit)
 		if err == nil {
 			err = checkRetainedResourceCapacity(request.Context(), tx, principal.OwnerUserID, principal.KeyID, 1, incoming+maxInferenceBody)
 			queueLimited = errors.Is(err, errRetainedResourceLimit)
@@ -145,7 +145,7 @@ func (handler *Handler) enqueueResponse(response http.ResponseWriter, request *h
 
 func (handler *Handler) RunBackground(ctx context.Context) {
 	for {
-		if err := handler.recoverBackground(ctx); err == nil && handler.recoverMessageBatches(ctx) == nil {
+		if err := handler.recoverBackground(ctx); err == nil && handler.recoverMessageBatches(ctx) == nil && handler.recoverOpenAIBatches(ctx) == nil {
 			break
 		}
 		if !waitBackground(ctx, time.Second) {
@@ -155,28 +155,17 @@ func (handler *Handler) RunBackground(ctx context.Context) {
 	ticker := time.NewTicker(5 * time.Second)
 	defer ticker.Stop()
 	for {
-		if handler.preferBatch {
-			if job, ok := handler.claimMessageBatch(ctx); ok {
-				handler.preferBatch = false
-				handler.runMessageBatch(ctx, job)
-				continue
+		ran := false
+		for offset := range 3 {
+			kind := (handler.nextBackground + offset) % 3
+			if handler.runQueuedWork(ctx, kind) {
+				handler.nextBackground = (kind + 1) % 3
+				ran = true
+				break
 			}
-			if job, ok := handler.claimBackground(ctx); ok {
-				handler.preferBatch = true
-				handler.runBackground(ctx, job)
-				continue
-			}
-		} else {
-			if job, ok := handler.claimBackground(ctx); ok {
-				handler.preferBatch = true
-				handler.runBackground(ctx, job)
-				continue
-			}
-			if job, ok := handler.claimMessageBatch(ctx); ok {
-				handler.preferBatch = false
-				handler.runMessageBatch(ctx, job)
-				continue
-			}
+		}
+		if ran {
+			continue
 		}
 		select {
 		case <-ctx.Done():
@@ -184,6 +173,29 @@ func (handler *Handler) RunBackground(ctx context.Context) {
 		case <-handler.wake:
 		case <-ticker.C:
 		}
+	}
+}
+
+func (handler *Handler) runQueuedWork(ctx context.Context, kind int) bool {
+	switch kind {
+	case 0:
+		job, ok := handler.claimBackground(ctx)
+		if ok {
+			handler.runBackground(ctx, job)
+		}
+		return ok
+	case 1:
+		job, ok := handler.claimMessageBatch(ctx)
+		if ok {
+			handler.runMessageBatch(ctx, job)
+		}
+		return ok
+	default:
+		job, ok := handler.claimOpenAIBatch(ctx)
+		if ok {
+			handler.runOpenAIBatch(ctx, job)
+		}
+		return ok
 	}
 }
 

@@ -80,3 +80,41 @@ func TestBackgroundQueueCapacityIsSharedWithMessageBatches(t *testing.T) {
 		})
 	}
 }
+
+func TestSharedCapacityIncludesOpenAIBatchParentAndEncryptedItems(t *testing.T) {
+	ctx, store, owner, _, _, _ := gatewayFixture(t)
+	defer store.Close()
+	now := time.Now().UnixMilli()
+	if _, err := store.SystemDB().ExecContext(ctx, `INSERT INTO api_keys(id,owner_user_id,label,state,scopes_json,created_at,updated_at) VALUES('key_openai_capacity',?,'OpenAI Batch','active','[]',?,?)`, owner.ID, now, now); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.SystemDB().ExecContext(ctx, `INSERT INTO openai_batches(id,owner_user_id,key_id,input_file_id,endpoint,completion_window,model_id,metadata_json,output_expiry_seconds,request_total,created_at,in_progress_at,expires_at,retention_expires_at) VALUES('batch_capacity',?,'key_openai_capacity','file_input','/v1/responses','24h','model','{}',3600,4,?,?,?,?)`, owner.ID, now, now, now+int64(24*time.Hour/time.Millisecond), now+int64(30*24*time.Hour/time.Millisecond)); err != nil {
+		t.Fatal(err)
+	}
+	for ordinal := 1; ordinal <= 4; ordinal++ {
+		if _, err := store.SystemDB().ExecContext(ctx, `INSERT INTO openai_batch_items(batch_id,ordinal,custom_id,result_id,request_bytes,request_ciphertext,request_nonce,reserved_result_bytes) VALUES('batch_capacity',?,?,?,?,?,?,?)`, ordinal, fmt.Sprintf("item_%d", ordinal), fmt.Sprintf("batch_req_%016d", ordinal), 2, make([]byte, 18), make([]byte, 12), openAIBatchResultReservation(4)); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := checkBackgroundQueueCapacity(ctx, store.SystemDB(), owner.ID, "key_openai_capacity", 1, 1); !errors.Is(err, errBackgroundQueueLimit) {
+		t.Fatalf("OpenAI batch queue capacity error=%v", err)
+	}
+	if err := checkRetainedResourceCapacity(ctx, store.SystemDB(), owner.ID, "key_openai_capacity", retainedKeyJobs-5, 0); err != nil {
+		t.Fatalf("OpenAI batch resources below count capacity error=%v", err)
+	}
+	if err := checkRetainedResourceCapacity(ctx, store.SystemDB(), owner.ID, "key_openai_capacity", retainedKeyJobs-4, 0); !errors.Is(err, errRetainedResourceLimit) {
+		t.Fatalf("OpenAI batch resource count error=%v", err)
+	}
+	if _, err := store.SystemDB().ExecContext(ctx, `DELETE FROM openai_batch_items WHERE batch_id='batch_capacity'`); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.SystemDB().ExecContext(ctx, `UPDATE openai_batches SET status='completed',request_completed=4,terminal_at=? WHERE id='batch_capacity'`, now); err != nil {
+		t.Fatal(err)
+	}
+	if err := checkRetainedResourceCapacity(ctx, store.SystemDB(), owner.ID, "key_openai_capacity", retainedKeyJobs-1, 0); err != nil {
+		t.Fatalf("terminal OpenAI batch parent at capacity error=%v", err)
+	}
+	if err := checkRetainedResourceCapacity(ctx, store.SystemDB(), owner.ID, "key_openai_capacity", retainedKeyJobs, 0); !errors.Is(err, errRetainedResourceLimit) {
+		t.Fatalf("terminal OpenAI batch parent count error=%v", err)
+	}
+}
