@@ -102,7 +102,10 @@ func checkRetainedResponseCapacity(ctx context.Context, query responseQueryer, o
 			SELECT owner_user_id,key_id,COALESCE(length(request_json),0)+length(body_json)+COALESCE(length(conversation_items_json),0)+CASE WHEN state IN ('queued','running') THEN ? ELSE 0 END AS size FROM stored_responses WHERE expires_at>?
 			UNION ALL
 			SELECT owner_user_id,key_id,length(request_json)+length(body_json)+length(metadata_json) AS size FROM stored_chat_completions WHERE expires_at>?
-		)`, ownerID, ownerID, keyID, keyID, maxInferenceBody, time.Now().UnixMilli(), time.Now().UnixMilli()).Scan(&count, &size, &ownerCount, &ownerSize, &keyCount, &keySize)
+			UNION ALL
+			SELECT message_batches.owner_user_id,message_batches.key_id,length(message_batch_items.params_json)+CASE WHEN message_batch_items.state IN ('queued','claimed','dispatching','settling') THEN MAX(message_batch_items.reserved_result_bytes,COALESCE(length(message_batch_items.result_json),0)) ELSE COALESCE(length(message_batch_items.result_json),0) END AS size
+			FROM message_batch_items JOIN message_batches ON message_batches.id=message_batch_items.batch_id WHERE message_batches.expires_at>?
+		)`, ownerID, ownerID, keyID, keyID, maxInferenceBody, time.Now().UnixMilli(), time.Now().UnixMilli(), time.Now().UnixMilli()).Scan(&count, &size, &ownerCount, &ownerSize, &keyCount, &keySize)
 	if err != nil {
 		return err
 	}

@@ -64,7 +64,7 @@ func newHandler(systemDatabase *sql.DB, publicOrigin string, usageService *usage
 		})
 	}
 	if gatewayHandler == nil {
-		gatewayHandler = gateway.New(systemDatabase, keyService, providerService, usageService)
+		gatewayHandler = gateway.New(systemDatabase, keyService, providerService, usageService, publicOrigin)
 	}
 	gatewayHandler.Register(mux)
 	mux.HandleFunc("GET /healthz", func(response http.ResponseWriter, _ *http.Request) {

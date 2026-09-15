@@ -144,6 +144,9 @@ func (handler *Handler) forwardAuthorized(response http.ResponseWriter, request 
 	}
 	outputEstimate := maximumOutput(envelope)
 	batchItems := int64(0)
+	if messageBatchSize, ok := request.Context().Value(messageBatchItemContextKey{}).(int64); ok {
+		batchItems = messageBatchSize
+	}
 	imageGeneration := upstreamPath == "images/generations"
 	imageEdit := upstreamPath == "images/edits"
 	imageVariation := upstreamPath == "images/variations"
@@ -533,7 +536,7 @@ func (handler *Handler) forwardAuthorized(response http.ResponseWriter, request 
 			storageErr = handler.storeConversationTurn(storageContext, *attached)
 			cancelStorage()
 		}
-		if errors.Is(request.Context().Err(), context.Canceled) {
+		if request.Context().Err() != nil {
 			state, status = "interrupted_unknown", "unknown"
 			if hostedWebSearch {
 				inputTokens, outputTokens, cost, webSearchCallCount = nil, nil, nil, nil
