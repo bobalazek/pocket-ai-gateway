@@ -27,6 +27,7 @@ export type GatewaySession = {
 export const inferenceScopes = [
   "chat:generate",
   "responses:generate",
+  "responses:web_search",
   "embeddings:generate",
   "moderations:classify",
   "images:generate",

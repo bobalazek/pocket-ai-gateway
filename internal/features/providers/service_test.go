@@ -25,6 +25,33 @@ func TestPromptCacheCapabilityRequiresAnthropicPreset(t *testing.T) {
 	}
 }
 
+func TestWebSearchCapabilityRequiresOpenAIPresetAndChat(t *testing.T) {
+	if !PresetSupportsCapabilities("openai", []string{"chat", "web_search"}) {
+		t.Fatal("OpenAI preset rejected web_search")
+	}
+	for _, preset := range []string{"custom", "openai_compatible", "anthropic", "gemini"} {
+		if PresetSupportsCapabilities(preset, []string{"chat", "web_search"}) {
+			t.Fatalf("%s preset accepted web_search", preset)
+		}
+	}
+	if validCapabilities([]string{"web_search"}) {
+		t.Fatal("web_search accepted without chat")
+	}
+	if !validCapabilities([]string{"chat", "web_search"}) {
+		t.Fatal("chat plus web_search was rejected")
+	}
+	for _, provider := range ProviderTypes() {
+		capabilities, _ := provider["capabilities"].([]string)
+		hasWebSearch := false
+		for _, capability := range capabilities {
+			hasWebSearch = hasWebSearch || capability == "web_search"
+		}
+		if hasWebSearch != (provider["id"] == "openai") {
+			t.Fatalf("provider capability publication = %#v", provider)
+		}
+	}
+}
+
 func TestMasterKeyAndStoredCredentialRoundTrip(t *testing.T) {
 	directory := t.TempDir()
 	first, err := LoadOrCreateMasterKey(directory)

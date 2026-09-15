@@ -29,6 +29,7 @@ type UsageDaily struct {
 	CacheReadInputTokens       int64  `json:"cache_read_input_tokens"`
 	CacheCreation5mInputTokens int64  `json:"cache_creation_5m_input_tokens"`
 	CacheCreation1hInputTokens int64  `json:"cache_creation_1h_input_tokens"`
+	WebSearchCalls             int64  `json:"web_search_calls"`
 }
 
 type UsageEvent struct {

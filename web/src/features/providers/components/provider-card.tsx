@@ -41,6 +41,7 @@ export function ProviderCard({ item, presets, busy, onToggle, onCredential, onAd
           <Field id={`upstream-${item.id}`} name="upstream_id" label="Upstream model ID" required />
           {item.preset === "openai" && <p className="help-text">Image edits support GPT Image models; variations require <code>dall-e-2</code>; audio translation requires <code>whisper-1</code>.</p>}
           <fieldset className="scope-grid"><legend>Capabilities</legend>{availableCapabilities(item, presets).map((value) => <label key={value}><input type="checkbox" name="capabilities" value={value} /><span>{value.replaceAll("_", " ")}</span></label>)}</fieldset>
+          {item.preset === "openai" && <p className="help-text">Web search requires both <code>chat</code> and <code>web_search</code>.</p>}
           <Button disabled={busy}>Add upstream model</Button>
         </form>
       </details>

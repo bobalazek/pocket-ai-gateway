@@ -11,6 +11,7 @@ import (
 
 	"github.com/bobalazek/pocket-ai-gateway/internal/credentials"
 	"github.com/bobalazek/pocket-ai-gateway/internal/features/keys"
+	"github.com/bobalazek/pocket-ai-gateway/internal/features/providers"
 	"github.com/bobalazek/pocket-ai-gateway/internal/features/usage"
 )
 
@@ -67,9 +68,20 @@ func (handler *Handler) enqueueResponse(response http.ResponseWriter, request *h
 		handler.writeError(response, "responses", http.StatusBadRequest, "unsupported_feature", err.Error())
 		return
 	}
+	webSearch, _ := validateResponseWebSearch(check)
+	if webSearch.enabled && !principalHasScope(principal.Scopes, "responses:web_search") {
+		handler.writeError(response, "responses", http.StatusForbidden, "permission_denied", "Web search access is not permitted")
+		return
+	}
 	if !handler.providers.HasAvailableRouteTarget(request.Context(), modelID, func(connectionID string) bool {
 		return principal.Allows("responses:generate", modelID, connectionID)
-	}, nil) {
+	}, func(target providers.Target) bool {
+		if !webSearch.enabled {
+			return true
+		}
+		eligible, _ := webSearchTargetEligibility(target)
+		return eligible
+	}) {
 		handler.writeError(response, "responses", http.StatusNotFound, "model_not_found", "Model is unavailable")
 		return
 	}
@@ -235,9 +247,23 @@ func (handler *Handler) runBackground(parent context.Context, job backgroundJob)
 		handler.failBackground(parent, job, "invalid_request", "The stored conversation attachment is invalid.")
 		return
 	}
+	var envelope map[string]json.RawMessage
+	if json.Unmarshal(job.request, &envelope) != nil || envelope == nil {
+		handler.failBackground(parent, job, "invalid_request", "The stored request is invalid.")
+		return
+	}
+	webSearch, validateErr := validateResponseWebSearch(envelope)
+	if validateErr != nil {
+		handler.failBackground(parent, job, "invalid_request", "The stored request is invalid.")
+		return
+	}
 	principal, err := handler.keys.Principal(parent, job.keyID)
 	if err != nil || !principalHasScope(principal.Scopes, "responses:generate") {
 		handler.failBackground(parent, job, "permission_denied", "The API key or its grants are no longer active.")
+		return
+	}
+	if webSearch.enabled && !principalHasScope(principal.Scopes, "responses:web_search") {
+		handler.failBackground(parent, job, "permission_denied", "Web search access is no longer permitted.")
 		return
 	}
 	if job.attachment != nil {
@@ -251,11 +277,6 @@ func (handler *Handler) runBackground(parent context.Context, job backgroundJob)
 			handler.failBackground(parent, job, "gateway_unavailable", "The conversation could not be checked.")
 			return
 		}
-	}
-	var envelope map[string]json.RawMessage
-	if json.Unmarshal(job.request, &envelope) != nil {
-		handler.failBackground(parent, job, "invalid_request", "The stored request is invalid.")
-		return
 	}
 	envelope["background"], envelope["store"], envelope["stream"] = json.RawMessage(`false`), json.RawMessage(`false`), json.RawMessage(`false`)
 	body, _ := json.Marshal(envelope)
@@ -312,10 +333,22 @@ func (handler *Handler) runBackground(parent context.Context, job backgroundJob)
 			return
 		}
 		result := recorder.body.Bytes()
+		storedState := "completed"
+		var terminalErr error
+		if webSearch.enabled {
+			parsedWebSearch, parseErr := parseWebSearchResponse(result)
+			terminalErr = parseErr
+			if parseErr == nil && (parsedWebSearch.status == "failed" || parsedWebSearch.status == "cancelled") {
+				storedState = parsedWebSearch.status
+			}
+		}
 		stored, rewriteErr := rewriteResponse(job.id, job.modelID, true, job.createdAt, result)
+		if terminalErr != nil {
+			rewriteErr = terminalErr
+		}
 		if rewriteErr == nil {
 			if job.attachment == nil {
-				handler.transitionBackground(parent, `UPDATE stored_responses SET state='completed',body_json=?,finished_at=? WHERE id=? AND state='running' AND lease_epoch=?`, stored, time.Now().UnixMilli(), job.id, handler.epoch)
+				handler.transitionBackground(parent, `UPDATE stored_responses SET state=?,body_json=?,finished_at=? WHERE id=? AND state='running' AND lease_epoch=?`, storedState, stored, time.Now().UnixMilli(), job.id, handler.epoch)
 				return
 			}
 			for {

@@ -35,6 +35,7 @@ type AdmissionInput struct {
 	TargetDialect          string
 	TranslationApplied     bool
 	RequestToolCount       int64
+	WebSearchMaxCalls      int64
 	SelectionReason        string
 	RejectedCandidatesJSON string
 	RequiredPriceVersionID string
@@ -90,9 +91,10 @@ func (service *Service) Admit(ctx context.Context, input AdmissionInput) (Admiss
 	if input.RejectedCandidatesJSON == "" {
 		input.RejectedCandidatesJSON = "[]"
 	}
-	if input.KeyID == "" || input.ConnectionID == "" || input.ModelID == "" || input.Operation == "" || input.TargetOperation == "" || input.Scope == "" || input.Dialect == "" || input.TargetDialect == "" || len(input.KeyID) > 200 || len(input.ConnectionID) > 200 || len(input.ModelID) > 200 || len(input.Operation) > 100 || len(input.TargetOperation) > 300 || len(input.Scope) > 100 || len(input.Dialect) > 50 || len(input.TargetDialect) > 50 || len(input.SelectionReason) > 500 || len(input.RejectedCandidatesJSON) > 16_384 || len(input.RequiredPriceVersionID) > 200 || input.RequireFreePrice && input.RequiredPriceVersionID == "" || !json.Valid([]byte(input.RejectedCandidatesJSON)) || input.BodyBytes < 0 || input.BatchItems < 0 || input.RequestToolCount < 0 || input.EstimatedInputTokens < 0 || input.EstimatedOutputTokens < 0 {
+	if input.KeyID == "" || input.ConnectionID == "" || input.ModelID == "" || input.Operation == "" || input.TargetOperation == "" || input.Scope == "" || input.Dialect == "" || input.TargetDialect == "" || len(input.KeyID) > 200 || len(input.ConnectionID) > 200 || len(input.ModelID) > 200 || len(input.Operation) > 100 || len(input.TargetOperation) > 300 || len(input.Scope) > 100 || len(input.Dialect) > 50 || len(input.TargetDialect) > 50 || len(input.SelectionReason) > 500 || len(input.RejectedCandidatesJSON) > 16_384 || len(input.RequiredPriceVersionID) > 200 || input.RequireFreePrice && input.RequiredPriceVersionID == "" || !json.Valid([]byte(input.RejectedCandidatesJSON)) || input.BodyBytes < 0 || input.BatchItems < 0 || input.RequestToolCount < 0 || input.WebSearchMaxCalls < 0 || input.WebSearchMaxCalls > 4 || input.EstimatedInputTokens < 0 || input.EstimatedOutputTokens < 0 {
 		return Admission{}, errors.New("invalid admission input")
 	}
+	input.PriceUnavailable = input.PriceUnavailable || input.WebSearchMaxCalls > 0
 	estimatedTokens, ok := checkedAdd(input.EstimatedInputTokens, input.EstimatedOutputTokens)
 	if !ok {
 		return Admission{}, errors.New("estimated token count is too large")
@@ -224,8 +226,8 @@ func (service *Service) Admit(ctx context.Context, input AdmissionInput) (Admiss
 	} else if _, err := tx.ExecContext(ctx, "UPDATE requests SET state = 'reserved', finished_at = NULL WHERE id = ?", requestID); err != nil {
 		return Admission{}, err
 	}
-	_, err = tx.ExecContext(ctx, `INSERT INTO attempts (id, request_id, ordinal, connection_id, model_id, upstream_model_record_id, upstream_model_id, connection_revision, target_dialect, target_operation, translation_applied, request_tool_count, selection_reason, rejected_candidates_json, price_version_id, state, estimated_tokens, estimated_cost_nanos, started_at)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULLIF(?, ''), 'reserved', ?, ?, ?)`, attemptID, requestID, ordinal, input.ConnectionID, input.ModelID, input.UpstreamModelRecordID, input.UpstreamModelID, input.ConnectionRevision, input.TargetDialect, input.TargetOperation, input.TranslationApplied, input.RequestToolCount, input.SelectionReason, input.RejectedCandidatesJSON, priceVersionID, estimatedTokens, estimatedCost, effective)
+	_, err = tx.ExecContext(ctx, `INSERT INTO attempts (id, request_id, ordinal, connection_id, model_id, upstream_model_record_id, upstream_model_id, connection_revision, target_dialect, target_operation, translation_applied, request_tool_count, web_search_max_calls, selection_reason, rejected_candidates_json, price_version_id, state, estimated_tokens, estimated_cost_nanos, started_at)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULLIF(?, 0), ?, ?, NULLIF(?, ''), 'reserved', ?, ?, ?)`, attemptID, requestID, ordinal, input.ConnectionID, input.ModelID, input.UpstreamModelRecordID, input.UpstreamModelID, input.ConnectionRevision, input.TargetDialect, input.TargetOperation, input.TranslationApplied, input.RequestToolCount, input.WebSearchMaxCalls, input.SelectionReason, input.RejectedCandidatesJSON, priceVersionID, estimatedTokens, estimatedCost, effective)
 	if err != nil {
 		return Admission{}, err
 	}

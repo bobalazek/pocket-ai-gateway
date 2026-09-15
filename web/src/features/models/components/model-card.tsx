@@ -14,9 +14,12 @@ export function ModelCard({ item, dashboard }: { item: CatalogModel | PublicMode
   const embeddingModel = item.capabilities.includes("embeddings");
   const opaqueMediaModel = ["images", "image_edit", "image_variation", "audio_speech", "audio_transcription", "audio_translation"].some((capability) => item.capabilities.includes(capability));
   const promptCacheModel = item.capabilities.includes("prompt_cache");
+  const webSearchModel = item.capabilities.includes("web_search");
   const preview = dashboard.previews[item.id];
-  const routingHelp = embeddingModel
-    ? "Embedding models keep one fixed target so their vector space cannot change."
+  const routingHelp = webSearchModel
+    ? "Web-search Responses require chat and web_search on the public and upstream model plus an OpenAI-adapter target using the built-in OpenAI preset. They never fall back after dispatch and reject lowest-cost, free-only, and spend policies because provider search cost is not available to the gateway."
+    : embeddingModel
+      ? "Embedding models keep one fixed target so their vector space cannot change."
     : opaqueMediaModel
       ? "Image and audio requests select one target without post-dispatch fallback. Active token, output-token, spend, free-only, and lowest-cost policies block these operations."
       : promptCacheModel

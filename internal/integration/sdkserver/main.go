@@ -84,11 +84,15 @@ func main() {
 			must(createErr)
 			_, createErr = providerService.CreatePublicModel(ctx, owner, "target-openai-variation", "Target OpenAI variation", "", variationModel.ID, variationModel.Capabilities)
 			must(createErr)
+			webModel, createErr := providerService.CreateUpstreamModel(ctx, owner, connection.ID, "gpt-5-mini", []string{"chat", "web_search"})
+			must(createErr)
+			_, createErr = providerService.CreatePublicModel(ctx, owner, "target-openai-web", "Target OpenAI web search", "", webModel.ID, webModel.Capabilities)
+			must(createErr)
 		}
 		connections = append(connections, connection.ID)
 	}
 	keyService := keys.New(store.SystemDB())
-	_, secret, err := keyService.Create(ctx, owner.ID, keys.Input{Label: "Official SDK matrix", Scopes: []string{"chat:generate", "responses:generate", "moderations:classify", "images:generate", "images:edit", "images:variation", "audio:speech", "audio:transcribe", "audio:translate", "models:read", "tokens:count"}, ModelPatterns: []string{"target-*"}, ConnectionIDs: connections})
+	_, secret, err := keyService.Create(ctx, owner.ID, keys.Input{Label: "Official SDK matrix", Scopes: []string{"chat:generate", "responses:generate", "responses:web_search", "moderations:classify", "images:generate", "images:edit", "images:variation", "audio:speech", "audio:transcribe", "audio:translate", "models:read", "tokens:count"}, ModelPatterns: []string{"target-*"}, ConnectionIDs: connections})
 	must(err)
 
 	mux := http.NewServeMux()
@@ -180,6 +184,15 @@ func upstreamHandler(response http.ResponseWriter, request *http.Request) {
 			return
 		}
 		if strings.HasSuffix(request.URL.Path, "/responses") {
+			if bytes.Contains(body, []byte(`"type":"web_search"`)) {
+				if !bytes.Contains(body, []byte(`"store":false`)) {
+					response.WriteHeader(http.StatusBadRequest)
+					io.WriteString(response, `{"error":{"message":"web search must disable upstream storage","type":"invalid_request_error","code":"invalid_request"}}`)
+					return
+				}
+				io.WriteString(response, `{"id":"resp_web","object":"response","status":"completed","model":"gpt-5-mini","output":[{"id":"ws_1","type":"web_search_call","status":"completed","action":{"type":"search","queries":["Pocket AI Gateway"],"sources":[{"type":"url","url":"https://example.com/source"}]}},{"id":"msg_web","type":"message","role":"assistant","status":"completed","content":[{"type":"output_text","text":"A sourced answer","annotations":[{"type":"url_citation","start_index":2,"end_index":8,"url":"https://example.com/source","title":"Example source"}]}]}],"usage":{"input_tokens":8,"output_tokens":4,"total_tokens":12}}`)
+				return
+			}
 			io.WriteString(response, `{"id":"resp_1","object":"response","status":"completed","model":"openai-upstream","output":[{"id":"msg_1","type":"message","role":"assistant","status":"completed","content":[{"type":"output_text","text":"Hello","annotations":[]}]}],"usage":{"input_tokens":2,"output_tokens":1,"total_tokens":3}}`)
 			return
 		}

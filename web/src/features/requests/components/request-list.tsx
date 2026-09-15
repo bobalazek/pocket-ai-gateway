@@ -35,6 +35,9 @@ function RequestCard({ item }: { item: GatewayRequest }) {
             <div>
               <small>#{attempt.ordinal} · {attempt.connection_id} · {attempt.upstream_model_id} · {attempt.translation_applied ? `${item.dialect} → ${attempt.target_dialect}` : attempt.target_dialect} · {attempt.target_operation}</small>
               <small>{attempt.state} · {attempt.usage_status} · {attempt.input_tokens + attempt.output_tokens} tokens · {attempt.cost_usd === null ? "cost N/A" : `$${attempt.cost_usd}`} · {attempt.request_tool_count} tools offered · {attempt.response_tool_call_count === 0 ? "no tool calls" : `${attempt.response_tool_call_count} tool calls ${attempt.tool_call_status}`}</small>
+              {attempt.web_search_max_calls !== null && (
+                <small>Web search: {attempt.web_search_call_count === null ? "count unavailable" : `${attempt.web_search_call_count} call${attempt.web_search_call_count === 1 ? "" : "s"}`} · maximum {attempt.web_search_max_calls}</small>
+              )}
               {hasCacheUsage && <small>Cache: {attempt.cache_creation_input_tokens} written ({attempt.cache_creation_5m_input_tokens} at 5m, {attempt.cache_creation_1h_input_tokens} at 1h) · {attempt.cache_read_input_tokens} read</small>}
               <small>Selected by {attempt.selection_reason}{attempt.rejected_candidates.length ? ` · ${attempt.rejected_candidates.length} candidates rejected` : ""}</small>
             </div>

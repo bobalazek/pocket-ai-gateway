@@ -77,6 +77,8 @@ type Attempt struct {
 	CacheReadInputTokens       sql.NullInt64  `json:"cache_read_input_tokens"`
 	CacheCreation5mInputTokens sql.NullInt64  `json:"cache_creation_5m_input_tokens"`
 	CacheCreation1hInputTokens sql.NullInt64  `json:"cache_creation_1h_input_tokens"`
+	WebSearchMaxCalls          sql.NullInt64  `json:"web_search_max_calls"`
+	WebSearchCallCount         sql.NullInt64  `json:"web_search_call_count"`
 }
 
 type AuditEvent struct {

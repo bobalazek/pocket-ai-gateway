@@ -95,6 +95,52 @@ describe("official SDK compatibility through the Go gateway", () => {
     await expect(client.responses.retrieve(created.id)).rejects.toMatchObject({ status: 404 });
   });
 
+  it("uses bounded native web search for stateless, stored, and background Responses", async () => {
+    const client = openAI();
+    const input = {
+      model: "target-openai-web",
+      input: "Find a source about Pocket AI Gateway",
+      tools: [{
+        type: "web_search" as const,
+        search_context_size: "low" as const,
+        filters: { allowed_domains: ["example.com"] },
+        user_location: { type: "approximate" as const, country: "US" },
+      }, {
+        type: "function" as const,
+        name: "lookup_local_note",
+        description: "Looks up a local note",
+        parameters: { type: "object", properties: {}, additionalProperties: false },
+        strict: true,
+      }],
+      include: ["web_search_call.action.sources" as const],
+      max_tool_calls: 1,
+      max_output_tokens: 128,
+    };
+
+    const stateless = await client.responses.create({ ...input, store: false });
+    const search = stateless.output.find((item) => item.type === "web_search_call");
+    expect(search).toMatchObject({
+      status: "completed",
+      action: { type: "search", sources: [{ type: "url", url: "https://example.com/source" }] },
+    });
+    expect(stateless).toMatchObject({ model: "target-openai-web", usage: { input_tokens: 8, output_tokens: 4 } });
+
+    const stored = await client.responses.create(input);
+    expect(stored).toMatchObject({ store: true, background: false });
+    const retrieved = await client.responses.retrieve(stored.id);
+    expect(retrieved.id).toBe(stored.id);
+    expect(retrieved.output.find((item) => item.type === "web_search_call")).toMatchObject({ status: "completed" });
+
+    const background = await client.responses.create({ ...input, background: true });
+    let completed = background;
+    for (let attempt = 0; attempt < 50 && completed.status !== "completed"; attempt++) {
+      await new Promise((resolve) => setTimeout(resolve, 20));
+      completed = await client.responses.retrieve(background.id);
+    }
+    expect(completed).toMatchObject({ id: background.id, status: "completed", background: true });
+    expect(completed.output.find((item) => item.type === "web_search_call")).toMatchObject({ status: "completed" });
+  });
+
   it("runs and cancels gateway-owned background Responses", async () => {
     const client = openAI();
     const created = await client.responses.create({ model: "target-openai", input: "Background", background: true });

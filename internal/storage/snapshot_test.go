@@ -28,6 +28,7 @@ func TestPairedSnapshotRestoresBothStores(t *testing.T) {
 	if err := datadb.New(store.DataDB()).SetProjectionMetadata(ctx, datadb.SetProjectionMetadataParams{Key: "projection", Value: "data-value"}); err != nil {
 		t.Fatal(err)
 	}
+	seedWebSearchSnapshotRows(t, ctx, store)
 	if err := store.Close(); err != nil {
 		t.Fatal(err)
 	}
@@ -60,6 +61,13 @@ func TestPairedSnapshotRestoresBothStores(t *testing.T) {
 	dataValue, err := datadb.New(restoredStore.DataDB()).GetProjectionMetadata(ctx, "projection")
 	if err != nil || dataValue != "data-value" {
 		t.Fatalf("restored data value = %q, error = %v", dataValue, err)
+	}
+	var maxCalls, callCount, dailyCalls int64
+	if err := restoredStore.SystemDB().QueryRowContext(ctx, `SELECT web_search_max_calls,web_search_call_count FROM attempts WHERE id='att_web'`).Scan(&maxCalls, &callCount); err != nil || maxCalls != 2 || callCount != 1 {
+		t.Fatalf("restored attempt web search=%d/%d error=%v", maxCalls, callCount, err)
+	}
+	if err := restoredStore.DataDB().QueryRowContext(ctx, `SELECT web_search_calls FROM usage_daily WHERE owner_user_id='usr_web'`).Scan(&dailyCalls); err != nil || dailyCalls != 1 {
+		t.Fatalf("restored daily web search=%d error=%v", dailyCalls, err)
 	}
 }
 

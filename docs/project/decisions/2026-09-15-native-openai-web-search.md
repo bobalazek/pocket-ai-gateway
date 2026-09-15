@@ -1,0 +1,11 @@
+# 2026-09-15 — Bounded native OpenAI Responses web search
+
+ID: ADR-019 · Status: accepted · Source: user-approved Phase 8 scope with delegated technical contract
+
+**Context.** OpenAI Responses can invoke a provider-hosted web-search tool. Search has separate provider billing and stateful source output, so treating it as an ordinary translated function tool would hide cost and could duplicate billable calls during fallback or retry. The gateway has no versioned price contract for provider-hosted search.
+
+**Decision.** Pocket AI Gateway accepts one `web_search` tool alongside function tools only on an OpenAI-adapter target using the built-in `openai` preset whose public and upstream models both publish `chat` and `web_search`. Requests require `responses:generate` and `responses:web_search`, an integer `max_tool_calls` from 1 through 4, and a positive integer `max_output_tokens`. The native request may use `search_context_size`, `external_web_access`, an approximate `user_location`, allowed- and blocked-domain filters, bounded `return_token_budget: "default"`, and `include: ["web_search_call.action.sources"]`. The gateway preserves native JSON output items, citations, source actions, and token usage, sends `store:false` upstream, and separately records the completed search-call count. Search-call cost remains unknown.
+
+Only buffered JSON is supported. Stateless `store:false`, gateway-stored default 30-day Responses, and durable background Responses share this contract. Conversation attachment, previous-response/provider references, preview tool types, image search, streaming, translation, post-dispatch fallback, free-only or lowest-cost routing, spend policies, unlimited search-token return, and requests without explicit output/tool-call ceilings are rejected before dispatch.
+
+**Consequences.** Operators must opt in at the provider model, public model, user/key grant, and key scope layers. Search requests cannot use routes or policies that need a known provider search price. Request history shows both the allowed and completed search-call counts; daily usage keeps search calls separate from tokens and known USD cost. Operational retention keeps these non-content counters so historical usage remains visible and the 1–4 ceiling continues to prevent ordinary two-rate repricing. Other hosted tools remain pending.

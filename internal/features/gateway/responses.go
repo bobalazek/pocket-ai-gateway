@@ -30,6 +30,15 @@ func (handler *Handler) responses(response http.ResponseWriter, request *http.Re
 		handler.writeError(response, "responses", http.StatusBadRequest, "invalid_request", "background must be a boolean")
 		return
 	}
+	webSearch, webSearchErr := validateResponseWebSearch(envelope)
+	if webSearchErr != nil {
+		handler.writeError(response, "responses", http.StatusBadRequest, "unsupported_feature", webSearchErr.Error())
+		return
+	}
+	if webSearch.enabled && !principalHasScope(principal.Scopes, "responses:web_search") {
+		handler.writeError(response, "responses", http.StatusForbidden, "permission_denied", "Web search access is not permitted")
+		return
+	}
 	conversationID, conversationErr := responseConversationID(envelope["conversation"])
 	if conversationErr != nil {
 		handler.writeError(response, "responses", http.StatusBadRequest, "invalid_request", conversationErr.Error())
