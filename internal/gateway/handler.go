@@ -18,21 +18,21 @@ import (
 const maxInferenceBody = 16 << 20
 
 type Handler struct {
-	database      *sql.DB
-	keys          *keys.Service
-	providers     *providers.Service
-	usage         *usage.Service
-	wake          chan struct{}
-	epoch         string
-	activeMu      sync.Mutex
-	active        map[string]context.CancelFunc
-	uploads       chan struct{}
-	fileTransfers chan struct{}
-	lastOwner     string
-	lastKey       string
-	publicOrigin  string
-	preferBatch   bool
-	masterKey     []byte
+	database       *sql.DB
+	keys           *keys.Service
+	providers      *providers.Service
+	usage          *usage.Service
+	wake           chan struct{}
+	epoch          string
+	activeMu       sync.Mutex
+	active         map[string]context.CancelFunc
+	uploads        chan struct{}
+	fileTransfers  chan struct{}
+	lastOwner      string
+	lastKey        string
+	publicOrigin   string
+	nextBackground int
+	masterKey      []byte
 }
 
 func New(database *sql.DB, keyService *keys.Service, providerService *providers.Service, usageService *usage.Service, publicOrigin ...string) *Handler {
@@ -63,6 +63,10 @@ func (handler *Handler) Register(mux *http.ServeMux) {
 	mux.HandleFunc("GET /api/openai/v1/files/{file_id}", handler.getFile)
 	mux.HandleFunc("DELETE /api/openai/v1/files/{file_id}", handler.deleteFile)
 	mux.HandleFunc("GET /api/openai/v1/files/{file_id}/content", handler.fileContent)
+	mux.HandleFunc("POST /api/openai/v1/batches", handler.createOpenAIBatch)
+	mux.HandleFunc("GET /api/openai/v1/batches", handler.listOpenAIBatches)
+	mux.HandleFunc("GET /api/openai/v1/batches/{batch_id}", handler.getOpenAIBatch)
+	mux.HandleFunc("POST /api/openai/v1/batches/{batch_id}/cancel", handler.cancelOpenAIBatch)
 	mux.HandleFunc("POST /api/openai/v1/chat/completions", handler.chatCompletions)
 	mux.HandleFunc("GET /api/openai/v1/chat/completions", handler.listChatCompletions)
 	mux.HandleFunc("GET /api/openai/v1/chat/completions/{completion_id}", handler.getChatCompletion)

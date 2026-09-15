@@ -10,6 +10,7 @@ let baseURL = "";
 let apiKey = "";
 let otherApiKey = "";
 let noFilesApiKey = "";
+let noBatchesApiKey = "";
 
 beforeAll(async () => {
   gateway = spawn("go", ["run", "./internal/integration/sdkserver"], {
@@ -27,7 +28,13 @@ beforeAll(async () => {
     });
     gateway.once("exit", (code) => reject(new Error(`SDK gateway exited ${code}: ${Buffer.concat(errors)}`)));
   });
-  ({ url: baseURL, key: apiKey, otherKey: otherApiKey, noFilesKey: noFilesApiKey } = JSON.parse(line));
+  ({
+    url: baseURL,
+    key: apiKey,
+    otherKey: otherApiKey,
+    noFilesKey: noFilesApiKey,
+    noBatchesKey: noBatchesApiKey,
+  } = JSON.parse(line));
 }, 70_000);
 
 afterAll(() => gateway?.kill("SIGTERM"));
@@ -114,6 +121,120 @@ describe("official SDK compatibility through the Go gateway", () => {
     expect(await client.files.delete(created[0].id)).toEqual({ id: created[0].id, object: "file", deleted: true });
     await expect(client.files.retrieve(created[0].id)).rejects.toMatchObject({ status: 404 });
   });
+
+  it("runs gateway-owned OpenAI Responses batches", async () => {
+    const client = openAI();
+    const upload = async (content: string, name: string) => client.files.create({
+      file: await toFile(Buffer.from(content), name, { type: "application/jsonl" }),
+      purpose: "batch",
+    });
+    const waitForTerminal = async (id: string) => {
+      for (let attempt = 0; attempt < 400; attempt += 1) {
+        const batch = await client.batches.retrieve(id);
+        if (["completed", "failed", "expired", "cancelled"].includes(batch.status)) return batch;
+        await new Promise((resolve) => setTimeout(resolve, 25));
+      }
+      throw new Error(`Batch ${id} did not reach a terminal state`);
+    };
+    const readJSONLines = async (id: string) => {
+      const content = (await (await client.files.content(id)).text()).trim();
+      return content ? content.split("\n").map((line) => JSON.parse(line) as Record<string, unknown>) : [];
+    };
+
+    const input = await upload([
+      '{"custom_id":"success","method":"POST","url":"/v1/responses","body":{"model":"target-openai","input":"Batch success","max_output_tokens":8}}',
+      '{"custom_id":"failure","method":"POST","url":"/v1/responses","body":{"model":"target-openai","input":"Batch fail","max_output_tokens":8}}',
+      "",
+    ].join("\n"), "responses-batch.jsonl");
+    const created = await client.batches.create({
+      input_file_id: input.id,
+      endpoint: "/v1/responses",
+      completion_window: "24h",
+      metadata: { suite: "sdk" },
+      output_expires_after: { anchor: "created_at", seconds: 3600 },
+    });
+    expect(created).toMatchObject({
+      object: "batch",
+      endpoint: "/v1/responses",
+      input_file_id: input.id,
+      completion_window: "24h",
+      model: "target-openai",
+      metadata: { suite: "sdk" },
+    });
+    expect(created.id).toMatch(/^batch_/);
+
+    const completed = await waitForTerminal(created.id);
+    expect(completed).toMatchObject({
+      id: created.id,
+      status: "completed",
+      request_counts: { total: 2, completed: 1, failed: 1 },
+    });
+    if (!completed.output_file_id || !completed.error_file_id) throw new Error("Batch result Files are missing");
+    const successLines = await readJSONLines(completed.output_file_id);
+    const errorLines = await readJSONLines(completed.error_file_id);
+    expect(successLines).toHaveLength(1);
+    expect(successLines[0]).toMatchObject({
+      custom_id: "success",
+      response: {
+        status_code: 200,
+        body: { object: "response", status: "completed", model: "target-openai" },
+      },
+      error: null,
+    });
+    expect(successLines[0]).toMatchObject({ response: { request_id: expect.stringMatching(/^req_/) } });
+    expect(errorLines).toHaveLength(1);
+    expect(errorLines[0]).toMatchObject({
+      custom_id: "failure",
+      response: null,
+      error: { code: expect.any(String), message: expect.any(String) },
+    });
+    expect(await client.files.retrieve(completed.output_file_id)).toMatchObject({ purpose: "batch_output" });
+    expect(await client.files.retrieve(completed.error_file_id)).toMatchObject({ purpose: "batch_output" });
+
+    const blockerInput = await upload(
+      '{"custom_id":"blocker","method":"POST","url":"/v1/responses","body":{"model":"target-openai","input":"Cancel me blocker","max_output_tokens":8}}\n',
+      "blocker-batch.jsonl",
+    );
+    await client.batches.create({
+      input_file_id: blockerInput.id,
+      endpoint: "/v1/responses",
+      completion_window: "24h",
+    });
+    await new Promise((resolve) => setTimeout(resolve, 75));
+    const cancelInput = await upload(
+      '{"custom_id":"cancel","method":"POST","url":"/v1/responses","body":{"model":"target-openai","input":"Queued cancellation","max_output_tokens":8}}\n',
+      "cancel-batch.jsonl",
+    );
+    const pending = await client.batches.create({
+      input_file_id: cancelInput.id,
+      endpoint: "/v1/responses",
+      completion_window: "24h",
+    });
+    expect(await client.batches.cancel(pending.id)).toMatchObject({
+      id: pending.id,
+      status: expect.stringMatching(/^(cancelling|cancelled)$/),
+    });
+    expect((await waitForTerminal(pending.id)).status).toBe("cancelled");
+
+    const firstPage = await client.batches.list({ limit: 1 });
+    expect(firstPage.data).toHaveLength(1);
+    expect(firstPage.has_more).toBe(true);
+    const automaticallyPaginated = [];
+    for await (const batch of client.batches.list({ limit: 1 })) automaticallyPaginated.push(batch.id);
+    expect(automaticallyPaginated).toEqual(expect.arrayContaining([created.id, pending.id]));
+
+    await expect(openAI(otherApiKey).batches.retrieve(created.id)).rejects.toMatchObject({ status: 404 });
+    await expect(openAI(noBatchesApiKey).batches.list()).rejects.toMatchObject({ status: 403 });
+    const foreignInput = await openAI(otherApiKey).files.create({
+      file: await toFile(Buffer.from('{"custom_id":"foreign","method":"POST","url":"/v1/responses","body":{"model":"target-openai","input":"Foreign"}}\n'), "foreign-batch.jsonl", { type: "application/jsonl" }),
+      purpose: "batch",
+    });
+    await expect(client.batches.create({
+      input_file_id: foreignInput.id,
+      endpoint: "/v1/responses",
+      completion_window: "24h",
+    })).rejects.toMatchObject({ status: 404 });
+  }, 20_000);
 
   it.each(models)("decodes Anthropic Messages through %s", async (model) => {
     const result = await anthropic().messages.create({ model, max_tokens: 8, messages: [{ role: "user", content: "Hi" }] });

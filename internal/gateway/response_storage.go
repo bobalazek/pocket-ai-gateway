@@ -107,7 +107,12 @@ func checkRetainedResourceCapacity(ctx context.Context, query responseQueryer, o
 			FROM message_batch_items JOIN message_batches ON message_batches.id=message_batch_items.batch_id WHERE message_batches.expires_at>?
 			UNION ALL
 			SELECT owner_user_id,key_id,length(filename)+length(ciphertext)+length(nonce) AS size FROM openai_files WHERE expires_at>?
-		)`, ownerID, ownerID, keyID, keyID, maxInferenceBody, time.Now().UnixMilli(), time.Now().UnixMilli(), time.Now().UnixMilli(), time.Now().UnixMilli()).Scan(&count, &size, &ownerCount, &ownerSize, &keyCount, &keySize)
+			UNION ALL
+			SELECT owner_user_id,key_id,length(input_file_id)+length(endpoint)+length(completion_window)+length(model_id)+length(metadata_json)+COALESCE(length(output_file_id),0)+COALESCE(length(error_file_id),0) AS size FROM openai_batches WHERE retention_expires_at>?
+			UNION ALL
+			SELECT openai_batches.owner_user_id,openai_batches.key_id,length(openai_batch_items.request_ciphertext)+length(openai_batch_items.request_nonce)+CASE WHEN openai_batch_items.state IN ('queued','claimed','dispatching','settling') THEN MAX(openai_batch_items.reserved_result_bytes,COALESCE(length(openai_batch_items.result_ciphertext),0)+COALESCE(length(openai_batch_items.result_nonce),0)) ELSE COALESCE(length(openai_batch_items.result_ciphertext),0)+COALESCE(length(openai_batch_items.result_nonce),0) END AS size
+			FROM openai_batch_items JOIN openai_batches ON openai_batches.id=openai_batch_items.batch_id WHERE openai_batches.retention_expires_at>?
+		)`, ownerID, ownerID, keyID, keyID, maxInferenceBody, time.Now().UnixMilli(), time.Now().UnixMilli(), time.Now().UnixMilli(), time.Now().UnixMilli(), time.Now().UnixMilli(), time.Now().UnixMilli()).Scan(&count, &size, &ownerCount, &ownerSize, &keyCount, &keySize)
 	if err != nil {
 		return err
 	}

@@ -120,6 +120,15 @@ func TestSnapshotRequiresMasterKeyForEncryptedFiles(t *testing.T) {
 	if _, err = store.SystemDB().ExecContext(ctx, `INSERT INTO openai_files(id,owner_user_id,key_id,filename,purpose,bytes,ciphertext,nonce,created_at,expires_at) VALUES('file_snapshot','usr_file','key_file','batch.jsonl','batch',1,?,?,1,3600001)`, make([]byte, 17), make([]byte, 12)); err != nil {
 		t.Fatal(err)
 	}
+	if _, err = store.SystemDB().ExecContext(ctx, `INSERT INTO openai_batches(id,owner_user_id,key_id,input_file_id,endpoint,completion_window,model_id,metadata_json,output_expiry_seconds,request_total,created_at,in_progress_at,expires_at,retention_expires_at) VALUES('batch_snapshot','usr_file','key_file','file_snapshot','/v1/responses','24h','model','{}',3600,1,1,1,86400001,2592000001)`); err != nil {
+		t.Fatal(err)
+	}
+	if _, err = store.SystemDB().ExecContext(ctx, `INSERT INTO openai_batch_items(batch_id,ordinal,custom_id,result_id,request_bytes,request_ciphertext,request_nonce,reserved_result_bytes) VALUES('batch_snapshot',1,'snapshot','batch_req_1234567890123456',2,?,?,1024)`, make([]byte, 18), make([]byte, 12)); err != nil {
+		t.Fatal(err)
+	}
+	if _, err = store.SystemDB().ExecContext(ctx, `DELETE FROM openai_files WHERE id='file_snapshot'`); err != nil {
+		t.Fatal(err)
+	}
 	if err = store.Close(); err != nil {
 		t.Fatal(err)
 	}
@@ -143,8 +152,8 @@ func TestSnapshotRequiresMasterKeyForEncryptedFiles(t *testing.T) {
 	}
 	defer restoredStore.Close()
 	var count int
-	if err = restoredStore.SystemDB().QueryRowContext(ctx, `SELECT COUNT(*) FROM openai_files WHERE id='file_snapshot'`).Scan(&count); err != nil || count != 1 {
-		t.Fatalf("restored encrypted files=%d error=%v", count, err)
+	if err = restoredStore.SystemDB().QueryRowContext(ctx, `SELECT COUNT(*) FROM openai_batch_items WHERE batch_id='batch_snapshot'`).Scan(&count); err != nil || count != 1 {
+		t.Fatalf("restored encrypted batch items=%d error=%v", count, err)
 	}
 }
 

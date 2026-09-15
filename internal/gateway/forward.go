@@ -148,6 +148,10 @@ func (handler *Handler) forwardAuthorized(response http.ResponseWriter, request 
 	if messageBatchSize, ok := request.Context().Value(messageBatchItemContextKey{}).(int64); ok {
 		batchItems = messageBatchSize
 	}
+	openAIBatchItems, openAIBatch := request.Context().Value(openAIBatchItemContextKey{}).(int64)
+	if openAIBatch {
+		batchItems = openAIBatchItems
+	}
 	imageGeneration := upstreamPath == "images/generations"
 	imageEdit := upstreamPath == "images/edits"
 	imageVariation := upstreamPath == "images/variations"
@@ -344,6 +348,11 @@ func (handler *Handler) forwardAuthorized(response http.ResponseWriter, request 
 		} else {
 			result, raw, copyErr = handler.dispatchTranslated(attemptWriter, request, target, targetPath, targetBody, dialect, publicID, stream, releaseDispatch)
 		}
+		if openAIBatch && copyErr == nil && result >= 200 && result < 300 && !json.Valid(attemptWriter.body.Bytes()) {
+			copyErr = errors.New("provider returned invalid JSON")
+			semanticResponseError = true
+			attemptWriter.Reset()
+		}
 		if native && upstreamPath == "moderations" && copyErr == nil && result >= 200 && result < 300 {
 			raw, copyErr = rewriteResponseModel(raw, publicID)
 			semanticResponseError = copyErr != nil
@@ -486,7 +495,7 @@ func (handler *Handler) forwardAuthorized(response http.ResponseWriter, request 
 			_ = handler.providers.RecordRouteOutcome(context.WithoutCancel(request.Context()), target, clientOperation, stream, success, attemptWriter.FirstByte(started), time.Since(started))
 		}
 		retryableDispatchError := !semanticResponseError && (native && dispatchErr != nil || errors.Is(dispatchErr, errUpstreamResponseInterrupted))
-		retry := !opaqueMedia && !promptCache.enabled && !hostedWebSearch && !terminalStreamFailure && index+1 < len(plan.Targets) && (retryableDispatchError || retryableResult(result, copyErr)) && !attemptWriter.Committed()
+		retry := !openAIBatch && !opaqueMedia && !promptCache.enabled && !hostedWebSearch && !terminalStreamFailure && index+1 < len(plan.Targets) && (retryableDispatchError || retryableResult(result, copyErr)) && !attemptWriter.Committed()
 		state, status := "succeeded", "provider_reported"
 		if estimatedUsage {
 			status = "estimated"
