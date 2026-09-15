@@ -1,0 +1,8 @@
+export type RouteStrategy = "fixed" | "ordered_fallback" | "weighted" | "lowest_cost" | "lowest_latency";
+export type PublicModel = { id: string; label: string; description: string; target_connection_id: string; target_model_id: string; upstream_id: string; adapter: string; capabilities: string[]; active: boolean; revision: number; routing_strategy: RouteStrategy; free_only: boolean };
+export type RouteTargetInput = { upstream_model_id: string; priority: number; weight: number; enabled: boolean };
+export type RoutePlan = { model_id: string; strategy: RouteStrategy; free_only: boolean; selection_reason: string; targets: { upstream_model_id: string; connection_id: string; upstream_id: string; adapter: string; capabilities: string[]; priority: number; weight: number; estimated_cost_usd?: string; latency_ms?: number; sample_count: number; circuit_open_until?: string }[]; rejected: { upstream_model_id: string; connection_id: string; reason: string }[] };
+export type CatalogCandidate = { provider: string; model_id: string; label: string; capabilities: string[]; input_nanos_per_million?: number; output_nanos_per_million?: number; free: boolean; source: string; source_version: string; discovered_at: string };
+export type RoutePreviewInput = { operation: string; streaming: boolean; estimated_input_tokens: number; estimated_output_tokens: number };
+export type CatalogState = { source_url: string; source_version: string; last_checked_at: string | null; last_error: string; refresh_enabled: boolean; refresh_interval_hours: number };
+export type CatalogModel = Pick<PublicModel, "id" | "label" | "description" | "adapter" | "capabilities">;
