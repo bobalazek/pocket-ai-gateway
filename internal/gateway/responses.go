@@ -25,6 +25,10 @@ func (handler *Handler) responses(response http.ResponseWriter, request *http.Re
 		handler.writeError(response, "responses", http.StatusBadRequest, "invalid_request", "Request body must be a JSON object")
 		return
 	}
+	if containsLocalFileReference(envelope["input"]) {
+		handler.writeError(response, "responses", http.StatusBadRequest, "unsupported_feature", "Gateway file references are not supported by Responses")
+		return
+	}
 	var background bool
 	if raw, exists := envelope["background"]; exists && json.Unmarshal(raw, &background) != nil {
 		handler.writeError(response, "responses", http.StatusBadRequest, "invalid_request", "background must be a boolean")

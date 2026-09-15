@@ -243,6 +243,19 @@ type MessageBatchItem struct {
 	FinishedAt          sql.NullInt64  `json:"finished_at"`
 }
 
+type OpenaiFile struct {
+	ID          string `json:"id"`
+	OwnerUserID string `json:"owner_user_id"`
+	KeyID       string `json:"key_id"`
+	Filename    string `json:"filename"`
+	Purpose     string `json:"purpose"`
+	Bytes       int64  `json:"bytes"`
+	Ciphertext  []byte `json:"ciphertext"`
+	Nonce       []byte `json:"nonce"`
+	CreatedAt   int64  `json:"created_at"`
+	ExpiresAt   int64  `json:"expires_at"`
+}
+
 type OperationSetting struct {
 	Singleton            int64  `json:"singleton"`
 	BackupEnabled        int64  `json:"backup_enabled"`

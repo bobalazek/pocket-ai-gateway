@@ -297,6 +297,77 @@ paths:
     delete:
       operationId: deleteConversationItem
       responses: { "200": { description: Parent conversation after item deletion }, "404": { description: Item unavailable }, default: { description: OpenAI-compatible error } }
+  /files:
+    post:
+      operationId: createOpenAIFile
+      description: >-
+        Stores one non-empty JSONL file owned by the creating API key for later gateway-owned Batch use.
+        The only accepted purpose is batch, the file is limited to 16 MiB, and the complete multipart
+        request is limited to 17 MiB. Files expire 30 days after creation by default. An earlier expiry
+        may use expires_after[anchor]=created_at and expires_after[seconds] from 3600 through 2592000.
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [file, purpose]
+              properties:
+                file: { type: string, format: binary, description: Non-empty .jsonl content, at most 16 MiB }
+                purpose: { const: batch }
+                expires_after:
+                  type: object
+                  additionalProperties: false
+                  required: [anchor, seconds]
+                  properties:
+                    anchor: { const: created_at }
+                    seconds: { type: integer, minimum: 3600, maximum: 2592000 }
+      responses:
+        "200": { description: Processed gateway-owned file, content: { application/json: { schema: { $ref: "#/components/schemas/FileObject" } } } }
+        default: { description: OpenAI-compatible error }
+    get:
+      operationId: listOpenAIFiles
+      description: Lists unexpired files owned by the requesting API key using bounded keyset pages.
+      parameters:
+        - { name: after, in: query, schema: { type: string } }
+        - { name: limit, in: query, schema: { type: integer, minimum: 1, maximum: 100, default: 20 } }
+        - { name: order, in: query, schema: { type: string, enum: [asc, desc], default: desc } }
+        - { name: purpose, in: query, schema: { type: string, enum: [batch, batch_output] } }
+      responses:
+        "200": { description: Cursor page of gateway-owned files, content: { application/json: { schema: { $ref: "#/components/schemas/FileList" } } } }
+        default: { description: OpenAI-compatible error }
+  /files/{file_id}:
+    parameters: [{ name: file_id, in: path, required: true, schema: { type: string } }]
+    get:
+      operationId: retrieveOpenAIFile
+      responses:
+        "200": { description: Gateway-owned file, content: { application/json: { schema: { $ref: "#/components/schemas/FileObject" } } } }
+        "404": { description: Missing, expired, or foreign-key file }
+        default: { description: OpenAI-compatible error }
+    delete:
+      operationId: deleteOpenAIFile
+      responses:
+        "200": { description: File deletion object, content: { application/json: { schema: { $ref: "#/components/schemas/FileDeleted" } } } }
+        "404": { description: Missing, expired, or foreign-key file }
+        default: { description: OpenAI-compatible error }
+  /files/{file_id}/content:
+    get:
+      operationId: downloadOpenAIFile
+      description: Returns the exact uploaded bytes for an unexpired file owned by the requesting API key.
+      parameters: [{ name: file_id, in: path, required: true, schema: { type: string } }]
+      responses:
+        "200":
+          description: Exact stored file content
+          headers:
+            Cache-Control: { schema: { type: string }, description: Always no-store }
+            Content-Disposition: { schema: { type: string }, description: Attachment with the validated upload filename }
+            Content-Length: { schema: { type: integer, minimum: 1 }, description: Stored plaintext byte count }
+            X-Content-Type-Options: { schema: { type: string, const: nosniff } }
+          content:
+            application/octet-stream: { schema: { type: string, format: binary } }
+        "404": { description: Missing, expired, or foreign-key file }
+        default: { description: OpenAI-compatible error }
   /embeddings:
     post:
       operationId: createEmbedding
@@ -310,6 +381,38 @@ paths:
       responses: { "200": { description: Native OpenAI moderation response }, default: { description: OpenAI-compatible error } }
 components:
   schemas:
+    FileObject:
+      type: object
+      additionalProperties: false
+      required: [id, object, bytes, created_at, expires_at, filename, purpose, status]
+      properties:
+        id: { type: string, pattern: "^file_" }
+        object: { const: file }
+        bytes: { type: integer, minimum: 1, maximum: 16777216 }
+        created_at: { type: integer, minimum: 0, description: Unix timestamp in seconds }
+        expires_at: { type: integer, minimum: 0, description: Unix timestamp in seconds }
+        filename: { type: string, minLength: 1, maxLength: 512 }
+        purpose: { type: string, enum: [batch, batch_output] }
+        status: { const: processed, deprecated: true }
+        status_details: { type: [string, "null"], deprecated: true }
+    FileDeleted:
+      type: object
+      additionalProperties: false
+      required: [id, object, deleted]
+      properties:
+        id: { type: string, pattern: "^file_" }
+        object: { const: file }
+        deleted: { const: true }
+    FileList:
+      type: object
+      additionalProperties: false
+      required: [object, data, first_id, last_id, has_more]
+      properties:
+        object: { const: list }
+        data: { type: array, items: { $ref: "#/components/schemas/FileObject" } }
+        first_id: { type: [string, "null"] }
+        last_id: { type: [string, "null"] }
+        has_more: { type: boolean }
     WebSearchTool:
       type: object
       additionalProperties: false

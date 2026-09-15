@@ -28,13 +28,13 @@ func TestRetainedResponseCapacityIncludesActiveMessageBatchReservations(t *testi
 			}
 		}
 	}
-	if err := checkRetainedResponseCapacity(ctx, store.SystemDB(), owner.ID, "key_batch_capacity", 0, 1); !errors.Is(err, errStoredResponseLimit) {
+	if err := checkRetainedResourceCapacity(ctx, store.SystemDB(), owner.ID, "key_batch_capacity", 0, 1); !errors.Is(err, errRetainedResourceLimit) {
 		t.Fatalf("active batch reservation capacity error=%v", err)
 	}
 	if _, err := store.SystemDB().ExecContext(ctx, `UPDATE message_batch_items SET state='succeeded',result_json='{}',finished_at=?`, now); err != nil {
 		t.Fatal(err)
 	}
-	if err := checkRetainedResponseCapacity(ctx, store.SystemDB(), owner.ID, "key_batch_capacity", 0, 1); err != nil {
+	if err := checkRetainedResourceCapacity(ctx, store.SystemDB(), owner.ID, "key_batch_capacity", 0, 1); err != nil {
 		t.Fatalf("terminal batch retained capacity error=%v", err)
 	}
 }

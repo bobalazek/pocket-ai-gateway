@@ -113,8 +113,8 @@ func (handler *Handler) enqueueResponse(response http.ResponseWriter, request *h
 		err = checkMessageBatchQueueCapacity(request.Context(), tx, principal.OwnerUserID, principal.KeyID, 1, incoming)
 		queueLimited = errors.Is(err, errMessageBatchQueueLimit)
 		if err == nil {
-			err = checkRetainedResponseCapacity(request.Context(), tx, principal.OwnerUserID, principal.KeyID, 1, incoming+maxInferenceBody)
-			queueLimited = errors.Is(err, errStoredResponseLimit)
+			err = checkRetainedResourceCapacity(request.Context(), tx, principal.OwnerUserID, principal.KeyID, 1, incoming+maxInferenceBody)
+			queueLimited = errors.Is(err, errRetainedResourceLimit)
 		}
 		if err == nil {
 			_, err = tx.ExecContext(request.Context(), `INSERT INTO stored_responses(id,owner_user_id,key_id,model_id,body_json,created_at,expires_at,state,request_json,conversation_id,conversation_revision,conversation_items_json) VALUES(?,?,?,?,?,?,?,?,?,?,?,?)`, id, principal.OwnerUserID, principal.KeyID, modelID, queued, now.UnixMilli(), now.Add(storedResponseLifetime).UnixMilli(), "queued", requestBody, storedConversationID, conversationRevision, conversationItems)

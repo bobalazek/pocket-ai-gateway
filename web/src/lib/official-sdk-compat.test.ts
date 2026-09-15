@@ -8,6 +8,8 @@ import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 let gateway: ChildProcess;
 let baseURL = "";
 let apiKey = "";
+let otherApiKey = "";
+let noFilesApiKey = "";
 
 beforeAll(async () => {
   gateway = spawn("go", ["run", "./internal/integration/sdkserver"], {
@@ -25,7 +27,7 @@ beforeAll(async () => {
     });
     gateway.once("exit", (code) => reject(new Error(`SDK gateway exited ${code}: ${Buffer.concat(errors)}`)));
   });
-  ({ url: baseURL, key: apiKey } = JSON.parse(line));
+  ({ url: baseURL, key: apiKey, otherKey: otherApiKey, noFilesKey: noFilesApiKey } = JSON.parse(line));
 }, 70_000);
 
 afterAll(() => gateway?.kill("SIGTERM"));
@@ -59,6 +61,58 @@ describe("official SDK compatibility through the Go gateway", () => {
     expect(messages.data[0]).toMatchObject({ role: "user", content: "Store this", content_parts: null });
     expect(await client.chat.completions.delete(created.id)).toMatchObject({ id: created.id, object: "chat.completion.deleted", deleted: true });
     await expect(client.chat.completions.retrieve(created.id)).rejects.toMatchObject({ status: 404 });
+  });
+
+  it("manages gateway-owned OpenAI batch files", async () => {
+    const client = openAI();
+    const contents = [
+      Buffer.from('{"custom_id":"request-1","method":"POST","url":"/v1/responses","body":{"model":"target-openai","input":"Hello"}}\n'),
+      Buffer.from('{"custom_id":"request-2","method":"POST","url":"/v1/responses","body":{"model":"target-openai","input":"World"}}\n'),
+      Buffer.from('{"custom_id":"request-3","method":"POST","url":"/v1/responses","body":{"model":"target-openai","input":"Again"}}\n'),
+    ];
+    const created = [];
+    for (const [index, content] of contents.entries()) {
+      created.push(await client.files.create({
+        file: await toFile(content, `batch-${index + 1}.jsonl`, { type: "application/jsonl" }),
+        purpose: "batch",
+        expires_after: { anchor: "created_at", seconds: 3600 },
+      }));
+    }
+
+    expect(created[0]).toMatchObject({
+      object: "file",
+      bytes: contents[0].length,
+      filename: "batch-1.jsonl",
+      purpose: "batch",
+      status: "processed",
+    });
+    expect(created[0].id).toMatch(/^file_/);
+    expect(created[0].expires_at).toBe(created[0].created_at + 3600);
+    expect(await client.files.waitForProcessing(created[0].id, { pollInterval: 1, maxWait: 1000 })).toMatchObject({
+      id: created[0].id,
+      status: "processed",
+    });
+    expect((await client.files.retrieve(created[0].id)).id).toBe(created[0].id);
+
+    const ascending = await client.files.list({ purpose: "batch", order: "asc", limit: 100 });
+    const descending = await client.files.list({ purpose: "batch", order: "desc", limit: 100 });
+    expect(descending.data.map((file) => file.id)).toEqual(ascending.data.map((file) => file.id).reverse());
+    expect((await client.files.list({ purpose: "batch_output" })).data).toEqual([]);
+    const firstPage = await client.files.list({ purpose: "batch", order: "asc", limit: 1 });
+    expect(firstPage.data).toHaveLength(1);
+    expect(firstPage.has_more).toBe(true);
+    const automaticallyPaginated = [];
+    for await (const file of client.files.list({ purpose: "batch", order: "asc", limit: 1 })) {
+      automaticallyPaginated.push(file.id);
+    }
+    expect(automaticallyPaginated).toEqual(ascending.data.map((file) => file.id));
+
+    const downloaded = await client.files.content(created[0].id);
+    expect(Buffer.from(await downloaded.arrayBuffer())).toEqual(contents[0]);
+    await expect(openAI(otherApiKey).files.retrieve(created[0].id)).rejects.toMatchObject({ status: 404 });
+    await expect(openAI(noFilesApiKey).files.list()).rejects.toMatchObject({ status: 403 });
+    expect(await client.files.delete(created[0].id)).toEqual({ id: created[0].id, object: "file", deleted: true });
+    await expect(client.files.retrieve(created[0].id)).rejects.toMatchObject({ status: 404 });
   });
 
   it.each(models)("decodes Anthropic Messages through %s", async (model) => {

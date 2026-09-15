@@ -4,6 +4,7 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -56,6 +57,9 @@ func TestWebSearchCapabilityRequiresNativePresetAndChat(t *testing.T) {
 
 func TestMasterKeyAndStoredCredentialRoundTrip(t *testing.T) {
 	directory := t.TempDir()
+	if _, err := LoadOrCreateMasterKey(directory, true); err == nil || !strings.Contains(err.Error(), "stored encrypted data") {
+		t.Fatalf("missing required master key error = %v", err)
+	}
 	first, err := LoadOrCreateMasterKey(directory)
 	if err != nil {
 		t.Fatal(err)

@@ -103,6 +103,51 @@ func TestSnapshotPreservesProviderMasterKey(t *testing.T) {
 	}
 }
 
+func TestSnapshotRequiresMasterKeyForEncryptedFiles(t *testing.T) {
+	ctx := context.Background()
+	root := t.TempDir()
+	source := filepath.Join(root, "source")
+	store, err := Open(ctx, source)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err = store.SystemDB().ExecContext(ctx, `INSERT INTO users(id,email,display_name,password_hash,role,status,inference_unrestricted,created_at,updated_at) VALUES('usr_file','file@example.test','File','hash','owner','active',1,1,1)`); err != nil {
+		t.Fatal(err)
+	}
+	if _, err = store.SystemDB().ExecContext(ctx, `INSERT INTO api_keys(id,owner_user_id,label,state,scopes_json,created_at,updated_at) VALUES('key_file','usr_file','File','active','[]',1,1)`); err != nil {
+		t.Fatal(err)
+	}
+	if _, err = store.SystemDB().ExecContext(ctx, `INSERT INTO openai_files(id,owner_user_id,key_id,filename,purpose,bytes,ciphertext,nonce,created_at,expires_at) VALUES('file_snapshot','usr_file','key_file','batch.jsonl','batch',1,?,?,1,3600001)`, make([]byte, 17), make([]byte, 12)); err != nil {
+		t.Fatal(err)
+	}
+	if err = store.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if _, err = CreateSnapshot(ctx, source, filepath.Join(root, "missing-key"), "test"); err == nil || !strings.Contains(err.Error(), "without master.key") {
+		t.Fatalf("missing-key snapshot error = %v", err)
+	}
+	if err = os.WriteFile(filepath.Join(source, "master.key"), make([]byte, 32), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	snapshot := filepath.Join(root, "snapshot")
+	if _, err = CreateSnapshot(ctx, source, snapshot, "test"); err != nil {
+		t.Fatal(err)
+	}
+	restored := filepath.Join(root, "restored")
+	if err = RestoreSnapshot(ctx, snapshot, restored); err != nil {
+		t.Fatal(err)
+	}
+	restoredStore, err := Open(ctx, restored)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer restoredStore.Close()
+	var count int
+	if err = restoredStore.SystemDB().QueryRowContext(ctx, `SELECT COUNT(*) FROM openai_files WHERE id='file_snapshot'`).Scan(&count); err != nil || count != 1 {
+		t.Fatalf("restored encrypted files=%d error=%v", count, err)
+	}
+}
+
 func TestRestoreFailureLeavesSourceUntouchedAndRejectsFutureSchema(t *testing.T) {
 	ctx := context.Background()
 	root := t.TempDir()

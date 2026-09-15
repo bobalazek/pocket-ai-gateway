@@ -26,7 +26,7 @@ const (
 	retainedKeyBytes       = 128 << 20
 )
 
-var errStoredResponseLimit = errors.New("stored response retention limit reached")
+var errRetainedResourceLimit = errors.New("retained inference resource limit reached")
 
 type preparedResponse struct {
 	id        string
@@ -72,7 +72,7 @@ func (handler *Handler) storeResponse(ctx context.Context, requestID, ownerID, k
 		return err
 	}
 	defer tx.Rollback()
-	if err := checkRetainedResponseCapacity(ctx, tx, ownerID, keyID, 1, int64(len(requestBody)+len(value.body))); err != nil {
+	if err := checkRetainedResourceCapacity(ctx, tx, ownerID, keyID, 1, int64(len(requestBody)+len(value.body))); err != nil {
 		return err
 	}
 	if _, err := tx.ExecContext(ctx, `INSERT INTO stored_responses(id,owner_user_id,key_id,model_id,body_json,created_at,expires_at,state,request_json) VALUES(?,?,?,?,?,?,?,?,?)`, value.id, ownerID, keyID, modelID, value.body, value.createdAt.UnixMilli(), value.createdAt.Add(storedResponseLifetime).UnixMilli(), value.state, requestBody); err != nil {
@@ -93,7 +93,7 @@ type responseQueryer interface {
 	QueryRowContext(context.Context, string, ...any) *sql.Row
 }
 
-func checkRetainedResponseCapacity(ctx context.Context, query responseQueryer, ownerID, keyID string, incomingCount, incomingBytes int64) error {
+func checkRetainedResourceCapacity(ctx context.Context, query responseQueryer, ownerID, keyID string, incomingCount, incomingBytes int64) error {
 	var count, size, ownerCount, ownerSize, keyCount, keySize int64
 	err := query.QueryRowContext(ctx, `SELECT COUNT(*),COALESCE(SUM(size),0),
 		COALESCE(SUM(CASE WHEN owner_user_id=? THEN 1 ELSE 0 END),0),COALESCE(SUM(CASE WHEN owner_user_id=? THEN size ELSE 0 END),0),
@@ -105,12 +105,14 @@ func checkRetainedResponseCapacity(ctx context.Context, query responseQueryer, o
 			UNION ALL
 			SELECT message_batches.owner_user_id,message_batches.key_id,length(message_batch_items.params_json)+CASE WHEN message_batch_items.state IN ('queued','claimed','dispatching','settling') THEN MAX(message_batch_items.reserved_result_bytes,COALESCE(length(message_batch_items.result_json),0)) ELSE COALESCE(length(message_batch_items.result_json),0) END AS size
 			FROM message_batch_items JOIN message_batches ON message_batches.id=message_batch_items.batch_id WHERE message_batches.expires_at>?
-		)`, ownerID, ownerID, keyID, keyID, maxInferenceBody, time.Now().UnixMilli(), time.Now().UnixMilli(), time.Now().UnixMilli()).Scan(&count, &size, &ownerCount, &ownerSize, &keyCount, &keySize)
+			UNION ALL
+			SELECT owner_user_id,key_id,length(filename)+length(ciphertext)+length(nonce) AS size FROM openai_files WHERE expires_at>?
+		)`, ownerID, ownerID, keyID, keyID, maxInferenceBody, time.Now().UnixMilli(), time.Now().UnixMilli(), time.Now().UnixMilli(), time.Now().UnixMilli()).Scan(&count, &size, &ownerCount, &ownerSize, &keyCount, &keySize)
 	if err != nil {
 		return err
 	}
 	if count+incomingCount > retainedResponseJobs || size+incomingBytes > retainedResponseBytes || ownerCount+incomingCount > retainedOwnerJobs || ownerSize+incomingBytes > retainedOwnerBytes || keyCount+incomingCount > retainedKeyJobs || keySize+incomingBytes > retainedKeyBytes {
-		return errStoredResponseLimit
+		return errRetainedResourceLimit
 	}
 	return nil
 }

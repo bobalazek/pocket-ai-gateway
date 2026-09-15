@@ -181,17 +181,17 @@ func serve(ctx context.Context, version string, cfg Config, logOutput io.Writer)
 	}
 	authService := auth.New(stores.SystemDB())
 	usageService := usage.New(stores.SystemDB())
-	var storedCredentials int
-	if err := stores.SystemDB().QueryRowContext(ctx, "SELECT COUNT(*) FROM provider_credentials WHERE ciphertext IS NOT NULL").Scan(&storedCredentials); err != nil {
-		return fmt.Errorf("inspect provider credentials: %w", err)
+	var encryptedRows int
+	if err := stores.SystemDB().QueryRowContext(ctx, "SELECT (SELECT COUNT(*) FROM provider_credentials WHERE ciphertext IS NOT NULL) + (SELECT COUNT(*) FROM openai_files)").Scan(&encryptedRows); err != nil {
+		return fmt.Errorf("inspect encrypted storage: %w", err)
 	}
-	masterKey, err := providers.LoadOrCreateMasterKey(stores.DataDir(), storedCredentials > 0)
+	masterKey, err := providers.LoadOrCreateMasterKey(stores.DataDir(), encryptedRows > 0)
 	if err != nil {
-		return fmt.Errorf("load provider credential key: %w", err)
+		return fmt.Errorf("load encryption key: %w", err)
 	}
 	providerService := providers.New(stores.SystemDB(), masterKey)
 	keyService := keys.New(stores.SystemDB())
-	gatewayHandler := gateway.New(stores.SystemDB(), keyService, providerService, usageService, publicOrigin)
+	gatewayHandler := gateway.NewWithMasterKey(stores.SystemDB(), keyService, providerService, usageService, masterKey, publicOrigin)
 	operationService := operations.New(stores, providerService, version, os.Getenv)
 	if err := usageService.Recover(ctx); err != nil {
 		return fmt.Errorf("recover usage accounting: %w", err)
@@ -252,7 +252,7 @@ func runOperations(ctx context.Context, service *operations.Service, logger *slo
 	defer ticker.Stop()
 	for {
 		if err := service.RunDue(ctx); err != nil && !errors.Is(err, context.Canceled) {
-			logger.Error("scheduled backup delayed", "error", err)
+			logger.Error("scheduled operations delayed", "error", err)
 		}
 		select {
 		case <-ctx.Done():

@@ -36,7 +36,8 @@ Base URL: `/api/openai/v1`.
 | `GET /responses/{id}`, `DELETE /responses/{id}` | Implemented, gateway-owned | Creating-key retrieval and deletion; the gateway replaces the upstream ID and keeps upstream storage disabled |
 | `POST /responses/{id}/cancel`, `GET /responses/{id}/input_items` | Constrained, gateway-owned | Creating-key cancellation and bounded cursor pagination over stored input; `include[]` projections and input from pre-migration Responses return an explicit unsupported-feature error |
 | Conversations and conversation items | Constrained, gateway-owned | Resource/item CRUD plus synchronous/background/buffered-stream Response attachment, key isolation, storage bounds, and cursor pagination are implemented; provider references/projections remain pending |
-| Files, uploads, and vector stores | Pending | Needs encrypted object storage, quotas, scanning, and lifecycle rules |
+| Files | Constrained, gateway-owned | Five official SDK operations over creating-key-owned local resources; `files:manage`; one non-empty JSONL `purpose=batch` upload up to 16 MiB; optional 1-hour through 30-day expiry; 30-day default; bounded purpose/order/keyset listing; exact content; delete and expiry become not found |
+| General uploads and vector stores | Pending | Need their own purpose, quota, scanning, ownership, and lifecycle rules |
 | Batches | Pending | Needs durable jobs, cancellation, billing, result retention, and restart recovery |
 | DALL-E 2 edits | Deferred | OpenAI marks [DALL-E 2](https://developers.openai.com/api/docs/models/dall-e-2) deprecated; the gateway avoids extra routing complexity for its legacy edit contract |
 | Image streaming and video | Pending | Each media format needs its own bounded upload/download, event, and accounting contract |

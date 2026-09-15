@@ -195,7 +195,7 @@ func TestBackgroundQueueIsBoundedPerKey(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	if err := checkRetainedResponseCapacity(ctx, store.SystemDB(), owner.ID, principal.KeyID, 1, 1); !errors.Is(err, errStoredResponseLimit) {
+	if err := checkRetainedResourceCapacity(ctx, store.SystemDB(), owner.ID, principal.KeyID, 1, 1); !errors.Is(err, errRetainedResourceLimit) {
 		t.Fatalf("retained limit error = %v", err)
 	}
 }

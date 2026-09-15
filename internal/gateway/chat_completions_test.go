@@ -446,7 +446,7 @@ func TestStoredChatCompletionsShareResponseRetentionCeilings(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	if err := checkRetainedResponseCapacity(ctx, store.SystemDB(), owner.ID, key.ID, 1, 1); !errors.Is(err, errStoredResponseLimit) {
+	if err := checkRetainedResourceCapacity(ctx, store.SystemDB(), owner.ID, key.ID, 1, 1); !errors.Is(err, errRetainedResourceLimit) {
 		t.Fatalf("capacity error=%v", err)
 	}
 }
