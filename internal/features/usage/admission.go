@@ -39,8 +39,11 @@ type AdmissionInput struct {
 	SelectionReason        string
 	RejectedCandidatesJSON string
 	RequiredPriceVersionID string
+	PriceQuoteAt           int64
+	QuotedPriceVersionID   *string
 	RequireFreePrice       bool
 	PriceUnavailable       bool
+	SnapshotPriceOnly      bool
 	BodyBytes              int64
 	BatchItems             int64
 	EstimatedInputTokens   int64
@@ -91,7 +94,7 @@ func (service *Service) Admit(ctx context.Context, input AdmissionInput) (Admiss
 	if input.RejectedCandidatesJSON == "" {
 		input.RejectedCandidatesJSON = "[]"
 	}
-	if input.KeyID == "" || input.ConnectionID == "" || input.ModelID == "" || input.Operation == "" || input.TargetOperation == "" || input.Scope == "" || input.Dialect == "" || input.TargetDialect == "" || len(input.KeyID) > 200 || len(input.ConnectionID) > 200 || len(input.ModelID) > 200 || len(input.Operation) > 100 || len(input.TargetOperation) > 300 || len(input.Scope) > 100 || len(input.Dialect) > 50 || len(input.TargetDialect) > 50 || len(input.SelectionReason) > 500 || len(input.RejectedCandidatesJSON) > 16_384 || len(input.RequiredPriceVersionID) > 200 || input.RequireFreePrice && input.RequiredPriceVersionID == "" || !json.Valid([]byte(input.RejectedCandidatesJSON)) || input.BodyBytes < 0 || input.BatchItems < 0 || input.RequestToolCount < 0 || input.WebSearchMaxCalls < 0 || input.WebSearchMaxCalls > 4 || input.EstimatedInputTokens < 0 || input.EstimatedOutputTokens < 0 {
+	if input.KeyID == "" || input.ConnectionID == "" || input.ModelID == "" || input.Operation == "" || input.TargetOperation == "" || input.Scope == "" || input.Dialect == "" || input.TargetDialect == "" || len(input.KeyID) > 200 || len(input.ConnectionID) > 200 || len(input.ModelID) > 200 || len(input.Operation) > 100 || len(input.TargetOperation) > 300 || len(input.Scope) > 100 || len(input.Dialect) > 50 || len(input.TargetDialect) > 50 || len(input.SelectionReason) > 500 || len(input.RejectedCandidatesJSON) > 16_384 || len(input.RequiredPriceVersionID) > 200 || input.QuotedPriceVersionID != nil && (input.PriceQuoteAt <= 0 || len(*input.QuotedPriceVersionID) > 200) || input.PriceQuoteAt < 0 || input.RequireFreePrice && input.RequiredPriceVersionID == "" || !json.Valid([]byte(input.RejectedCandidatesJSON)) || input.BodyBytes < 0 || input.BatchItems < 0 || input.RequestToolCount < 0 || input.WebSearchMaxCalls < 0 || input.WebSearchMaxCalls > 4 || input.EstimatedInputTokens < 0 || input.EstimatedOutputTokens < 0 {
 		return Admission{}, errors.New("invalid admission input")
 	}
 	input.PriceUnavailable = input.PriceUnavailable || input.WebSearchMaxCalls > 0
@@ -117,7 +120,7 @@ func (service *Service) Admit(ctx context.Context, input AdmissionInput) (Admiss
 		return Admission{}, err
 	}
 	defer tx.Rollback()
-	effective, err := service.effectiveTimeTx(ctx, tx)
+	effective, err := service.effectiveTimeTxAtLeast(ctx, tx, input.PriceQuoteAt)
 	if err != nil {
 		return Admission{}, err
 	}
@@ -181,17 +184,28 @@ func (service *Service) Admit(ctx context.Context, input AdmissionInput) (Admiss
 	priceVersionID := ""
 	priceErr := sql.ErrNoRows
 	if !input.PriceUnavailable {
-		price, lookupErr := priceAt(ctx, tx, input.ConnectionID, input.ModelID, effective)
+		priceAtMillis := effective
+		if input.QuotedPriceVersionID != nil {
+			priceAtMillis = input.PriceQuoteAt
+		}
+		price, lookupErr := priceAt(ctx, tx, input.ConnectionID, input.ModelID, priceAtMillis)
 		priceErr = lookupErr
+		if input.QuotedPriceVersionID != nil && (lookupErr == nil && price.ID != *input.QuotedPriceVersionID || errors.Is(lookupErr, sql.ErrNoRows) && *input.QuotedPriceVersionID != "") {
+			return Admission{}, ErrConflict
+		}
 		if priceErr == nil {
-			if input.RequireFreePrice && (price.ID != input.RequiredPriceVersionID || !VerifiedFreePrice(price.inputNanosPerMillion, price.outputNanosPerMillion, price.Source, price.createdAt, effective)) {
+			cacheReadRate := nullInt64Pointer(price.cacheReadNanos)
+			if input.RequireFreePrice && (price.ID != input.RequiredPriceVersionID || !VerifiedFreePrice(price.inputNanosPerMillion, price.outputNanosPerMillion, cacheReadRate, price.Source, price.createdAt, priceAtMillis)) {
 				return Admission{}, ErrDenied
 			}
-			cost, err := CalculateCost(input.EstimatedInputTokens, input.EstimatedOutputTokens, price.inputNanosPerMillion, price.outputNanosPerMillion)
-			if err != nil {
-				return Admission{}, err
+			priceVersionID = price.ID
+			if !input.SnapshotPriceOnly {
+				cost, err := CalculateCost(input.EstimatedInputTokens, input.EstimatedOutputTokens, ConservativeInputRate(price.inputNanosPerMillion, cacheReadRate), price.outputNanosPerMillion)
+				if err != nil {
+					return Admission{}, err
+				}
+				estimatedCost = &cost
 			}
-			estimatedCost, priceVersionID = &cost, price.ID
 		} else if !errors.Is(priceErr, sql.ErrNoRows) {
 			return Admission{}, priceErr
 		}
@@ -226,8 +240,8 @@ func (service *Service) Admit(ctx context.Context, input AdmissionInput) (Admiss
 	} else if _, err := tx.ExecContext(ctx, "UPDATE requests SET state = 'reserved', finished_at = NULL WHERE id = ?", requestID); err != nil {
 		return Admission{}, err
 	}
-	_, err = tx.ExecContext(ctx, `INSERT INTO attempts (id, request_id, ordinal, connection_id, model_id, upstream_model_record_id, upstream_model_id, connection_revision, target_dialect, target_operation, translation_applied, request_tool_count, web_search_max_calls, selection_reason, rejected_candidates_json, price_version_id, state, estimated_tokens, estimated_cost_nanos, started_at)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULLIF(?, 0), ?, ?, NULLIF(?, ''), 'reserved', ?, ?, ?)`, attemptID, requestID, ordinal, input.ConnectionID, input.ModelID, input.UpstreamModelRecordID, input.UpstreamModelID, input.ConnectionRevision, input.TargetDialect, input.TargetOperation, input.TranslationApplied, input.RequestToolCount, input.WebSearchMaxCalls, input.SelectionReason, input.RejectedCandidatesJSON, priceVersionID, estimatedTokens, estimatedCost, effective)
+	_, err = tx.ExecContext(ctx, `INSERT INTO attempts (id, request_id, ordinal, connection_id, model_id, upstream_model_record_id, upstream_model_id, connection_revision, target_dialect, target_operation, translation_applied, request_tool_count, web_search_max_calls, selection_reason, rejected_candidates_json, price_version_id, price_quoted_at, state, estimated_tokens, estimated_cost_nanos, started_at)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULLIF(?, 0), ?, ?, NULLIF(?, ''), NULLIF(?, 0), 'reserved', ?, ?, ?)`, attemptID, requestID, ordinal, input.ConnectionID, input.ModelID, input.UpstreamModelRecordID, input.UpstreamModelID, input.ConnectionRevision, input.TargetDialect, input.TargetOperation, input.TranslationApplied, input.RequestToolCount, input.WebSearchMaxCalls, input.SelectionReason, input.RejectedCandidatesJSON, priceVersionID, input.PriceQuoteAt, estimatedTokens, estimatedCost, effective)
 	if err != nil {
 		return Admission{}, err
 	}
@@ -456,7 +470,14 @@ func (service *Service) effectiveTime(ctx context.Context) (int64, error) {
 }
 
 func (service *Service) effectiveTimeTx(ctx context.Context, tx *sql.Tx) (int64, error) {
+	return service.effectiveTimeTxAtLeast(ctx, tx, 0)
+}
+
+func (service *Service) effectiveTimeTxAtLeast(ctx context.Context, tx *sql.Tx, floor int64) (int64, error) {
 	wall := service.now().UnixMilli()
+	if floor > wall {
+		wall = floor
+	}
 	_, err := tx.ExecContext(ctx, `INSERT INTO admission_clock (singleton, last_effective_at, process_epoch) VALUES (1, ?, ?)
 		ON CONFLICT(singleton) DO UPDATE SET last_effective_at = MAX(admission_clock.last_effective_at, excluded.last_effective_at), process_epoch = excluded.process_epoch`, wall, service.processEpoch)
 	if err != nil {
@@ -465,6 +486,19 @@ func (service *Service) effectiveTimeTx(ctx context.Context, tx *sql.Tx) (int64,
 	var effective int64
 	err = tx.QueryRowContext(ctx, "SELECT last_effective_at FROM admission_clock WHERE singleton = 1").Scan(&effective)
 	return effective, err
+}
+
+func (service *Service) QuoteTime(ctx context.Context) (int64, error) {
+	wall := service.now().UnixMilli()
+	var persisted int64
+	err := service.database.QueryRowContext(ctx, "SELECT last_effective_at FROM admission_clock WHERE singleton = 1").Scan(&persisted)
+	if errors.Is(err, sql.ErrNoRows) {
+		return wall, nil
+	}
+	if err != nil {
+		return 0, err
+	}
+	return max(wall, persisted), nil
 }
 
 func periodBounds(policy runtimePolicy, millis int64) (int64, *int64) {

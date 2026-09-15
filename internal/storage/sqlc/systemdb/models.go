@@ -79,6 +79,7 @@ type Attempt struct {
 	CacheCreation1hInputTokens sql.NullInt64  `json:"cache_creation_1h_input_tokens"`
 	WebSearchMaxCalls          sql.NullInt64  `json:"web_search_max_calls"`
 	WebSearchCallCount         sql.NullInt64  `json:"web_search_call_count"`
+	PriceQuotedAt              sql.NullInt64  `json:"price_quoted_at"`
 }
 
 type AuditEvent struct {
@@ -328,16 +329,19 @@ type OperationSetting struct {
 }
 
 type PriceVersion struct {
-	ID                    string         `json:"id"`
-	ConnectionID          string         `json:"connection_id"`
-	ModelID               string         `json:"model_id"`
-	InputNanosPerMillion  int64          `json:"input_nanos_per_million"`
-	OutputNanosPerMillion int64          `json:"output_nanos_per_million"`
-	Source                string         `json:"source"`
-	EffectiveFrom         int64          `json:"effective_from"`
-	EffectiveTo           sql.NullInt64  `json:"effective_to"`
-	CreatedBy             sql.NullString `json:"created_by"`
-	CreatedAt             int64          `json:"created_at"`
+	ID                       string         `json:"id"`
+	ConnectionID             string         `json:"connection_id"`
+	ModelID                  string         `json:"model_id"`
+	InputNanosPerMillion     int64          `json:"input_nanos_per_million"`
+	OutputNanosPerMillion    int64          `json:"output_nanos_per_million"`
+	Source                   string         `json:"source"`
+	EffectiveFrom            int64          `json:"effective_from"`
+	EffectiveTo              sql.NullInt64  `json:"effective_to"`
+	CreatedBy                sql.NullString `json:"created_by"`
+	CreatedAt                int64          `json:"created_at"`
+	CacheReadNanosPerMillion sql.NullInt64  `json:"cache_read_nanos_per_million"`
+	WeeklyStartMinuteUtc     sql.NullInt64  `json:"weekly_start_minute_utc"`
+	WeeklyEndMinuteUtc       sql.NullInt64  `json:"weekly_end_minute_utc"`
 }
 
 type PricingJob struct {

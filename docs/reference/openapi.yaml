@@ -1641,26 +1641,59 @@ components:
       type: object
       additionalProperties: false
       required: [connection_id, model_id, input_usd_per_million, output_usd_per_million, source, effective_from, effective_to]
+      dependentRequired:
+        weekly_start_minute_utc: [weekly_end_minute_utc]
+        weekly_end_minute_utc: [weekly_start_minute_utc]
+      anyOf:
+        - properties:
+            weekly_start_minute_utc: { type: "null" }
+            weekly_end_minute_utc: { type: "null" }
+        - properties:
+            weekly_start_minute_utc: { type: integer }
+            weekly_end_minute_utc: { type: integer }
       properties:
         connection_id: { type: string }
         model_id: { type: string }
         input_usd_per_million: { type: string }
         output_usd_per_million: { type: string }
+        cache_read_usd_per_million:
+          type: [string, "null"]
+          description: Null leaves cache reads unpriced; zero is an explicitly free cache-read rate.
         source: { type: string, minLength: 1, maxLength: 500 }
         effective_from: { type: string, format: date-time }
         effective_to: { oneOf: [{ type: string, format: date-time }, { type: string, maxLength: 0 }] }
+        weekly_start_minute_utc:
+          type: [integer, "null"]
+          minimum: 0
+          maximum: 10079
+          description: Monday-based minute of week. Both weekly fields must be null or integers; the start is inclusive.
+        weekly_end_minute_utc:
+          type: [integer, "null"]
+          minimum: 1
+          maximum: 10080
+          description: Monday-based minute of week. Must be greater than the start and is exclusive; split ranges that cross Monday 00:00 UTC.
     PriceVersion:
       type: object
-      required: [id, connection_id, model_id, input_usd_per_million, output_usd_per_million, source, effective_from, effective_to, created_at]
+      required: [id, connection_id, model_id, input_usd_per_million, output_usd_per_million, cache_read_usd_per_million, source, effective_from, effective_to, weekly_start_minute_utc, weekly_end_minute_utc, created_at]
+      anyOf:
+        - properties:
+            weekly_start_minute_utc: { type: "null" }
+            weekly_end_minute_utc: { type: "null" }
+        - properties:
+            weekly_start_minute_utc: { type: integer }
+            weekly_end_minute_utc: { type: integer }
       properties:
         id: { type: string }
         connection_id: { type: string }
         model_id: { type: string }
         input_usd_per_million: { type: string }
         output_usd_per_million: { type: string }
+        cache_read_usd_per_million: { type: [string, "null"] }
         source: { type: string }
         effective_from: { type: string, format: date-time }
         effective_to: { type: [string, "null"], format: date-time }
+        weekly_start_minute_utc: { type: [integer, "null"], minimum: 0, maximum: 10079 }
+        weekly_end_minute_utc: { type: [integer, "null"], minimum: 1, maximum: 10080 }
         created_at: { type: string, format: date-time }
     RepricePreviewInput:
       type: object

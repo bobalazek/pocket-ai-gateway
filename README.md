@@ -11,7 +11,7 @@ Provider credentials, users, application keys, limits, routing rules, usage, and
 - **Native client contracts:** separate OpenAI, Anthropic, and Gemini API namespaces with compatible requests, responses, errors, and streams.
 - **Provider routing:** fixed, fallback, weighted, lowest-cost, and observed-latency strategies behind stable public model names.
 - **Access control:** multiple administrators and members, scoped application keys, model and provider grants, expiration, rotation, and revocation.
-- **Usage controls:** request, token, concurrency, payload, batch, quota, and spend policies at the instance, user, key, and connection levels.
+- **Usage controls:** normalized token/cache usage, versioned cache-aware pricing, recurring UTC price windows, and request, concurrency, payload, batch, quota, and spend policies at the instance, user, key, and connection levels.
 - **Local operations:** two SQLite databases, encrypted provider secrets, diagnostics, audit events, encrypted backups, restore validation, and no public telemetry.
 - **Built-in dashboard:** onboarding, status, users, providers, models, API keys, requests, usage, audit history, backups, settings, and personal account management.
 

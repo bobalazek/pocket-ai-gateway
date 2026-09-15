@@ -1427,6 +1427,14 @@ func TestOrderedFallbackRecordsEachAttempt(t *testing.T) {
 		t.Fatal(err)
 	}
 	_ = configured
+	firstPrice, err := usageService.CreatePrice(ctx, owner, usage.PriceInput{ConnectionID: firstConnection.ID, ModelID: firstModel.ID, InputUSDPerMillion: "1", OutputUSDPerMillion: "2", Source: "test", EffectiveFrom: time.Now().Add(-time.Hour).UTC().Format(time.RFC3339)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	secondPrice, err := usageService.CreatePrice(ctx, owner, usage.PriceInput{ConnectionID: secondConnection.ID, ModelID: firstModel.ID, InputUSDPerMillion: "3", OutputUSDPerMillion: "4", Source: "test", EffectiveFrom: time.Now().Add(-time.Hour).UTC().Format(time.RFC3339)})
+	if err != nil {
+		t.Fatal(err)
+	}
 	_, secret, err := keyService.Create(ctx, owner.ID, keys.Input{Label: "fallback", Scopes: []string{"chat:generate"}, ModelPatterns: []string{firstModel.ID}, ConnectionIDs: []string{firstConnection.ID, secondConnection.ID}})
 	if err != nil {
 		t.Fatal(err)
@@ -1452,6 +1460,27 @@ func TestOrderedFallbackRecordsEachAttempt(t *testing.T) {
 	}
 	if items[0].Attempts[0].State != "failed" || items[0].Attempts[1].State != "succeeded" || !strings.HasPrefix(items[0].Attempts[0].SelectionReason, "ordered_fallback:") {
 		t.Fatalf("attempts=%#v", items[0].Attempts)
+	}
+	rows, err := store.SystemDB().QueryContext(ctx, "SELECT price_version_id,price_quoted_at FROM attempts ORDER BY ordinal")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var prices []string
+	var quotes []int64
+	for rows.Next() {
+		var price string
+		var quote int64
+		if err := rows.Scan(&price, &quote); err != nil {
+			rows.Close()
+			t.Fatal(err)
+		}
+		prices, quotes = append(prices, price), append(quotes, quote)
+	}
+	if err := rows.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if len(quotes) != 2 || quotes[0] <= 0 || quotes[0] != quotes[1] || prices[0] != firstPrice.ID || prices[1] != secondPrice.ID {
+		t.Fatalf("fallback price quotes=%v prices=%v", quotes, prices)
 	}
 }
 

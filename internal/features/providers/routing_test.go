@@ -48,7 +48,7 @@ func TestRouteStrategiesFreePolicyAndCircuit(t *testing.T) {
 	if err != nil || len(plan.Targets) != 2 || plan.Targets[0].UpstreamModelID != second.ID {
 		t.Fatalf("plan=%#v err=%v", plan, err)
 	}
-	if _, err = store.SystemDB().ExecContext(ctx, "INSERT INTO price_versions (id,connection_id,model_id,input_nanos_per_million,output_nanos_per_million,source,effective_from,created_at) VALUES ('price_first',?, ?,100,100,'test',?,?),('price_second',?, ?,0,0,'test',?,?)", first.ConnectionID, model.ID, now-1, now, second.ConnectionID, model.ID, now-1, now); err != nil {
+	if _, err = store.SystemDB().ExecContext(ctx, "INSERT INTO price_versions (id,connection_id,model_id,input_nanos_per_million,output_nanos_per_million,cache_read_nanos_per_million,source,effective_from,created_at) VALUES ('price_first',?, ?,100,100,100,'test',?,?),('price_second',?, ?,0,0,0,'test',?,?)", first.ConnectionID, model.ID, now-1, now, second.ConnectionID, model.ID, now-1, now); err != nil {
 		t.Fatal(err)
 	}
 	model, err = service.ConfigureRoute(ctx, owner, model.ID, model.Revision, RouteConfigInput{Strategy: "lowest_cost", FreeOnly: true, Targets: []RouteTargetInput{{UpstreamModelID: first.ID, Priority: 1, Weight: 1, Enabled: true}, {UpstreamModelID: second.ID, Priority: 2, Weight: 1, Enabled: true}}})
@@ -94,6 +94,43 @@ func TestRouteStrategiesFreePolicyAndCircuit(t *testing.T) {
 	}
 	if _, err = service.Route(ctx, model.ID, RouteOptions{Operation: "chat/completions", EstimatedInputTokens: 10, EstimatedOutputTokens: 10}); !errors.Is(err, ErrNotFound) {
 		t.Fatalf("circuit err=%v", err)
+	}
+}
+
+func TestRouteUsesQuotedWeeklyPriceWindow(t *testing.T) {
+	ctx := context.Background()
+	store, err := storage.Open(ctx, t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+	quote := time.Date(2026, 9, 14, 0, 59, 0, 0, time.UTC)
+	owner := auth.User{ID: "usr_owner", Role: "owner", Status: "active"}
+	if _, err = store.SystemDB().ExecContext(ctx, "INSERT INTO users (id,email,display_name,password_hash,role,status,inference_unrestricted,created_at,updated_at) VALUES (?,?,?,'hash','owner','active',1,?,?)", owner.ID, "owner@example.test", "Owner", quote.UnixMilli(), quote.UnixMilli()); err != nil {
+		t.Fatal(err)
+	}
+	service := New(store.SystemDB(), make([]byte, 32))
+	first := routeFixture(t, ctx, service, owner, "first")
+	second := routeFixture(t, ctx, service, owner, "second")
+	model, err := service.CreatePublicModel(ctx, owner, "assistant", "Assistant", "", first.ID, []string{"chat"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	model, err = service.ConfigureRoute(ctx, owner, model.ID, model.Revision, RouteConfigInput{Strategy: "lowest_cost", Targets: []RouteTargetInput{{UpstreamModelID: first.ID, Priority: 1, Weight: 1, Enabled: true}, {UpstreamModelID: second.ID, Priority: 2, Weight: 1, Enabled: true}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err = store.SystemDB().ExecContext(ctx, `INSERT INTO price_versions (id,connection_id,model_id,input_nanos_per_million,output_nanos_per_million,cache_read_nanos_per_million,source,effective_from,weekly_start_minute_utc,weekly_end_minute_utc,created_at)
+		VALUES ('first_early',?,?,100,100,150,'test',?,0,60,?),('first_late',?,?,300,300,300,'test',?,60,120,?),('second_all',?,?,200,200,200,'test',?,NULL,NULL,?)`, first.ConnectionID, model.ID, quote.Add(-time.Hour).UnixMilli(), quote.UnixMilli(), first.ConnectionID, model.ID, quote.Add(-time.Hour).UnixMilli(), quote.UnixMilli(), second.ConnectionID, model.ID, quote.Add(-time.Hour).UnixMilli(), quote.UnixMilli()); err != nil {
+		t.Fatal(err)
+	}
+	plan, err := service.Route(ctx, model.ID, RouteOptions{Operation: "chat/completions", EstimatedInputTokens: 1_000_000, QuoteAt: quote.UnixMilli()})
+	if err != nil || plan.Targets[0].PriceVersionID() != "first_early" || plan.Targets[0].EstimatedCostUSD == nil || *plan.Targets[0].EstimatedCostUSD != "0.00000015" {
+		t.Fatalf("before boundary plan=%#v err=%v", plan, err)
+	}
+	plan, err = service.Route(ctx, model.ID, RouteOptions{Operation: "chat/completions", EstimatedInputTokens: 1_000_000, QuoteAt: quote.Add(time.Minute).UnixMilli()})
+	if err != nil || plan.Targets[0].PriceVersionID() != "second_all" {
+		t.Fatalf("at boundary plan=%#v err=%v", plan, err)
 	}
 }
 

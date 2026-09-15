@@ -1,4 +1,4 @@
-import type { EffectiveLimit, LimitPolicy, OutboxStatus, PriceVersion, UnresolvedAttempt, UsageFilters, UsageSummary } from "@/features/usage/types/usage.types";
+import type { EffectiveLimit, LimitPolicy, OutboxStatus, PriceInput, PriceVersion, UnresolvedAttempt, UsageFilters, UsageSummary } from "@/features/usage/types/usage.types";
 import { gatewayTransport } from "@/lib/api-client";
 
 function queryFor(filters: UsageFilters, cursor = "") {
@@ -16,7 +16,7 @@ export const usageClient = {
   createPolicy: (input: Omit<LimitPolicy, "id" | "revision" | "created_at" | "updated_at" | "limit_usd"> & { limit_usd?: string }) => gatewayTransport.request<{ policy: LimitPolicy }>("/api/v1/admin/policies", { method: "POST", body: input }),
   updatePolicy: (policy: LimitPolicy, input: { limit_units: number; limit_usd: string; enabled: boolean }) => gatewayTransport.request<{ policy: LimitPolicy }>(`/api/v1/admin/policies/${encodeURIComponent(policy.id)}`, { method: "PATCH", revision: policy.revision, body: input }),
   prices: (cursor = "") => gatewayTransport.request<{ data: PriceVersion[]; next_cursor: string; has_more: boolean }>(`/api/v1/admin/prices${cursor ? `?cursor=${encodeURIComponent(cursor)}` : ""}`),
-  createPrice: (input: { connection_id: string; model_id: string; input_usd_per_million: string; output_usd_per_million: string; source: string; effective_from: string; effective_to: string }) => gatewayTransport.request<{ price: PriceVersion }>("/api/v1/admin/prices", { method: "POST", body: input }),
+  createPrice: (input: PriceInput) => gatewayTransport.request<{ price: PriceVersion }>("/api/v1/admin/prices", { method: "POST", body: input }),
   outbox: () => gatewayTransport.request<{ outbox: OutboxStatus }>("/api/v1/admin/usage/outbox"),
   previewReprice: (input: { connection_id: string; model_id: string; from: string; to: string }) => gatewayTransport.request<{ preview: { affected_attempts: number; missing_prices: number; delta_usd: string } }>("/api/v1/admin/usage/reprice-preview", { method: "POST", body: input }),
   applyReprice: (input: { connection_id: string; model_id: string; from: string; to: string; idempotency_key: string }) => gatewayTransport.request<{ result: { affected_attempts: number; missing_prices: number; delta_usd: string } }>("/api/v1/admin/usage/reprice", { method: "POST", body: input }),

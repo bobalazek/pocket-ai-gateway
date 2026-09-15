@@ -217,6 +217,61 @@ func TestAdmissionRechecksSelectedFreePrice(t *testing.T) {
 	}
 }
 
+func TestAdmissionKeepsTheRoutedPriceQuoteAcrossAWeeklyBoundary(t *testing.T) {
+	ctx, service, _, keyID, store := testService(t)
+	defer store.Close()
+	quote := time.Date(2026, 9, 14, 0, 59, 0, 0, time.UTC)
+	service.now = func() time.Time { return quote.Add(2 * time.Minute) }
+	if _, err := store.SystemDB().ExecContext(ctx, `INSERT INTO price_versions (id,connection_id,model_id,input_nanos_per_million,output_nanos_per_million,cache_read_nanos_per_million,source,effective_from,weekly_start_minute_utc,weekly_end_minute_utc,created_at)
+		VALUES ('price_before','conn_test','model_test',100,100,100,'test',?,0,60,?),('price_after','conn_test','model_test',200,200,200,'test',?,60,120,?)`, quote.Add(-time.Hour).UnixMilli(), quote.UnixMilli(), quote.Add(-time.Hour).UnixMilli(), quote.UnixMilli()); err != nil {
+		t.Fatal(err)
+	}
+	quotedID := "price_before"
+	admission, err := service.Admit(ctx, AdmissionInput{KeyID: keyID, ConnectionID: "conn_test", ModelID: "model_test", Operation: "chat", Scope: "chat:generate", Dialect: "openai", EstimatedInputTokens: 1_000_000, PriceQuoteAt: quote.UnixMilli(), QuotedPriceVersionID: &quotedID})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var storedID string
+	var quotedAt, startedAt, estimate int64
+	if err := store.SystemDB().QueryRowContext(ctx, "SELECT price_version_id,price_quoted_at,started_at,estimated_cost_nanos FROM attempts WHERE id=?", admission.AttemptID).Scan(&storedID, &quotedAt, &startedAt, &estimate); err != nil {
+		t.Fatal(err)
+	}
+	if storedID != quotedID || quotedAt != quote.UnixMilli() || startedAt <= quotedAt || estimate != 100 {
+		t.Fatalf("stored quote=%s/%d started=%d estimate=%d", storedID, quotedAt, startedAt, estimate)
+	}
+	wrongID := "price_after"
+	if _, err := service.Admit(ctx, AdmissionInput{KeyID: keyID, ConnectionID: "conn_test", ModelID: "model_test", Operation: "chat", Scope: "chat:generate", Dialect: "openai", PriceQuoteAt: quote.UnixMilli(), QuotedPriceVersionID: &wrongID}); !errors.Is(err, ErrConflict) {
+		t.Fatalf("mismatched quote = %v", err)
+	}
+	if _, err := store.SystemDB().ExecContext(ctx, `INSERT INTO price_versions (id,connection_id,model_id,input_nanos_per_million,output_nanos_per_million,cache_read_nanos_per_million,source,effective_from,weekly_start_minute_utc,weekly_end_minute_utc,created_at)
+		VALUES ('price_free','conn_test','model_free',0,0,0,'test',?,0,60,?)`, quote.Add(-48*time.Hour).UnixMilli(), quote.Add(-24*time.Hour).UnixMilli()); err != nil {
+		t.Fatal(err)
+	}
+	freeID := "price_free"
+	if _, err := service.Admit(ctx, AdmissionInput{KeyID: keyID, ConnectionID: "conn_test", ModelID: "model_free", Operation: "chat", Scope: "chat:generate", Dialect: "openai", PriceQuoteAt: quote.UnixMilli(), QuotedPriceVersionID: &freeID, RequiredPriceVersionID: freeID, RequireFreePrice: true}); err != nil {
+		t.Fatalf("free quote at freshness boundary = %v", err)
+	}
+}
+
+func TestAdmissionReservesTheHigherPossibleCacheReadRate(t *testing.T) {
+	ctx, service, owner, keyID, store := testService(t)
+	defer store.Close()
+	cacheRate := "3"
+	if _, err := service.CreatePrice(ctx, owner, PriceInput{ConnectionID: "conn_test", ModelID: "model_test", InputUSDPerMillion: "1", OutputUSDPerMillion: "0", CacheReadUSDPerMillion: &cacheRate, Source: "test", EffectiveFrom: time.Now().Add(-time.Hour).UTC().Format(time.RFC3339)}); err != nil {
+		t.Fatal(err)
+	}
+	createPolicy(t, ctx, service, owner, PolicyInput{ScopeKind: "key", ScopeID: keyID, Metric: "spend", Algorithm: "quota", Period: "lifetime", LimitUSD: "2"})
+	_, err := service.Admit(ctx, AdmissionInput{KeyID: keyID, ConnectionID: "conn_test", ModelID: "model_test", Operation: "chat", Scope: "chat:generate", Dialect: "openai", EstimatedInputTokens: 1_000_000})
+	var denial *Denial
+	if !errors.As(err, &denial) || denial.Metric != "spend" {
+		t.Fatalf("higher cache-rate admission = %v", err)
+	}
+	var attempts int
+	if err := store.SystemDB().QueryRowContext(ctx, "SELECT COUNT(*) FROM attempts").Scan(&attempts); err != nil || attempts != 0 {
+		t.Fatalf("denied attempts=%d err=%v", attempts, err)
+	}
+}
+
 func TestCalendarQuotaResetsAtUTCBoundary(t *testing.T) {
 	for name, period := range map[string]string{"week": "week", "month": "month"} {
 		t.Run(name, func(t *testing.T) {

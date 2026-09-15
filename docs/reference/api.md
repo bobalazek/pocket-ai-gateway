@@ -181,7 +181,8 @@ Base path /api/v1/. Server-side session cookies authorize browser operations; se
 | Provider types | GET /providers | Gateway provider/adapter catalog; safe capability metadata |
 | Credential replacement | PUT /connections/{id}/credential | Write-only secret/reference; no reveal endpoint |
 | Provider tests/discovery | POST /connections/{id}/test, POST /connections/{id}/discover | Explicit test mode; billable mode requires scoped inference key |
-| Upstream catalog/prices | GET/POST/PATCH catalog resources under /connections/{id}/models | Candidate data; price versions immutable after use |
+| Upstream catalog | GET/POST/PATCH catalog resources under /connections/{id}/models | Candidate model data; catalog refresh never publishes automatically |
+| Prices | GET/POST /admin/prices | Immutable effective-dated prices support nullable cache-read rates and non-overlapping half-open weekly UTC windows; attempts retain the quoted version and quote time |
 | Public models/routes | GET/POST /models, GET /admin/models, GET/PUT /admin/models/{id}/route | Owner/admin mutations; member reads limited public projection; fixed and embedding routes use one target; free-only needs manager-recorded zero pricing verified within 24 hours |
 | Route preview | POST /admin/models/{id}/route-preview | Owner/admin; representative operation, stream mode, and token estimates; no dispatch |
 | Policies | GET /keys/{id}/effective-limits, GET/POST /admin/policies, PATCH /admin/policies/{id} | Owner/admin writes; member reads own effective limits |
@@ -199,6 +200,8 @@ Base path /api/v1/. Server-side session cookies authorize browser operations; se
 OpenAPI must fully define fields, required/optional distinctions, ownership, read/write-only secrets, limits, pagination, and errors for each implemented slice. This route inventory is not a completed OpenAPI spec.
 
 List responses use data, next_cursor, and has_more; bounded limit defaults to 50 and caps at 200. Cursors include a stable sort key and are validated/scoped. Money is a decimal string; timestamps are UTC RFC 3339.
+
+Inference response bodies keep the selected compatibility protocol unchanged. Providers generally report token usage but do not report a trusted monetary cost. Every admitted inference response exposes `X-Pocket-AI-Request-ID`; `GET /api/v1/requests?request_id=...` returns the normalized usage, current cost, and recorded/restated price provenance once settlement completes. Unknown usage or an incomplete price contract remains null rather than becoming zero.
 
 Configuration writes carry a revision/If-Match precondition. Duplicate create submissions support a bounded idempotency key where needed; do not persist plaintext key secrets for replay. If a key-create response is lost, list/revoke the unusable credential and rotate explicitly.
 
