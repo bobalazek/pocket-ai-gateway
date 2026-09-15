@@ -19,20 +19,16 @@ func TestSetupHTTPFlow(t *testing.T) {
 	}
 	defer store.Close()
 	service := New(store.SystemDB())
-	code, _, err := service.PrepareSetup(context.Background())
-	if err != nil {
-		t.Fatal(err)
-	}
 	mux := http.NewServeMux()
 	NewHandler(service).Register(mux)
 
 	status := httptest.NewRecorder()
 	mux.ServeHTTP(status, httptest.NewRequest(http.MethodGet, "/api/v1/auth/setup/status", nil))
-	if status.Code != http.StatusOK || strings.Contains(status.Body.String(), code) {
-		t.Fatalf("unsafe setup status: %d %s", status.Code, status.Body.String())
+	if status.Code != http.StatusOK || status.Body.String() != "{\"setup_required\":true}\n" {
+		t.Fatalf("setup status: %d %s", status.Code, status.Body.String())
 	}
 
-	body := `{"setup_code":"` + code + `","email":"owner@example.test","display_name":"Owner","password":"correct-horse-battery"}`
+	body := `{"email":"owner@example.test","display_name":"Owner","password":"correct-horse-battery"}`
 	claimRequest := httptest.NewRequest(http.MethodPost, "http://gateway.test/api/v1/auth/setup/claim", strings.NewReader(body))
 	claimRequest.Header.Set("Content-Type", "application/json")
 	claimRequest.Header.Set("Origin", "http://gateway.test")
@@ -60,10 +56,10 @@ func TestSetupHTTPFlow(t *testing.T) {
 	if err := json.Unmarshal(session.Body.Bytes(), &sessionBody); err != nil || sessionBody.Session.ID == "" || sessionBody.Session.CreatedAt == "" || sessionBody.Session.LastSeenAt == "" || !sessionBody.User.Grants.Unrestricted {
 		t.Fatalf("session contract = %#v, %v", sessionBody, err)
 	}
-	recoveryStatus := httptest.NewRecorder()
-	mux.ServeHTTP(recoveryStatus, httptest.NewRequest(http.MethodGet, "/api/v1/auth/setup/status", nil))
-	if recoveryStatus.Code != http.StatusOK || !strings.Contains(recoveryStatus.Body.String(), `"setup_recovery_available":true`) {
-		t.Fatalf("recovery status = %d: %s", recoveryStatus.Code, recoveryStatus.Body.String())
+	completeStatus := httptest.NewRecorder()
+	mux.ServeHTTP(completeStatus, httptest.NewRequest(http.MethodGet, "/api/v1/auth/setup/status", nil))
+	if completeStatus.Code != http.StatusOK || completeStatus.Body.String() != "{\"setup_required\":false}\n" {
+		t.Fatalf("complete status = %d: %s", completeStatus.Code, completeStatus.Body.String())
 	}
 
 	deniedRequest := httptest.NewRequest(http.MethodPost, "http://gateway.test/api/v1/auth/setup/claim", strings.NewReader(body))

@@ -9,8 +9,8 @@ Status: complete. [Plan index](README.md)
 | F1.1 Runtime/build | Go entry point, serve/version, loopback listener, flags/environment precedence, signal shutdown; built binary serves assets after source/build folders are removed | RUN-01, OPS-02 |
 | F1.2 Storage/locking | Pin reviewed driver, confirm SQLite fix/version and target architectures; initialize system.db/data.db, foreign keys, WAL, busy timeout, per-store migration checksums and sqlc, protected files, OS lock; second process refuses access | RUN-01, DATA-01, SEC-01 |
 | F1.3 Snapshot/recovery probe | Implement protected paired offline snapshot and integrity/restore proof on disposable data; simulated interruption cannot erase the source; newer schema refused | OPS-01, DATA-01 |
-| F1.4 Verification entry point | One local verification command with formatting/vet/tests/UI build and embedded artifact smoke; CI mirrors this shared gate | NFR-06, OPS-02 |
-| F1.5 Owner bootstrap | Route an unclaimed dashboard to `/_/setup/`; use a short-lived code from an owner-only local file to atomically create the sole owner and an HttpOnly session; no default credentials | IAM-01, SEC-01, UI-01 |
+| F1.4 Verification entry point | One full local/release verification command with formatting/vet/tests/UI build and embedded artifact smoke; routine CI runs its quick mode without race or copied-binary smoke checks | NFR-06, OPS-02 |
+| F1.5 Owner bootstrap | Route an unclaimed dashboard to `/_/setup/`; atomically create the sole owner and an HttpOnly session from the first same-origin claim; no default credentials | IAM-01, SEC-01, UI-01 |
 
 Frontend: structural shell under /_/, first-run owner setup, minimal safe readiness/status output, locally served assets, API 404 behavior, typed same-origin API client, and black/white visual tokens with a restrained blue accent. Provider settings stay unavailable until their protected APIs exist.
 

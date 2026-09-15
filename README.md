@@ -45,7 +45,7 @@ The server listens on `127.0.0.1:8080` and stores state in `./pocket_gateway_dat
 
 ## First-time setup
 
-When the data directory has no users, the dashboard opens the setup flow and the server prints a one-time setup URL. Use it to create the owner account. Pocket AI Gateway never creates a default email or password.
+When the data directory has no users, the dashboard opens the setup flow. Create the owner account directly in the browser; Pocket AI Gateway never creates a default email or password.
 
 Then use the dashboard to:
 

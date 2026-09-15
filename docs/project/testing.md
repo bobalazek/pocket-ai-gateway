@@ -1,6 +1,6 @@
 # Testing strategy
 
-Every phase ships with tests for its observable behavior and failure boundaries. Tests run from the shared `scripts/verify.sh` entrypoint locally and in CI.
+Every phase ships with tests for its observable behavior and failure boundaries. The full `scripts/verify.sh` entrypoint runs locally and for releases. Routine CI uses its quick mode for format, lint, build, unit, integration, TypeScript, and SDK checks; race and copied-binary smoke checks remain in the full gate.
 
 | Layer | Purpose | Required examples |
 | --- | --- | --- |

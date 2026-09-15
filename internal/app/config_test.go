@@ -45,8 +45,7 @@ func TestOwnerResetWritesProtectedCodeAndRevokesSessions(t *testing.T) {
 		t.Fatal(err)
 	}
 	service := auth.New(store.SystemDB())
-	setupCode, _, _ := service.PrepareSetup(ctx)
-	_, session, err := service.Claim(ctx, auth.ClaimInput{SetupCode: setupCode, Email: "owner@example.test", DisplayName: "Owner", Password: "correct-horse-battery"})
+	_, session, err := service.Claim(ctx, auth.ClaimInput{Email: "owner@example.test", DisplayName: "Owner", Password: "correct-horse-battery"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -73,25 +72,6 @@ func TestOwnerResetWritesProtectedCodeAndRevokesSessions(t *testing.T) {
 	}
 	if _, _, err := service.Activate(ctx, auth.ActivateInput{Code: strings.TrimSpace(string(contents)), Password: "new-owner-password-value"}); err != nil {
 		t.Fatal(err)
-	}
-}
-
-func TestWriteSetupCodeCreatesProtectedFile(t *testing.T) {
-	directory := t.TempDir()
-	if err := writeSetupCode(directory, "test-code"); err != nil {
-		t.Fatal(err)
-	}
-	filename := filepath.Join(directory, "setup-code")
-	contents, err := os.ReadFile(filename)
-	if err != nil {
-		t.Fatal(err)
-	}
-	info, err := os.Stat(filename)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if string(contents) != "test-code\n" || info.Mode().Perm()&0o077 != 0 {
-		t.Fatalf("setup file contents/permissions = %q %o", contents, info.Mode().Perm())
 	}
 }
 

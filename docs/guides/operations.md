@@ -72,4 +72,4 @@ If startup fails after a migration, stop the service and use the previous binary
 
 Keep free space for both databases, WAL files, one temporary backup, and migration snapshots. SQLite write failures stop the affected request before provider dispatch where possible. A provider response accepted before a persistence failure remains conservatively reserved and is recovered as unknown. The durable outbox is bounded; readiness and authenticated diagnostics expose pending projection events.
 
-Pocket AI Gateway sends no public telemetry. Logs contain runtime state and safe identifiers, never prompts, provider credentials, application key secrets, passwords, setup codes, or backup keys.
+Pocket AI Gateway sends no public telemetry. Logs contain runtime state and safe identifiers, never prompts, provider credentials, application key secrets, passwords, recovery codes, or backup keys.

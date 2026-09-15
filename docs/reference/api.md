@@ -138,7 +138,7 @@ Base path /api/v1/. Server-side session cookies authorize browser operations; se
 
 | Resource/action | Methods and representative paths | Permission / important behavior |
 | --- | --- | --- |
-| Setup | GET /auth/setup/status, POST /auth/setup/claim | Implemented in Phase 1; status exposes only the claim requirement, and the local code atomically creates the sole owner |
+| Setup | GET /auth/setup/status, POST /auth/setup/claim | Status exposes only the claim requirement; the first same-origin claim atomically creates the sole owner |
 | Current session | GET /auth/session | Implemented in Phase 1; safe current-owner fields from the HttpOnly server-side session |
 | Activation | POST /auth/activate | One-time code; limited session until password chosen |
 | Sessions | POST /auth/login, POST /auth/logout, GET/DELETE /auth/sessions | Own sessions, CSRF on cookie mutations |

@@ -29,7 +29,10 @@ go mod tidy -diff
 go vet ./...
 go tool staticcheck ./...
 go test ./...
-go test -race ./internal/storage ./internal/server ./internal/app ./internal/features/auth ./internal/features/users ./internal/features/keys ./internal/features/usage ./internal/features/providers ./internal/features/operations ./internal/features/gateway
 pnpm --dir web typecheck
 pnpm --dir web test
-./scripts/smoke.sh "$root/dist/pocket-ai-gateway"
+
+if [[ "${POCKET_AI_GATEWAY_QUICK_VERIFY:-}" != "1" ]]; then
+  go test -race ./internal/storage ./internal/server ./internal/app ./internal/features/auth ./internal/features/users ./internal/features/keys ./internal/features/usage ./internal/features/providers ./internal/features/operations ./internal/features/gateway
+  ./scripts/smoke.sh "$root/dist/pocket-ai-gateway"
+fi

@@ -19,10 +19,9 @@ paths:
             application/json:
               schema:
                 type: object
-                required: [setup_required, setup_recovery_available]
+                required: [setup_required]
                 properties:
                   setup_required: { type: boolean }
-                  setup_recovery_available: { type: boolean }
         "503": { $ref: "#/components/responses/ServiceUnavailable" }
         default: { $ref: "#/components/responses/Error" }
   /auth/setup/claim:
@@ -37,7 +36,6 @@ paths:
       responses:
         "201": { $ref: "#/components/responses/User" }
         "400": { $ref: "#/components/responses/BadRequest" }
-        "401": { $ref: "#/components/responses/Unauthorized" }
         "403": { $ref: "#/components/responses/Forbidden" }
         "409": { $ref: "#/components/responses/Conflict" }
         "413": { $ref: "#/components/responses/PayloadTooLarge" }
@@ -1392,9 +1390,8 @@ components:
     OwnerClaim:
       type: object
       additionalProperties: false
-      required: [setup_code, email, display_name, password]
+      required: [email, display_name, password]
       properties:
-        setup_code: { type: string, writeOnly: true }
         email: { type: string, format: email, maxLength: 254 }
         display_name: { type: string, minLength: 1, maxLength: 100 }
         password: { type: string, format: password, minLength: 12, maxLength: 1024, writeOnly: true }

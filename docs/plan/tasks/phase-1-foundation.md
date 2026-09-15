@@ -17,7 +17,7 @@ Read [shared context](00-context.md), [architecture](../../architecture/README.m
 - Implement serve/version, explicit listen/data-dir options, flags → environment → defaults, safe startup logging, and signal-driven HTTP shutdown.
 - Add web/package.json, a pinned lockfile, strict TypeScript/Next.js export configuration, the smallest shell in web/src/app/, and web/embed.go for production assets.
 - Serve exported /_/ screen pages and their assets from embedded files. Known screen URLs with query-string record IDs work after refresh; unknown dashboard URLs get the dashboard 404. Unknown /api/, /api/openai/, /api/anthropic/, /api/gemini/, and unprefixed /v1/ paths get JSON 404s.
-- Provide minimal /healthz, a safe startup status screen, and a first-run owner claim protected by a short-lived code in an owner-only local file. This task does not accept provider secrets or expose broader administration.
+- Provide minimal /healthz, a safe startup status screen, and a first-run same-origin owner claim. This task does not accept provider secrets or expose broader administration.
 - Add one verification entry point, initially scripts/verify.sh or an equivalently simple portable command, covering the implemented Go/frontend checks and artifact smoke.
 - Add repository ignore rules for build artifacts, local data, secrets, and generated frontend output. Update README with actual build/run commands only after they work.
 
@@ -37,7 +37,7 @@ Keep version/status output honest: owner bootstrap is implemented; login, broade
 4. Default listening is loopback; explicit configuration overrides documented defaults.
 5. Termination shuts down without leaked listeners/goroutines or hanging the verification run.
 6. Formatting, go vet, Go tests, TypeScript checks, and frontend build all pass through the shared verification command.
-7. An unclaimed dashboard routes to setup; a valid one-time code creates exactly one owner and an HttpOnly session, including under concurrent claim attempts.
+7. An unclaimed dashboard routes to setup; the first valid same-origin claim creates exactly one owner and an HttpOnly session, including under concurrent claim attempts.
 
 Leave focused runnable httptest/process smoke checks for route separation, configuration precedence, embedded assets, and shutdown. Demonstrate the route-separation guard fails if the SPA fallback is incorrectly applied to /v1/.
 
