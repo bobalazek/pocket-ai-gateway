@@ -25,7 +25,7 @@ Base URL: `/api/openai/v1`.
 | `POST /embeddings` | Native target only | Preserves order, dimensions, encoding, and usage; no cross-model fallback |
 | `GET /responses/{id}`, `DELETE /responses/{id}` | Implemented, gateway-owned | Creating-key retrieval and deletion; the gateway replaces the upstream ID and keeps upstream storage disabled |
 | `POST /responses/{id}/cancel`, `GET /responses/{id}/input_items` | Constrained, gateway-owned | Creating-key cancellation and bounded cursor pagination over stored input; `include[]` projections and input from pre-migration Responses return an explicit unsupported-feature error |
-| Conversations and conversation items | Pending | Needs durable ownership, retention, and provider-affinity rules |
+| Conversations and conversation items | Constrained, gateway-owned | Resource and item CRUD, metadata, key isolation, storage bounds, and cursor pagination are implemented; Response attachment and provider references/projections remain pending |
 | Files, uploads, and vector stores | Pending | Needs encrypted object storage, quotas, scanning, and lifecycle rules |
 | Batches | Pending | Needs durable jobs, cancellation, billing, result retention, and restart recovery |
 | Images, audio, video, and moderations | Pending | Each media format needs its own bounded upload/download and accounting contract |

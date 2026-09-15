@@ -117,6 +117,12 @@ func TestConfigPreviewRejectsUnsafeProviderAndRetentionPreservesEnforcement(t *t
 	if _, err := store.SystemDB().ExecContext(ctx, `INSERT INTO stored_responses(id,owner_user_id,key_id,model_id,body_json,created_at,expires_at) VALUES('resp_old','usr_owner','key_old','public-model','{}',0,0)`); err != nil {
 		t.Fatal(err)
 	}
+	if _, err := store.SystemDB().ExecContext(ctx, `INSERT INTO conversations(id,owner_user_id,key_id,metadata_json,created_at,deleted_at) VALUES('conv_old','usr_owner','key_old','{}',0,0)`); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.SystemDB().ExecContext(ctx, `INSERT INTO conversation_items(conversation_id,id,ordinal,body_json,created_at) VALUES('conv_old','citem_old',1,'{}',0)`); err != nil {
+		t.Fatal(err)
+	}
 	if _, err := store.DataDB().ExecContext(ctx, `INSERT INTO usage_events(event_id,event_type,payload_json,created_at) VALUES('evt_old','test','{"secret":true}',0)`); err != nil {
 		t.Fatal(err)
 	}
@@ -143,6 +149,12 @@ func TestConfigPreviewRejectsUnsafeProviderAndRetentionPreservesEnforcement(t *t
 	var storedResponses int
 	if err := store.SystemDB().QueryRowContext(ctx, `SELECT COUNT(*) FROM stored_responses`).Scan(&storedResponses); err != nil || storedResponses != 0 {
 		t.Fatalf("expired stored responses = %d, error = %v", storedResponses, err)
+	}
+	var conversations, conversationItems int
+	_ = store.SystemDB().QueryRowContext(ctx, `SELECT COUNT(*) FROM conversations WHERE id='conv_old'`).Scan(&conversations)
+	_ = store.SystemDB().QueryRowContext(ctx, `SELECT COUNT(*) FROM conversation_items WHERE id='citem_old'`).Scan(&conversationItems)
+	if conversations != 0 || conversationItems != 0 {
+		t.Fatalf("manual conversation retention left conversations=%d items=%d", conversations, conversationItems)
 	}
 	if _, err := store.SystemDB().ExecContext(ctx, `INSERT INTO event_outbox(id,event_type,payload_json,created_at) VALUES('evt_pending_old','test','{"secret":true}',0)`); err != nil {
 		t.Fatal(err)
@@ -172,11 +184,22 @@ func TestConfigPreviewRejectsUnsafeProviderAndRetentionPreservesEnforcement(t *t
 	if _, err := store.SystemDB().ExecContext(ctx, `INSERT INTO stored_responses(id,owner_user_id,key_id,model_id,body_json,created_at,expires_at) VALUES('resp_due','usr_owner','key_old','public-model','{}',0,0)`); err != nil {
 		t.Fatal(err)
 	}
+	if _, err := store.SystemDB().ExecContext(ctx, `INSERT INTO conversations(id,owner_user_id,key_id,metadata_json,created_at,deleted_at) VALUES('conv_due','usr_owner','key_old','{}',0,0)`); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.SystemDB().ExecContext(ctx, `INSERT INTO conversation_items(conversation_id,id,ordinal,body_json,created_at) VALUES('conv_due','citem_due',1,'{}',0)`); err != nil {
+		t.Fatal(err)
+	}
 	if err := service.RunDue(ctx); err != nil {
 		t.Fatal(err)
 	}
 	if err := store.SystemDB().QueryRowContext(ctx, `SELECT COUNT(*) FROM stored_responses`).Scan(&storedResponses); err != nil || storedResponses != 0 {
 		t.Fatalf("scheduled expired responses = %d, error = %v", storedResponses, err)
+	}
+	_ = store.SystemDB().QueryRowContext(ctx, `SELECT COUNT(*) FROM conversations WHERE id='conv_due'`).Scan(&conversations)
+	_ = store.SystemDB().QueryRowContext(ctx, `SELECT COUNT(*) FROM conversation_items WHERE id='citem_due'`).Scan(&conversationItems)
+	if conversations != 0 || conversationItems != 0 {
+		t.Fatalf("scheduled conversation retention left conversations=%d items=%d", conversations, conversationItems)
 	}
 	items, _, err := usage.New(store.SystemDB()).ListRequests(ctx, auth.User{ID: "usr_owner", Role: "owner"}, usage.UsageQuery{})
 	if err != nil || len(items) != 0 {

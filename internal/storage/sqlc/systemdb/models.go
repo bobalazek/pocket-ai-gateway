@@ -139,6 +139,23 @@ type ConcurrencyLease struct {
 	CreatedAt    int64          `json:"created_at"`
 }
 
+type Conversation struct {
+	ID           string        `json:"id"`
+	OwnerUserID  string        `json:"owner_user_id"`
+	KeyID        string        `json:"key_id"`
+	MetadataJson string        `json:"metadata_json"`
+	CreatedAt    int64         `json:"created_at"`
+	DeletedAt    sql.NullInt64 `json:"deleted_at"`
+}
+
+type ConversationItem struct {
+	ConversationID string `json:"conversation_id"`
+	ID             string `json:"id"`
+	Ordinal        int64  `json:"ordinal"`
+	BodyJson       []byte `json:"body_json"`
+	CreatedAt      int64  `json:"created_at"`
+}
+
 type CostAssessment struct {
 	ID                 string `json:"id"`
 	AttemptID          string `json:"attempt_id"`

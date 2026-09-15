@@ -30,6 +30,10 @@ The prefix names the **client API specification**, not a forced upstream provide
 | GET/DELETE /api/openai/v1/responses/{id} | Creating-key retrieval and deletion of gateway-owned stored Responses |
 | POST /api/openai/v1/responses/{id}/cancel | Cancels a queued or in-progress background Response |
 | GET /api/openai/v1/responses/{id}/input_items | Bounded cursor pagination over the stored original input |
+| POST /api/openai/v1/conversations | Create a key-owned local conversation with optional initial items |
+| GET/POST/DELETE /api/openai/v1/conversations/{id} | Retrieve, update metadata, or delete a key-owned conversation |
+| POST/GET /api/openai/v1/conversations/{id}/items | Add or paginate gateway-owned conversation items |
+| GET/DELETE /api/openai/v1/conversations/{id}/items/{item_id} | Retrieve or remove one gateway-owned item |
 | POST /api/openai/v1/embeddings | OpenAI embedding inputs/indexes/encoding/dimensions/usage |
 | GET /api/openai/v1/models and /models/{id} beneath that root | OpenAI model list/detail; authorized public models |
 | POST /api/anthropic/v1/messages | Anthropic message/content blocks, stop reasons, usage, typed content stream |
@@ -116,6 +120,8 @@ Embedding translation preserves indexes, vector dimensions, encodings, task sett
 Responses translation includes output items, tool-call/results, usage, and lifecycle events. Non-streaming responses are stored by default for 30 days under the creating API key and can be retrieved, cancelled while active, inspected for input items, or deleted through the OpenAI namespace. The gateway assigns the public response ID and sends `store:false` upstream so provider storage is never implied. Stateless `store:false` requests support JSON and lifecycle SSE. Conversation chains, hosted tools, and provider-owned files/caches remain separate resource contracts.
 
 Response compaction is forwarded only to the native OpenAI preset. The gateway rewrites the public model to the selected upstream model and accounts returned usage. Direct `model` and inline `input` are required; response, conversation, item, file, and container references are rejected because resolving provider-owned resources with a shared credential would violate gateway ownership. [OpenAI compact reference](https://developers.openai.com/api/reference/java/resources/responses/methods/compact)
+
+Conversation resources are stored locally under the creating API key. Create, retrieve, metadata update, deletion, item addition, item retrieval, item deletion, and cursor pagination match the official resource shapes for messages, function calls, and string function outputs. Provider-owned item/file/container references, other item types, and `include` projections are rejected. Global, owner, key, and per-conversation caps bound retained data; deleted content is purged after 30 days. Passing a conversation to `POST /responses` remains unavailable until atomic context attachment and output persistence are implemented. [OpenAI Conversations reference](https://developers.openai.com/api/reference/python/resources/conversations/methods/create)
 
 Full API fidelity is the goal, not a blanket claim at alpha. Maintain a complete official endpoint/field inventory for all three specs: mark each implemented/tested, native-only, translated, pending, or inherently unavailable for a target. Assign files, batches, cached resources, provider-hosted tools, multimodal/realtime, and remaining stateful surfaces to explicit phase 8 work. Do not call rejected or unimplemented operations fully supported.
 

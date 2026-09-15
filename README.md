@@ -76,7 +76,7 @@ Each protocol has its own namespace. The gateway does not combine unrelated API 
 
 The official OpenAI, Anthropic, and Google Gen AI TypeScript SDKs run in the integration suite. Supported cross-provider generation includes text, image input, JSON schema output, function tools and results, stop sequences, token usage, and compatible incremental streams.
 
-OpenAI Responses supports stateless streaming, local storage, durable background execution, polling, cancellation, input-item listing, deletion, and native response compaction on the OpenAI preset. Embeddings and token counting use native capable targets so the gateway never invents vector spaces or tokenizer results.
+OpenAI Responses supports stateless streaming, local storage, durable background execution, polling, cancellation, input-item listing, deletion, native response compaction on the OpenAI preset, and key-owned Conversation resource management. Embeddings and token counting use native capable targets so the gateway never invents vector spaces or tokenizer results.
 
 See the exact [compatibility matrix](docs/project/compatibility.md) and the [OpenAI](docs/features/openai-compatible.md), [Anthropic](docs/features/anthropic-compatible.md), and [Gemini](docs/features/gemini-compatible.md) API guides.
 

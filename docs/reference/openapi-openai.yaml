@@ -1,5 +1,5 @@
 openapi: 3.1.0
-info: { title: Pocket AI Gateway OpenAI-Compatible API, version: 0.5.0 }
+info: { title: Pocket AI Gateway OpenAI-Compatible API, version: 0.6.0 }
 servers: [{ url: /api/openai/v1 }]
 security: [{ bearerAuth: [] }]
 paths:
@@ -50,6 +50,48 @@ paths:
         - { name: order, in: query, schema: { type: string, enum: [asc, desc], default: desc } }
         - { name: "include[]", in: query, description: Currently rejected because provider-owned projections are not retained, schema: { type: array, items: { type: string } } }
       responses: { "200": { description: Stored input items owned by the authenticated API key }, "404": { description: Response unavailable }, default: { description: OpenAI-compatible error } }
+  /conversations:
+    post:
+      operationId: createConversation
+      description: Creates a gateway-owned conversation for the authenticated API key.
+      requestBody: { content: { application/json: { schema: { type: object, properties: { metadata: { oneOf: [{ type: object, maxProperties: 16, propertyNames: { maxLength: 64 }, additionalProperties: { type: string, maxLength: 512 } }, { type: "null" }] }, items: { oneOf: [{ type: array, maxItems: 20, items: { type: object } }, { type: "null" }] } }, additionalProperties: false } } } }
+      responses: { "200": { description: Conversation }, default: { description: OpenAI-compatible error } }
+  /conversations/{conversation_id}:
+    parameters: [{ name: conversation_id, in: path, required: true, schema: { type: string } }]
+    get:
+      operationId: getConversation
+      responses: { "200": { description: Conversation owned by the authenticated API key }, "404": { description: Conversation unavailable }, default: { description: OpenAI-compatible error } }
+    post:
+      operationId: updateConversation
+      requestBody: { required: true, content: { application/json: { schema: { type: object, required: [metadata], properties: { metadata: { oneOf: [{ type: object, maxProperties: 16, propertyNames: { maxLength: 64 }, additionalProperties: { type: string, maxLength: 512 } }, { type: "null" }] } }, additionalProperties: false } } } }
+      responses: { "200": { description: Updated conversation }, "404": { description: Conversation unavailable }, default: { description: OpenAI-compatible error } }
+    delete:
+      operationId: deleteConversation
+      responses: { "200": { description: Conversation deletion result }, "404": { description: Conversation unavailable }, default: { description: OpenAI-compatible error } }
+  /conversations/{conversation_id}/items:
+    parameters: [{ name: conversation_id, in: path, required: true, schema: { type: string } }]
+    post:
+      operationId: createConversationItems
+      parameters: [{ name: "include[]", in: query, description: Rejected until provider-owned projections have gateway storage, schema: { type: array, items: { type: string } } }]
+      requestBody: { required: true, content: { application/json: { schema: { type: object, required: [items], properties: { items: { type: array, minItems: 1, maxItems: 20, items: { type: object } } }, additionalProperties: false } } } }
+      responses: { "200": { description: Added gateway-owned items }, "404": { description: Conversation unavailable }, default: { description: OpenAI-compatible error } }
+    get:
+      operationId: listConversationItems
+      parameters:
+        - { name: after, in: query, schema: { type: string } }
+        - { name: limit, in: query, schema: { type: integer, minimum: 1, maximum: 100, default: 20 } }
+        - { name: order, in: query, schema: { type: string, enum: [asc, desc], default: desc } }
+        - { name: "include[]", in: query, description: Rejected until provider-owned projections have gateway storage, schema: { type: array, items: { type: string } } }
+      responses: { "200": { description: Cursor page of gateway-owned items }, "404": { description: Conversation or cursor unavailable }, default: { description: OpenAI-compatible error } }
+  /conversations/{conversation_id}/items/{item_id}:
+    parameters: [{ name: conversation_id, in: path, required: true, schema: { type: string } }, { name: item_id, in: path, required: true, schema: { type: string } }]
+    get:
+      operationId: getConversationItem
+      parameters: [{ name: "include[]", in: query, description: Rejected until provider-owned projections have gateway storage, schema: { type: array, items: { type: string } } }]
+      responses: { "200": { description: Gateway-owned conversation item }, "404": { description: Item unavailable }, default: { description: OpenAI-compatible error } }
+    delete:
+      operationId: deleteConversationItem
+      responses: { "200": { description: Parent conversation after item deletion }, "404": { description: Item unavailable }, default: { description: OpenAI-compatible error } }
   /embeddings:
     post:
       operationId: createEmbedding

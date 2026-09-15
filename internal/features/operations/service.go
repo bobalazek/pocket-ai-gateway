@@ -339,6 +339,9 @@ func (service *Service) RunDue(ctx context.Context) error {
 	if _, err := service.store.SystemDB().ExecContext(ctx, `DELETE FROM stored_responses WHERE expires_at < ?`, time.Now().UnixMilli()); err != nil {
 		return err
 	}
+	if _, _, err := purgeDeletedConversations(ctx, service.store.SystemDB(), time.Now().Add(-30*24*time.Hour).UnixMilli()); err != nil {
+		return err
+	}
 	settings, err := service.Settings(ctx)
 	if err != nil || !settings.BackupEnabled {
 		return err
@@ -388,6 +391,11 @@ func (service *Service) RunRetention(ctx context.Context, actor string) (map[str
 		return nil, err
 	}
 	counts["stored_responses"] = rowsAffected(result)
+	items, conversations, err := purgeDeletedConversations(ctx, tx, time.Now().Add(-30*24*time.Hour).UnixMilli())
+	if err != nil {
+		return nil, err
+	}
+	counts["conversation_items"], counts["conversations"] = items, conversations
 	result, err = tx.ExecContext(ctx, `DELETE FROM audit_events WHERE created_at < ?`, auditCutoff)
 	if err != nil {
 		return nil, err
@@ -420,6 +428,20 @@ func (service *Service) RunRetention(ctx context.Context, actor string) (map[str
 		return nil, err
 	}
 	return counts, nil
+}
+
+func purgeDeletedConversations(ctx context.Context, executor interface {
+	ExecContext(context.Context, string, ...any) (sql.Result, error)
+}, before int64) (int64, int64, error) {
+	items, err := executor.ExecContext(ctx, `DELETE FROM conversation_items WHERE conversation_id IN (SELECT id FROM conversations WHERE deleted_at IS NOT NULL AND deleted_at < ?)`, before)
+	if err != nil {
+		return 0, 0, err
+	}
+	conversations, err := executor.ExecContext(ctx, `DELETE FROM conversations WHERE deleted_at IS NOT NULL AND deleted_at < ?`, before)
+	if err != nil {
+		return 0, 0, err
+	}
+	return rowsAffected(items), rowsAffected(conversations), nil
 }
 
 func (service *Service) Audit(ctx context.Context, query AuditQuery) ([]AuditEvent, string, error) {

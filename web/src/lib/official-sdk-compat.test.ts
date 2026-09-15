@@ -87,6 +87,34 @@ describe("official SDK compatibility through the Go gateway", () => {
     expect(result).toMatchObject({ object: "response.compaction", output: [{ type: "compaction" }] });
   });
 
+  it("manages gateway-owned OpenAI conversations", async () => {
+    const client = openAI();
+    const empty = await client.conversations.create();
+    await client.conversations.delete(empty.id);
+    const conversation = await client.conversations.create({
+      metadata: { topic: "sdk" },
+      items: [{ role: "user", content: "Hello" }],
+    });
+    expect(conversation).toMatchObject({ object: "conversation", metadata: { topic: "sdk" } });
+    const added = await client.conversations.items.create(conversation.id, {
+      items: [
+        { type: "message", role: "user", content: [{ type: "input_text", text: "Next" }] },
+        { type: "function_call_output", call_id: "call_1", output: "done" },
+      ],
+    });
+    const itemID = added.data[0]?.id;
+    expect(itemID).toMatch(/^citem_/);
+    expect(added.data[1]).toMatchObject({ type: "function_call_output", status: "completed" });
+    if (!itemID) throw new Error("conversation item ID is missing");
+    expect((await client.conversations.items.retrieve(itemID, { conversation_id: conversation.id })).id).toBe(itemID);
+    const page = await client.conversations.items.list(conversation.id, { order: "asc", limit: 1 });
+    expect(page.data).toHaveLength(1);
+    expect(page.has_more).toBe(true);
+    expect((await client.conversations.update(conversation.id, { metadata: { topic: "updated" } })).metadata).toEqual({ topic: "updated" });
+    expect((await client.conversations.items.delete(itemID, { conversation_id: conversation.id })).id).toBe(conversation.id);
+    expect(await client.conversations.delete(conversation.id)).toMatchObject({ id: conversation.id, deleted: true });
+  });
+
   it("decodes each client streaming shape", async () => {
     let text = "";
     for await (const event of await openAI().chat.completions.create({ model: "target-anthropic", messages: [{ role: "user", content: "Hi" }], stream: true })) text += event.choices[0]?.delta.content || "";
