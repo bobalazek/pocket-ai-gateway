@@ -20,10 +20,10 @@ Base URL: `/api/openai/v1`.
 | --- | --- | --- |
 | `GET /models`, `GET /models/{id}` | Implemented, gateway-owned | Returns only public models visible to the key owner |
 | `POST /chat/completions` | Implemented | JSON and SSE; shared text, image, structured-output, tool, refusal, stop, and usage semantics translate across capable families |
-| `POST /responses` | Constrained | Non-streaming responses are gateway-stored for the creating API key by default for 30 days; `store:false` supports JSON and lifecycle SSE; conversations, background mode, and hosted tools are rejected |
+| `POST /responses` | Constrained | Non-streaming responses are gateway-stored for the creating API key by default for 30 days; `background:true` runs through the durable local queue; `store:false` supports JSON and lifecycle SSE; conversations and hosted tools are rejected |
 | `POST /embeddings` | Native target only | Preserves order, dimensions, encoding, and usage; no cross-model fallback |
 | `GET /responses/{id}`, `DELETE /responses/{id}` | Implemented, gateway-owned | Creating-key retrieval and deletion; the gateway replaces the upstream ID and keeps upstream storage disabled |
-| Response cancellation and input items | Pending | Needs durable background execution or stored input ownership |
+| `POST /responses/{id}/cancel`, `GET /responses/{id}/input_items` | Constrained, gateway-owned | Creating-key cancellation and bounded cursor pagination over stored input; `include[]` projections and input from pre-migration Responses return an explicit unsupported-feature error |
 | Conversations and conversation items | Pending | Needs durable ownership, retention, and provider-affinity rules |
 | Files, uploads, and vector stores | Pending | Needs encrypted object storage, quotas, scanning, and lifecycle rules |
 | Batches | Pending | Needs durable jobs, cancellation, billing, result retention, and restart recovery |

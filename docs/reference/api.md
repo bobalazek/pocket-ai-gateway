@@ -25,7 +25,10 @@ The prefix names the **client API specification**, not a forced upstream provide
 | Endpoint | Wire contract / initial behavior |
 | --- | --- |
 | POST /api/openai/v1/chat/completions | OpenAI request, choices/tool calls/usage, errors, incremental chat chunks |
-| POST /api/openai/v1/responses | OpenAI input/output items, function tools/results, typed response lifecycle stream |
+| POST /api/openai/v1/responses | OpenAI input/output items, function tools/results, typed response lifecycle stream, or durable background submission |
+| GET/DELETE /api/openai/v1/responses/{id} | Creating-key retrieval and deletion of gateway-owned stored Responses |
+| POST /api/openai/v1/responses/{id}/cancel | Cancels a queued or in-progress background Response |
+| GET /api/openai/v1/responses/{id}/input_items | Bounded cursor pagination over the stored original input |
 | POST /api/openai/v1/embeddings | OpenAI embedding inputs/indexes/encoding/dimensions/usage |
 | GET /api/openai/v1/models and /models/{id} beneath that root | OpenAI model list/detail; authorized public models |
 | POST /api/anthropic/v1/messages | Anthropic message/content blocks, stop reasons, usage, typed content stream |
@@ -83,7 +86,7 @@ The internal shared representation contains only faithfully representable messag
 
 ## Delivery, streams, and failures
 
-Ordinary JSON responses and SSE are initial delivery modes. SSE is not a durable background job. Background submit/poll/cancel needs its own ownership/retention/charging contract and remains a separate clarification.
+Ordinary JSON responses and SSE are supported delivery modes. SSE is not a durable background job. `background:true` with storage enabled submits to a bounded SQLite queue; polling, cancellation, deletion, retention, and input-item access remain restricted to the creating API key. The queue admits at most 4 active jobs or 16 MiB per key, 16 jobs or 32 MiB per owner, and 32 jobs or 64 MiB for the instance. Retained unexpired Responses are separately capped at 250/128 MiB per key, 2,500/512 MiB per owner, and 10,000/1 GiB per instance; active jobs reserve their maximum response size. One joined worker rotates across owners and keys and rechecks current grants and routing before dispatch. Restarted in-progress work becomes an unknown terminal failure and is never redispatched.
 
 Parse SSE incrementally with bounded event/response sizes, CRLF/multi-line data/heartbeat support, arbitrary chunks, and split UTF-8. Gemini streamed candidate envelopes, OpenAI chat chunks, and Responses lifecycle events each have their own codec. Anthropic streaming requires an Anthropic-compatible target until another target can provide accurate input usage before `message_start`; cross-provider Anthropic generation is JSON-only. [Anthropic streaming](https://platform.claude.com/docs/en/build-with-claude/streaming)
 
@@ -109,7 +112,7 @@ OpenAI errors use its error object; Anthropic uses its typed error envelope; Gem
 
 Embedding translation preserves indexes, vector dimensions, encodings, task settings, and model contract. One public embedding model has one vector-space target; do not fallback to an unrelated model. Token-ID input and batch capabilities require tested target compatibility.
 
-Responses translation includes output items, tool-call/results, usage, and lifecycle events. Non-streaming responses are stored by default for 30 days under the creating API key and can be retrieved or deleted through the OpenAI namespace. The gateway assigns the public response ID and sends `store:false` upstream so provider storage is never implied. Stateless `store:false` requests support JSON and lifecycle SSE. Conversation chains, background operation, hosted tools, and provider-owned files/caches remain separate resource contracts.
+Responses translation includes output items, tool-call/results, usage, and lifecycle events. Non-streaming responses are stored by default for 30 days under the creating API key and can be retrieved, cancelled while active, inspected for input items, or deleted through the OpenAI namespace. The gateway assigns the public response ID and sends `store:false` upstream so provider storage is never implied. Stateless `store:false` requests support JSON and lifecycle SSE. Conversation chains, hosted tools, and provider-owned files/caches remain separate resource contracts.
 
 Full API fidelity is the goal, not a blanket claim at alpha. Maintain a complete official endpoint/field inventory for all three specs: mark each implemented/tested, native-only, translated, pending, or inherently unavailable for a target. Assign files, batches, cached resources, provider-hosted tools, multimodal/realtime, and remaining stateful surfaces to explicit phase 8 work. Do not call rejected or unimplemented operations fully supported.
 

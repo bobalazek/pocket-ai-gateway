@@ -65,6 +65,23 @@ describe("official SDK compatibility through the Go gateway", () => {
     await expect(client.responses.retrieve(created.id)).rejects.toMatchObject({ status: 404 });
   });
 
+  it("runs and cancels gateway-owned background Responses", async () => {
+    const client = openAI();
+    const created = await client.responses.create({ model: "target-openai", input: "Background", background: true });
+    expect(created).toMatchObject({ status: "queued", background: true, store: true });
+    let completed = created;
+    for (let attempt = 0; attempt < 50 && completed.status !== "completed"; attempt++) {
+      await new Promise((resolve) => setTimeout(resolve, 20));
+      completed = await client.responses.retrieve(created.id);
+    }
+    expect(completed).toMatchObject({ id: created.id, status: "completed", background: true });
+    const input = await client.responses.inputItems.list(created.id);
+    expect(input.data[0]).toMatchObject({ type: "message", role: "user" });
+
+    const pending = await client.responses.create({ model: "target-openai", input: "Cancel me", background: true });
+    expect(await client.responses.cancel(pending.id)).toMatchObject({ id: pending.id, status: "cancelled" });
+  });
+
   it("decodes each client streaming shape", async () => {
     let text = "";
     for await (const event of await openAI().chat.completions.create({ model: "target-anthropic", messages: [{ role: "user", content: "Hi" }], stream: true })) text += event.choices[0]?.delta.content || "";

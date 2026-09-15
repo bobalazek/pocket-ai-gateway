@@ -26,7 +26,7 @@ Multiple local users are included. Organizations, workspaces, subscriptions, ent
 
 Full fidelity of the three client protocols is the product goal. v0.1 covers the generation, tool, stream, counting, and embedding operations specified below; provider-specific features require tested mappings or explicit unsupported-capability errors. Phase 8 contains the remaining API-parity work: state/resource ownership, files/batches/caches, hosted tools, multimedia/realtime, and related provider-specific surfaces. Do not advertise whole-API parity until that inventory is complete and tested.
 
-Image input and strict structured output are required on capable, tested route combinations. Provider-affine reasoning/signature data must be preserved or rejected explicitly; it must never be silently dropped. Durable background jobs are a distinct delivery mode from streaming and remain a pending scope clarification.
+Image input and strict structured output are required on capable, tested route combinations. Provider-affine reasoning/signature data must be preserved or rejected explicitly; it must never be silently dropped. Durable background Responses are a distinct delivery mode from streaming and use the gateway-owned contract in ADR-015.
 
 “One executable” describes distribution, not a single source file or a database embedded inside the executable. WAL creates auxiliary files. Users must preserve the entire data directory through the documented backup procedure.
 

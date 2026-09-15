@@ -59,7 +59,9 @@ func main() {
 	must(err)
 
 	mux := http.NewServeMux()
-	gateway.New(store.SystemDB(), keyService, providerService, usage.New(store.SystemDB())).Register(mux)
+	gatewayHandler := gateway.New(store.SystemDB(), keyService, providerService, usage.New(store.SystemDB()))
+	gatewayHandler.Register(mux)
+	go gatewayHandler.RunBackground(ctx)
 	gatewayListener, err := net.Listen("tcp4", "127.0.0.1:0")
 	must(err)
 	server := &http.Server{Handler: mux}
@@ -72,6 +74,13 @@ func main() {
 
 func upstreamHandler(response http.ResponseWriter, request *http.Request) {
 	body, _ := io.ReadAll(request.Body)
+	if strings.Contains(string(body), "Cancel me") {
+		select {
+		case <-request.Context().Done():
+			return
+		case <-time.After(time.Second):
+		}
+	}
 	stream := strings.Contains(string(body), `"stream":true`) || strings.Contains(request.URL.Path, "streamGenerateContent")
 	response.Header().Set("Content-Type", map[bool]string{true: "text/event-stream", false: "application/json"}[stream])
 	target := strings.Split(strings.TrimPrefix(request.URL.Path, "/"), "/")[0]

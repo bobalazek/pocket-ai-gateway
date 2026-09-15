@@ -293,6 +293,29 @@ func (service *Service) Authenticate(ctx context.Context, token string) (Princip
 	if subtle.ConstantTimeCompare(verifier[:], expected) != 1 {
 		return Principal{}, ErrNotFound
 	}
+	return decodePrincipal(principal, scopesJSON, modelsJSON, connectionsJSON, unrestricted, userScopesJSON, userModelsJSON, userConnectionsJSON)
+}
+
+func (service *Service) Principal(ctx context.Context, keyID string) (Principal, error) {
+	var principal Principal
+	var scopesJSON, modelsJSON, connectionsJSON string
+	var userScopesJSON, userModelsJSON, userConnectionsJSON string
+	var unrestricted bool
+	err := service.database.QueryRowContext(ctx, `SELECT api_keys.id,api_keys.owner_user_id,api_keys.scopes_json,api_keys.model_patterns_json,api_keys.connection_ids_json,
+		users.inference_unrestricted,users.scopes_json,users.model_patterns_json,users.connection_ids_json
+		FROM api_keys JOIN users ON users.id=api_keys.owner_user_id
+		WHERE api_keys.id=? AND api_keys.state='active' AND (api_keys.expires_at IS NULL OR api_keys.expires_at>?) AND users.status='active'`, keyID, time.Now().UnixMilli()).
+		Scan(&principal.KeyID, &principal.OwnerUserID, &scopesJSON, &modelsJSON, &connectionsJSON, &unrestricted, &userScopesJSON, &userModelsJSON, &userConnectionsJSON)
+	if errors.Is(err, sql.ErrNoRows) {
+		return Principal{}, ErrNotFound
+	}
+	if err != nil {
+		return Principal{}, err
+	}
+	return decodePrincipal(principal, scopesJSON, modelsJSON, connectionsJSON, unrestricted, userScopesJSON, userModelsJSON, userConnectionsJSON)
+}
+
+func decodePrincipal(principal Principal, scopesJSON, modelsJSON, connectionsJSON string, unrestricted bool, userScopesJSON, userModelsJSON, userConnectionsJSON string) (Principal, error) {
 	if err := json.Unmarshal([]byte(scopesJSON), &principal.Scopes); err != nil {
 		return Principal{}, err
 	}
@@ -304,7 +327,9 @@ func (service *Service) Authenticate(ctx context.Context, token string) (Princip
 	}
 	if !unrestricted {
 		var userScopes, userModels, userConnections []string
-		_ = json.Unmarshal([]byte(userScopesJSON), &userScopes)
+		if err := json.Unmarshal([]byte(userScopesJSON), &userScopes); err != nil {
+			return Principal{}, err
+		}
 		if err := json.Unmarshal([]byte(userModelsJSON), &userModels); err != nil {
 			return Principal{}, err
 		}

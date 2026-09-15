@@ -37,14 +37,14 @@ func NewWithUsage(systemDatabase *sql.DB, publicOrigin string, usageService *usa
 }
 
 func NewWithServices(systemDatabase *sql.DB, publicOrigin string, usageService *usage.Service, providerService *providers.Service) http.Handler {
-	return newHandler(systemDatabase, publicOrigin, usageService, providerService, nil)
+	return newHandler(systemDatabase, publicOrigin, usageService, providerService, nil, nil)
 }
 
-func NewRuntime(systemDatabase *sql.DB, publicOrigin string, usageService *usage.Service, providerService *providers.Service, operationService *operations.Service) http.Handler {
-	return newHandler(systemDatabase, publicOrigin, usageService, providerService, operationService)
+func NewRuntime(systemDatabase *sql.DB, publicOrigin string, usageService *usage.Service, providerService *providers.Service, operationService *operations.Service, gatewayHandler *gateway.Handler) http.Handler {
+	return newHandler(systemDatabase, publicOrigin, usageService, providerService, operationService, gatewayHandler)
 }
 
-func newHandler(systemDatabase *sql.DB, publicOrigin string, usageService *usage.Service, providerService *providers.Service, operationService *operations.Service) http.Handler {
+func newHandler(systemDatabase *sql.DB, publicOrigin string, usageService *usage.Service, providerService *providers.Service, operationService *operations.Service, gatewayHandler *gateway.Handler) http.Handler {
 	mux := http.NewServeMux()
 	authHandler := auth.NewHandler(auth.New(systemDatabase), publicOrigin)
 	keyService := keys.New(systemDatabase)
@@ -63,7 +63,10 @@ func newHandler(systemDatabase *sql.DB, publicOrigin string, usageService *usage
 			writeJSON(response, http.StatusOK, map[string]string{"status": "ready"})
 		})
 	}
-	gateway.New(systemDatabase, keyService, providerService, usageService).Register(mux)
+	if gatewayHandler == nil {
+		gatewayHandler = gateway.New(systemDatabase, keyService, providerService, usageService)
+	}
+	gatewayHandler.Register(mux)
 	mux.HandleFunc("GET /healthz", func(response http.ResponseWriter, _ *http.Request) {
 		writeJSON(response, http.StatusOK, map[string]string{"status": "ok"})
 	})

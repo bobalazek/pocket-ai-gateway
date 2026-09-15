@@ -17,6 +17,8 @@ import (
 
 	"github.com/bobalazek/pocket-ai-gateway/internal/credentials"
 	"github.com/bobalazek/pocket-ai-gateway/internal/features/auth"
+	"github.com/bobalazek/pocket-ai-gateway/internal/features/gateway"
+	"github.com/bobalazek/pocket-ai-gateway/internal/features/keys"
 	"github.com/bobalazek/pocket-ai-gateway/internal/features/operations"
 	"github.com/bobalazek/pocket-ai-gateway/internal/features/providers"
 	"github.com/bobalazek/pocket-ai-gateway/internal/features/usage"
@@ -188,6 +190,8 @@ func serve(ctx context.Context, version string, cfg Config, logOutput io.Writer)
 		return fmt.Errorf("load provider credential key: %w", err)
 	}
 	providerService := providers.New(stores.SystemDB(), masterKey)
+	keyService := keys.New(stores.SystemDB())
+	gatewayHandler := gateway.New(stores.SystemDB(), keyService, providerService, usageService)
 	operationService := operations.New(stores, providerService, version, os.Getenv)
 	if err := usageService.Recover(ctx); err != nil {
 		return fmt.Errorf("recover usage accounting: %w", err)
@@ -215,9 +219,11 @@ func serve(ctx context.Context, version string, cfg Config, logOutput io.Writer)
 	go func() { defer close(catalogDone); providerService.RunCatalogRefresh(workerContext) }()
 	operationsDone := make(chan struct{})
 	go runOperations(workerContext, operationService, logger, operationsDone)
-	defer func() { stopWorker(); <-workerDone; <-catalogDone; <-operationsDone }()
+	responsesDone := make(chan struct{})
+	go func() { defer close(responsesDone); gatewayHandler.RunBackground(workerContext) }()
+	defer func() { stopWorker(); <-workerDone; <-catalogDone; <-operationsDone; <-responsesDone }()
 	httpServer := &http.Server{
-		Handler:           server.NewRuntime(stores.SystemDB(), publicOrigin, usageService, providerService, operationService),
+		Handler:           server.NewRuntime(stores.SystemDB(), publicOrigin, usageService, providerService, operationService, gatewayHandler),
 		ReadHeaderTimeout: 5 * time.Second,
 		IdleTimeout:       60 * time.Second,
 	}

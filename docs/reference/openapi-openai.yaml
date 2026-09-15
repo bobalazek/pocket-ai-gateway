@@ -18,8 +18,8 @@ paths:
   /responses:
     post:
       operationId: createResponse
-      description: Creates a response. Non-streaming responses are stored by default for retrieval with the creating API key; store:false remains stateless. Streaming requires store:false. Background mode and hosted tools are rejected.
-      requestBody: { required: true, content: { application/json: { schema: { type: object, required: [model, input], properties: { model: { type: string }, input: {}, store: { type: boolean, default: true }, stream: { type: boolean } }, additionalProperties: true } } } }
+      description: Creates a response. Non-streaming responses are stored by default for the creating API key. background:true queues durable gateway execution and requires storage. store:false remains stateless and is required for streaming.
+      requestBody: { required: true, content: { application/json: { schema: { type: object, required: [model, input], properties: { model: { type: string }, input: {}, store: { type: boolean, default: true }, stream: { type: boolean }, background: { type: boolean, default: false } }, additionalProperties: true } } } }
       responses: { "200": { description: Native or translated Responses JSON or lifecycle event stream }, default: { description: OpenAI-compatible error } }
   /responses/{response_id}:
     parameters: [{ name: response_id, in: path, required: true, schema: { type: string } }]
@@ -29,6 +29,21 @@ paths:
     delete:
       operationId: deleteResponse
       responses: { "200": { description: Response deletion result }, "404": { description: Response unavailable }, default: { description: OpenAI-compatible error } }
+  /responses/{response_id}/cancel:
+    post:
+      operationId: cancelResponse
+      parameters: [{ name: response_id, in: path, required: true, schema: { type: string } }]
+      responses: { "200": { description: Cancelled queued or in-progress response }, "404": { description: Response unavailable }, default: { description: OpenAI-compatible error } }
+  /responses/{response_id}/input_items:
+    get:
+      operationId: listResponseInputItems
+      parameters:
+        - { name: response_id, in: path, required: true, schema: { type: string } }
+        - { name: after, in: query, schema: { type: string } }
+        - { name: limit, in: query, schema: { type: integer, minimum: 1, maximum: 100, default: 20 } }
+        - { name: order, in: query, schema: { type: string, enum: [asc, desc], default: desc } }
+        - { name: "include[]", in: query, description: Currently rejected because provider-owned projections are not retained, schema: { type: array, items: { type: string } } }
+      responses: { "200": { description: Stored input items owned by the authenticated API key }, "404": { description: Response unavailable }, default: { description: OpenAI-compatible error } }
   /embeddings:
     post:
       operationId: createEmbedding

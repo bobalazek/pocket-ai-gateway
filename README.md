@@ -17,7 +17,7 @@ The dashboard and database migrations are embedded in the Go binary. Build it on
 | Control | Per-instance, user, key, and connection request, token, concurrency, quota, and spend limits |
 | Visibility | Dashboard, request history, token and cost accounting, routing decisions, status, and audit log |
 | Operations | Encrypted credentials, portable configuration, scheduled local or S3-compatible backups, verified restore, and owner recovery |
-| Privacy | Local storage, no hosted account, no public telemetry, and no prompt capture by default |
+| Privacy | Local storage, no hosted account, no public telemetry, and no prompt capture in ordinary request history; stored Responses retain their requested content |
 
 Public model names decouple applications from upstream providers. An application can keep using its OpenAI client while an administrator moves the model to Anthropic, Gemini, or another compatible provider, provided the requested features can be translated safely.
 
@@ -82,7 +82,7 @@ The base URL selects the client protocol; protocol families are never mixed at o
 | Google Gen AI SDK | `http://127.0.0.1:8080/api/gemini` with API version `v1beta` | `x-goog-api-key: <key>` |
 | Management API | `http://127.0.0.1:8080/api/v1` | Browser session |
 
-Supported cross-protocol generation includes text, image input, JSON schema output, function tools and results, stop sequences, token usage, and compatible incremental streams. Embeddings and token counting stay on targets that natively support them so the gateway does not invent vector spaces or tokenizer results.
+Supported cross-protocol generation includes text, image input, JSON schema output, function tools and results, stop sequences, token usage, and compatible incremental streams. OpenAI Responses also supports gateway-owned storage, background execution, polling, cancellation, input-item listing, and deletion. Embeddings and token counting stay on targets that natively support them so the gateway does not invent vector spaces or tokenizer results.
 
 See the detailed [compatibility matrix](docs/project/compatibility.md) and API guides for [OpenAI](docs/features/openai-compatible.md), [Anthropic](docs/features/anthropic-compatible.md), and [Gemini](docs/features/gemini-compatible.md).
 

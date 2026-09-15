@@ -14,8 +14,10 @@ import (
 	"net/url"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
+	"github.com/bobalazek/pocket-ai-gateway/internal/credentials"
 	"github.com/bobalazek/pocket-ai-gateway/internal/features/keys"
 	"github.com/bobalazek/pocket-ai-gateway/internal/features/providers"
 	"github.com/bobalazek/pocket-ai-gateway/internal/features/usage"
@@ -28,10 +30,20 @@ type Handler struct {
 	keys      *keys.Service
 	providers *providers.Service
 	usage     *usage.Service
+	wake      chan struct{}
+	epoch     string
+	activeMu  sync.Mutex
+	active    map[string]context.CancelFunc
+	lastOwner string
+	lastKey   string
 }
 
 func New(database *sql.DB, keyService *keys.Service, providerService *providers.Service, usageService *usage.Service) *Handler {
-	return &Handler{database: database, keys: keyService, providers: providerService, usage: usageService}
+	epoch, err := credentials.RandomToken(12)
+	if err != nil {
+		epoch = strconv.FormatInt(time.Now().UnixNano(), 10)
+	}
+	return &Handler{database: database, keys: keyService, providers: providerService, usage: usageService, wake: make(chan struct{}, 1), epoch: epoch, active: map[string]context.CancelFunc{}}
 }
 
 func (handler *Handler) Register(mux *http.ServeMux) {
@@ -40,10 +52,10 @@ func (handler *Handler) Register(mux *http.ServeMux) {
 	mux.HandleFunc("POST /api/openai/v1/chat/completions", func(w http.ResponseWriter, r *http.Request) {
 		handler.forward(w, r, "openai", "chat:generate", "chat/completions", "", nil)
 	})
-	mux.HandleFunc("POST /api/openai/v1/responses", func(w http.ResponseWriter, r *http.Request) {
-		handler.forward(w, r, "responses", "responses:generate", "responses", "", nil)
-	})
+	mux.HandleFunc("POST /api/openai/v1/responses", handler.responses)
 	mux.HandleFunc("GET /api/openai/v1/responses/{response_id}", handler.getResponse)
+	mux.HandleFunc("POST /api/openai/v1/responses/{response_id}/cancel", handler.cancelResponse)
+	mux.HandleFunc("GET /api/openai/v1/responses/{response_id}/input_items", handler.responseInputItems)
 	mux.HandleFunc("DELETE /api/openai/v1/responses/{response_id}", handler.deleteResponse)
 	mux.HandleFunc("POST /api/openai/v1/embeddings", func(w http.ResponseWriter, r *http.Request) {
 		handler.forward(w, r, "openai", "embeddings:generate", "embeddings", "", nil)
@@ -62,7 +74,6 @@ func (handler *Handler) Register(mux *http.ServeMux) {
 }
 
 func (handler *Handler) forward(response http.ResponseWriter, request *http.Request, dialect, scope, upstreamPath, publicIDOverride string, streamOverride *bool) {
-	clientOperation := upstreamPath
 	principal, ok := handler.authenticate(response, request, dialect)
 	if !ok {
 		return
@@ -72,6 +83,12 @@ func (handler *Handler) forward(response http.ResponseWriter, request *http.Requ
 		handler.writeError(response, dialect, http.StatusRequestEntityTooLarge, "request_too_large", "Request body exceeds 16 MiB")
 		return
 	}
+	handler.forwardAuthorized(response, request, dialect, scope, upstreamPath, publicIDOverride, streamOverride, principal, body)
+}
+
+func (handler *Handler) forwardAuthorized(response http.ResponseWriter, request *http.Request, dialect, scope, upstreamPath, publicIDOverride string, streamOverride *bool, principal keys.Principal, body []byte) {
+	clientOperation := upstreamPath
+	var err error
 	originalBodyBytes := int64(len(body))
 	requestToolCount := countRequestTools(dialect, body)
 	var envelope map[string]json.RawMessage
@@ -282,7 +299,7 @@ func (handler *Handler) forward(response http.ResponseWriter, request *http.Requ
 		var storageErr error
 		if success && storeResponse {
 			storageContext, cancelStorage := context.WithTimeout(context.WithoutCancel(request.Context()), 2*time.Second)
-			storageErr = handler.storeResponse(storageContext, principal.OwnerUserID, principal.KeyID, publicID, storedResponse)
+			storageErr = handler.storeResponse(storageContext, principal.OwnerUserID, principal.KeyID, publicID, body, storedResponse)
 			cancelStorage()
 			if storageErr == nil {
 				attemptWriter.body.Reset()
@@ -293,13 +310,26 @@ func (handler *Handler) forward(response http.ResponseWriter, request *http.Requ
 			state, status = "interrupted_unknown", "unknown"
 			retry = false
 		}
-		handler.settle(admission.AttemptID, usage.SettlementInput{IdempotencyKey: "dispatch:" + admission.AttemptID, State: state, UsageStatus: status, InputTokens: inputTokens, OutputTokens: outputTokens, CostNanos: cost, ResponseToolCallCount: toolCalls, ToolCallStatus: toolStatus, FinalRequest: !retry && storageErr == nil})
+		settlement := usage.SettlementInput{IdempotencyKey: "dispatch:" + admission.AttemptID, State: state, UsageStatus: status, InputTokens: inputTokens, OutputTokens: outputTokens, CostNanos: cost, ResponseToolCallCount: toolCalls, ToolCallStatus: toolStatus, FinalRequest: !retry && storageErr == nil}
+		settlementErr := handler.settle(admission.AttemptID, settlement)
+		if observer, ok := response.(interface {
+			observeSettlement(string, usage.SettlementInput, error)
+		}); ok {
+			for settlementErr != nil && !permanentSettlementError(settlementErr) && request.Context().Err() == nil && waitBackground(request.Context(), time.Second) {
+				settlementErr = handler.settle(admission.AttemptID, settlement)
+			}
+			observer.observeSettlement(admission.AttemptID, settlement, settlementErr)
+		}
 		if storageErr != nil {
 			finalizeContext, cancelFinalize := context.WithTimeout(context.Background(), 2*time.Second)
 			_ = handler.usage.FinalizeRequest(finalizeContext, requestID, "failed")
 			cancelFinalize()
 			attemptWriter.Reset()
-			handler.writeError(attemptWriter, dialect, http.StatusServiceUnavailable, "gateway_unavailable", "Response could not be stored")
+			if errors.Is(storageErr, errStoredResponseLimit) {
+				handler.writeError(attemptWriter, dialect, http.StatusTooManyRequests, "rate_limit_exceeded", "Stored Response retention limit reached")
+			} else {
+				handler.writeError(attemptWriter, dialect, http.StatusServiceUnavailable, "gateway_unavailable", "Response could not be stored")
+			}
 			attemptWriter.Commit()
 			return
 		}
@@ -463,18 +493,28 @@ func (handler *Handler) geminiAction(response http.ResponseWriter, request *http
 	handler.forward(response, request, "gemini", scope, name, publicID, &stream)
 }
 
-func (handler *Handler) settle(attemptID string, input usage.SettlementInput) {
+func (handler *Handler) settle(attemptID string, input usage.SettlementInput) error {
+	var last error
 	for attempt := 0; attempt < 5; attempt++ {
 		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 		err := handler.usage.Settle(ctx, attemptID, input)
 		cancel()
-		if err == nil || errors.Is(err, usage.ErrConflict) || errors.Is(err, usage.ErrNotFound) {
-			return
+		if err == nil {
+			return nil
 		}
+		if permanentSettlementError(err) {
+			return err
+		}
+		last = err
 		if attempt < 4 {
 			time.Sleep(time.Duration(1<<attempt) * 100 * time.Millisecond)
 		}
 	}
+	return last
+}
+
+func permanentSettlementError(err error) bool {
+	return errors.Is(err, usage.ErrConflict) || errors.Is(err, usage.ErrNotFound)
 }
 
 func (handler *Handler) dispatch(response http.ResponseWriter, request *http.Request, target providers.Target, relative string, body []byte, stream bool, dialect string, releaseDispatch func()) (int, []byte, error) {

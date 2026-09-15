@@ -39,6 +39,7 @@ Unless marked below, the following tables live in the system store. Minimal requ
 | concurrency_leases | request_id/attempt_id, scope, process_epoch | Request leases for user/key/instance; attempt leases for connection |
 | requests | id, owner_user_id, key_id, operation/dialect, public_model_id + name snapshot, config revision, timing/outcome | One logical inbound operation; terminal summary can survive target archive |
 | attempts | id, request_id, ordinal, target/connection/model snapshots, price_version, state, timings, usage provenance | One upstream dispatch intent; unique request + ordinal |
+| stored_responses | gateway response ID, creating key/user, model, request/result JSON, queue state, lease epoch, timestamps | Creating key; 30-day retention; queued → running → completed/failed/cancelled, with interrupted work terminal and never replayed |
 | usage_ledger | id, attempt_id, entry type, measured units/cost, adjustment link, idempotency key | Append-only settlements/adjustments; unique reconciliation event |
 | usage_daily | date + relevant user/key/model/connection dimensions, aggregate counters | Data store; rebuildable summaries, not enforcement source |
 | captured_content | request/attempt snapshot IDs, encrypted bounded payload, size, expiry | Data store; opt-in, no credentials, independently deleted |
