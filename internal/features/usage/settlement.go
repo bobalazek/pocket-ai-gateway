@@ -103,7 +103,6 @@ func (service *Service) Settle(ctx context.Context, attemptID string, input Sett
 	if input.InputTokens != nil && (*input.InputTokens < 0 || *input.InputTokens > maxSafeInteger) || input.OutputTokens != nil && (*input.OutputTokens < 0 || *input.OutputTokens > maxSafeInteger) || input.CacheCreationInputTokens != nil && (*input.CacheCreationInputTokens < 0 || *input.CacheCreationInputTokens > maxSafeInteger) || input.CacheReadInputTokens != nil && (*input.CacheReadInputTokens < 0 || *input.CacheReadInputTokens > maxSafeInteger) || input.CacheCreation5mTokens != nil && (*input.CacheCreation5mTokens < 0 || *input.CacheCreation5mTokens > maxSafeInteger) || input.CacheCreation1hTokens != nil && (*input.CacheCreation1hTokens < 0 || *input.CacheCreation1hTokens > maxSafeInteger) || input.CostNanos != nil && *input.CostNanos < 0 || input.WebSearchCallCount != nil && (*input.WebSearchCallCount < 0 || *input.WebSearchCallCount > 4) {
 		return errors.New("settlement values cannot be negative")
 	}
-	hasCacheUsage := input.CacheCreationInputTokens != nil || input.CacheReadInputTokens != nil || input.CacheCreation5mTokens != nil || input.CacheCreation1hTokens != nil
 	cacheCreation, cacheRead, cache5m, cache1h := int64(0), int64(0), int64(0), int64(0)
 	if input.CacheCreationInputTokens != nil {
 		cacheCreation = *input.CacheCreationInputTokens
@@ -143,8 +142,8 @@ func (service *Service) Settle(ctx context.Context, attemptID string, input Sett
 	var settledTokens, settledCost sql.NullInt64
 	err = tx.QueryRowContext(ctx, "SELECT attempt_id, entry_type, token_units, cost_nanos, reason FROM usage_ledger WHERE idempotency_key = ?", input.IdempotencyKey).Scan(&settledAttemptID, &entryType, &settledTokens, &settledCost, &signature)
 	if err == nil {
-		if input.CostNanos == nil && !hasCacheUsage && !hasWebSearch {
-			input.CostNanos, _ = calculatedAttemptCost(ctx, tx, attemptID, input.InputTokens, input.OutputTokens)
+		if input.CostNanos == nil && !hasWebSearch {
+			input.CostNanos, _ = calculatedAttemptCost(ctx, tx, attemptID, input.InputTokens, input.OutputTokens, input.CacheCreationInputTokens, input.CacheReadInputTokens)
 		}
 		tokens, sumErr := nullableInt64Sum(input.InputTokens, input.OutputTokens)
 		if sumErr != nil {
@@ -171,8 +170,8 @@ func (service *Service) Settle(ctx context.Context, attemptID string, input Sett
 	if !contains([]string{"reserved", "dispatching", "streaming"}, state) {
 		return ErrConflict
 	}
-	if input.CostNanos == nil && priceVersionID.Valid && !hasCacheUsage && !hasWebSearch {
-		input.CostNanos, err = calculatedPriceCost(ctx, tx, priceVersionID.String, input.InputTokens, input.OutputTokens)
+	if input.CostNanos == nil && priceVersionID.Valid && !hasWebSearch {
+		input.CostNanos, err = calculatedPriceCost(ctx, tx, priceVersionID.String, input.InputTokens, input.OutputTokens, input.CacheCreationInputTokens, input.CacheReadInputTokens)
 		if err != nil {
 			return err
 		}
@@ -254,8 +253,12 @@ func (service *Service) Settle(ctx context.Context, attemptID string, input Sett
 		if err != nil {
 			return err
 		}
+		calculationVersion := 1
+		if input.CacheReadInputTokens != nil {
+			calculationVersion = 2
+		}
 		if _, err := tx.ExecContext(ctx, `INSERT INTO cost_assessments (id, attempt_id, price_version_id, calculation_version, kind, amount_nanos, delta_nanos, created_at)
-			VALUES (?, ?, ?, 1, 'recorded', ?, 0, ?)`, "ass_"+assessmentID, attemptID, priceVersionID.String, *input.CostNanos, now); err != nil {
+			VALUES (?, ?, ?, ?, 'recorded', ?, 0, ?)`, "ass_"+assessmentID, attemptID, priceVersionID.String, calculationVersion, *input.CostNanos, now); err != nil {
 			return err
 		}
 	}
@@ -278,24 +281,35 @@ func (service *Service) Settle(ctx context.Context, attemptID string, input Sett
 	return tx.Commit()
 }
 
-func calculatedAttemptCost(ctx context.Context, tx *sql.Tx, attemptID string, inputTokens, outputTokens *int64) (*int64, error) {
+func calculatedAttemptCost(ctx context.Context, tx *sql.Tx, attemptID string, inputTokens, outputTokens, cacheCreationTokens, cacheReadTokens *int64) (*int64, error) {
 	var priceID sql.NullString
 	if err := tx.QueryRowContext(ctx, "SELECT price_version_id FROM attempts WHERE id = ?", attemptID).Scan(&priceID); err != nil || !priceID.Valid {
 		return nil, err
 	}
-	return calculatedPriceCost(ctx, tx, priceID.String, inputTokens, outputTokens)
+	return calculatedPriceCost(ctx, tx, priceID.String, inputTokens, outputTokens, cacheCreationTokens, cacheReadTokens)
 }
 
-func calculatedPriceCost(ctx context.Context, tx *sql.Tx, priceID string, inputTokens, outputTokens *int64) (*int64, error) {
+func calculatedPriceCost(ctx context.Context, tx *sql.Tx, priceID string, inputTokens, outputTokens, cacheCreationTokens, cacheReadTokens *int64) (*int64, error) {
 	if inputTokens == nil || outputTokens == nil {
 		return nil, nil
 	}
+	if cacheCreationTokens != nil && *cacheCreationTokens > 0 {
+		return nil, nil
+	}
 	var inputRate, outputRate int64
-	if err := tx.QueryRowContext(ctx, "SELECT input_nanos_per_million, output_nanos_per_million FROM price_versions WHERE id = ?", priceID).Scan(&inputRate, &outputRate); err != nil {
+	var cacheReadRate sql.NullInt64
+	if err := tx.QueryRowContext(ctx, "SELECT input_nanos_per_million, output_nanos_per_million, cache_read_nanos_per_million FROM price_versions WHERE id = ?", priceID).Scan(&inputRate, &outputRate, &cacheReadRate); err != nil {
 		return nil, err
 	}
-	cost, err := CalculateCost(*inputTokens, *outputTokens, inputRate, outputRate)
-	return &cost, err
+	readTokens := int64(0)
+	if cacheReadTokens != nil {
+		readTokens = *cacheReadTokens
+	}
+	var readRate *int64
+	if cacheReadRate.Valid {
+		readRate = &cacheReadRate.Int64
+	}
+	return calculateCacheAwareCost(*inputTokens, *outputTokens, readTokens, inputRate, outputRate, readRate)
 }
 
 func settlementSignature(input SettlementInput) string {
@@ -311,6 +325,13 @@ func nullableValue(value *int64) string {
 
 func nullableEqual(stored sql.NullInt64, value *int64) bool {
 	return stored.Valid == (value != nil) && (!stored.Valid || stored.Int64 == *value)
+}
+
+func nullInt64Pointer(value sql.NullInt64) *int64 {
+	if !value.Valid {
+		return nil
+	}
+	return &value.Int64
 }
 
 func updateQuotaPeriod(ctx context.Context, tx *sql.Tx, policyID string, periodStart, consumedDelta, reservedDelta int64) error {
@@ -477,8 +498,8 @@ func (service *Service) ReconcileUnknown(ctx context.Context, actor auth.User, a
 	if priorReconciliations > 0 && (previousInput.Valid && previousInput.Int64 != *input.InputTokens || previousOutput.Valid && previousOutput.Int64 != *input.OutputTokens) {
 		return ErrConflict
 	}
-	if input.CostNanos == nil && !previousCost.Valid && priceID.Valid && !cacheCreation.Valid && !cacheRead.Valid && !webSearchMax.Valid {
-		input.CostNanos, err = calculatedPriceCost(ctx, tx, priceID.String, input.InputTokens, input.OutputTokens)
+	if input.CostNanos == nil && !previousCost.Valid && priceID.Valid && !webSearchMax.Valid {
+		input.CostNanos, err = calculatedPriceCost(ctx, tx, priceID.String, input.InputTokens, input.OutputTokens, nullInt64Pointer(cacheCreation), nullInt64Pointer(cacheRead))
 		if err != nil {
 			return err
 		}

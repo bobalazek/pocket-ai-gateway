@@ -65,7 +65,7 @@ func TestLocalBackupSettingsAndDiagnostics(t *testing.T) {
 		t.Fatalf("diagnostics = %+v, error = %v", diagnostics, err)
 	}
 	bundle, err := service.ExportConfig(ctx)
-	if err != nil || bundle.Format != 1 {
+	if err != nil || bundle.Format != 2 {
 		t.Fatalf("export = %+v, error = %v", bundle, err)
 	}
 	preview, err := PreviewConfig(bundle)
@@ -74,6 +74,70 @@ func TestLocalBackupSettingsAndDiagnostics(t *testing.T) {
 	}
 	if _, err := service.ImportConfig(ctx, "usr_owner", bundle); err != nil {
 		t.Fatal(err)
+	}
+}
+
+func TestConfigV2ScheduledCachePriceRoundTripAndV1Compatibility(t *testing.T) {
+	ctx := context.Background()
+	store, err := storage.Open(ctx, filepath.Join(t.TempDir(), "data"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+	now := time.Now().UnixMilli()
+	if _, err := store.SystemDB().ExecContext(ctx, `INSERT INTO users(id,email,display_name,password_hash,role,status,inference_unrestricted,created_at,updated_at) VALUES('usr_owner','owner@example.test','Owner','hash','owner','active',1,?,?)`, now, now); err != nil {
+		t.Fatal(err)
+	}
+	cache, start, end := int64(500_000_000), int64(0), int64(60)
+	bundle := ConfigBundle{
+		Format:         2,
+		Settings:       Settings{BackupIntervalHours: 24, BackupRetention: 14, BackupDestination: "local", S3Region: "us-east-1", S3AccessKeyEnv: "AWS_ACCESS_KEY_ID", S3SecretKeyEnv: "AWS_SECRET_ACCESS_KEY", RequestRetention: 90, AuditRetention: 365},
+		Catalog:        ConfigCatalog{RefreshIntervalHours: 24},
+		Connections:    []ConfigConnection{{ID: "con_test", Name: "OpenAI", Adapter: "openai", BaseURL: "https://api.openai.com/v1", Enabled: true, TimeoutMS: 60000, Preset: "openai"}},
+		UpstreamModels: []ConfigUpstream{{ID: "up_test", ConnectionID: "con_test", UpstreamID: "gpt-4o", Capabilities: []string{"chat"}, Active: true}},
+		PublicModels:   []ConfigModel{{ID: "model-test", Label: "Test", TargetConnectionID: "con_test", TargetModelID: "up_test", Capabilities: []string{"chat"}, Active: true, RoutingStrategy: "fixed"}},
+		Targets:        []ConfigTarget{{PublicModelID: "model-test", UpstreamModelID: "up_test", Priority: 1, Weight: 1, Enabled: true}},
+		Prices:         []ConfigPrice{{ID: "prc_test", ConnectionID: "con_test", ModelID: "model-test", InputNanosPerMillion: 2_000_000_000, OutputNanosPerMillion: 4_000_000_000, CacheReadNanosPerMillion: &cache, Source: "test", EffectiveFrom: now - 1000, WeeklyStartMinuteUTC: &start, WeeklyEndMinuteUTC: &end}},
+	}
+	if _, err := PreviewConfig(bundle); err != nil {
+		t.Fatalf("v2 preview=%v", err)
+	}
+	service := New(store, providers.New(store.SystemDB(), make([]byte, 32)), "test", func(string) string { return "" })
+	if _, err := service.ImportConfig(ctx, "usr_owner", bundle); err != nil {
+		t.Fatal(err)
+	}
+	exported, err := service.ExportConfig(ctx)
+	if err != nil || exported.Format != 2 || len(exported.Prices) != 1 || exported.Prices[0].CacheReadNanosPerMillion == nil || *exported.Prices[0].CacheReadNanosPerMillion != cache || exported.Prices[0].WeeklyStartMinuteUTC == nil || *exported.Prices[0].WeeklyStartMinuteUTC != start || exported.Prices[0].WeeklyEndMinuteUTC == nil || *exported.Prices[0].WeeklyEndMinuteUTC != end {
+		t.Fatalf("exported=%#v err=%v", exported.Prices, err)
+	}
+	existingOverlap := exported
+	existingOverlap.Prices = append([]ConfigPrice(nil), exported.Prices...)
+	existingOverlap.Prices[0].ID = "prc_existing_overlap"
+	if _, err := service.ImportConfig(ctx, "usr_owner", existingOverlap); !errors.Is(err, ErrConflict) {
+		t.Fatalf("existing price overlap=%v", err)
+	}
+	conflicting := exported
+	conflicting.Prices = append([]ConfigPrice(nil), exported.Prices...)
+	conflicting.Prices[0].Source = "forged"
+	if _, err := service.ImportConfig(ctx, "usr_owner", conflicting); !errors.Is(err, ErrConflict) {
+		t.Fatalf("immutable price conflict=%v", err)
+	}
+	overlapping := bundle.Prices[0]
+	overlapping.ID = "prc_overlap"
+	overlapping.WeeklyStartMinuteUTC, overlapping.WeeklyEndMinuteUTC = nil, nil
+	bundle.Prices = append(bundle.Prices, overlapping)
+	if _, err := PreviewConfig(bundle); err == nil {
+		t.Fatal("overlapping imported prices were accepted")
+	}
+	bundle.Prices = bundle.Prices[:1]
+	bundle.Format = 1
+	bundle.Prices[0].CacheReadNanosPerMillion, bundle.Prices[0].WeeklyStartMinuteUTC, bundle.Prices[0].WeeklyEndMinuteUTC = nil, nil, nil
+	if _, err := PreviewConfig(bundle); err != nil {
+		t.Fatalf("v1 preview=%v", err)
+	}
+	bundle.Prices[0].CacheReadNanosPerMillion = &cache
+	if _, err := PreviewConfig(bundle); err == nil {
+		t.Fatal("v1 config accepted v2 price fields")
 	}
 }
 

@@ -10,7 +10,7 @@ Depends on phase 2 identity and phase 1 transactional storage. Use deterministic
 | C3.2 Attempt accounting | Requests/attempts/leases/reservations/ledger, price snapshots, decimal-safe estimates, idempotent settlement; each fallback attempt gets its own reservation | COST-01, DATA-01 |
 | C3.3 Recovery/clock | Restart interruption classification, unknown usage queue, protected consumption on rotation/import/pruning, clock/period boundary semantics | LIMIT-01, COST-01, OPS-01 |
 | C3.4 Policy API/UI | Preview effective limits, scoped usage summaries, price provenance, safe limit edits and audited adjustments | UI-01, COST-01 |
-| C3.5 Historical pricing | N/A usage capture, effective-dated prices, preview/reprice jobs, idempotent ledger deltas, original/restated costs and original-period updates | COST-02, DATA-01 |
+| C3.5 Historical pricing | N/A usage capture, effective-dated and weekly UTC prices, cache-read rates, preview/reprice jobs, idempotent ledger deltas, original/restated costs and original-period updates | COST-02, DATA-01 |
 | C3.6 Store projection | Bounded transactional system outbox to data-store events; idempotent replay, visible lag/full behavior, no accounting loss | DATA-02 |
 
 Frontend: one Usage workspace with visible policy scopes, effective-limit inspection, known/estimated/unknown indicators, and structured limit-denial explanations.

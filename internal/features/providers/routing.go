@@ -65,6 +65,7 @@ type RouteOptions struct {
 	Streaming             bool
 	EstimatedInputTokens  int64
 	EstimatedOutputTokens int64
+	QuoteAt               int64
 	Seed                  string
 	AllowsConnection      func(string) bool
 	Eligibility           func(Target) (bool, string)
@@ -211,12 +212,16 @@ func (service *Service) Route(ctx context.Context, publicID string, options Rout
 	} else if err != nil {
 		return RoutePlan{}, err
 	}
-	now := time.Now().UnixMilli()
-	rows, err := service.database.QueryContext(ctx, `SELECT public_model_targets.upstream_model_id,upstream_models.connection_id,upstream_models.upstream_id,provider_connections.adapter,upstream_models.capabilities_json,public_model_targets.priority,public_model_targets.weight,public_model_targets.enabled,provider_connections.base_url,provider_connections.allow_private_network,provider_connections.timeout_ms,provider_connections.revision,provider_connections.preset,public_models.label,public_models.description,public_models.capabilities_json,public_models.revision,provider_credentials.ciphertext,provider_credentials.nonce,provider_credentials.external_ref,price_versions.id,price_versions.input_nanos_per_million,price_versions.output_nanos_per_million,price_versions.source,price_versions.created_at,route_observations.success_count,route_observations.ewma_first_byte_ms,route_observations.ewma_total_ms,route_observations.circuit_open_until,route_observations.updated_at
+	now := options.QuoteAt
+	if now <= 0 {
+		now = time.Now().UnixMilli()
+	}
+	weekMinute := usage.UTCMinuteOfWeek(time.UnixMilli(now))
+	rows, err := service.database.QueryContext(ctx, `SELECT public_model_targets.upstream_model_id,upstream_models.connection_id,upstream_models.upstream_id,provider_connections.adapter,upstream_models.capabilities_json,public_model_targets.priority,public_model_targets.weight,public_model_targets.enabled,provider_connections.base_url,provider_connections.allow_private_network,provider_connections.timeout_ms,provider_connections.revision,provider_connections.preset,public_models.label,public_models.description,public_models.capabilities_json,public_models.revision,provider_credentials.ciphertext,provider_credentials.nonce,provider_credentials.external_ref,price_versions.id,price_versions.input_nanos_per_million,price_versions.output_nanos_per_million,price_versions.cache_read_nanos_per_million,price_versions.source,price_versions.created_at,route_observations.success_count,route_observations.ewma_first_byte_ms,route_observations.ewma_total_ms,route_observations.circuit_open_until,route_observations.updated_at
 		FROM public_model_targets JOIN public_models ON public_models.id=public_model_targets.public_model_id JOIN upstream_models ON upstream_models.id=public_model_targets.upstream_model_id JOIN provider_connections ON provider_connections.id=upstream_models.connection_id LEFT JOIN provider_credentials ON provider_credentials.connection_id=provider_connections.id
-		LEFT JOIN price_versions ON price_versions.id=(SELECT id FROM price_versions candidate_price WHERE candidate_price.connection_id=provider_connections.id AND candidate_price.model_id=public_models.id AND candidate_price.effective_from<=? AND (candidate_price.effective_to IS NULL OR candidate_price.effective_to>?) ORDER BY candidate_price.effective_from DESC LIMIT 1)
+		LEFT JOIN price_versions ON price_versions.id=(SELECT id FROM price_versions candidate_price WHERE candidate_price.connection_id=provider_connections.id AND candidate_price.model_id=public_models.id AND candidate_price.effective_from<=? AND (candidate_price.effective_to IS NULL OR candidate_price.effective_to>?) AND (candidate_price.weekly_start_minute_utc IS NULL OR candidate_price.weekly_start_minute_utc<=? AND candidate_price.weekly_end_minute_utc>?) ORDER BY candidate_price.effective_from DESC,candidate_price.id DESC LIMIT 1)
 		LEFT JOIN route_observations ON route_observations.upstream_model_id=upstream_models.id AND route_observations.operation=? AND route_observations.streaming=?
-		WHERE public_model_targets.public_model_id=? AND public_model_targets.enabled=1 AND upstream_models.active=1 AND provider_connections.enabled=1 ORDER BY public_model_targets.priority`, now, now, options.Operation, options.Streaming, publicID)
+		WHERE public_model_targets.public_model_id=? AND public_model_targets.enabled=1 AND upstream_models.active=1 AND provider_connections.enabled=1 ORDER BY public_model_targets.priority`, now, now, weekMinute, weekMinute, options.Operation, options.Streaming, publicID)
 	if err != nil {
 		return RoutePlan{}, err
 	}
@@ -230,10 +235,10 @@ func (service *Service) Route(ctx context.Context, publicID string, options Rout
 		var baseURL, preset, label, description string
 		var allowPrivate bool
 		var timeout, connectionRevision, modelRevision int64
-		var inputRate, outputRate, sampleCount, first, total, until, observedAt sql.NullInt64
+		var inputRate, outputRate, cacheReadRate, sampleCount, first, total, until, observedAt sql.NullInt64
 		var priceVersion, priceSource sql.NullString
 		var priceCreated sql.NullInt64
-		if err := rows.Scan(&item.UpstreamModelID, &item.ConnectionID, &item.UpstreamID, &item.Adapter, &upstreamCaps, &item.Priority, &item.Weight, &item.Enabled, &baseURL, &allowPrivate, &timeout, &connectionRevision, &preset, &label, &description, &publicCaps, &modelRevision, &ciphertext, &nonce, &external, &priceVersion, &inputRate, &outputRate, &priceSource, &priceCreated, &sampleCount, &first, &total, &until, &observedAt); err != nil {
+		if err := rows.Scan(&item.UpstreamModelID, &item.ConnectionID, &item.UpstreamID, &item.Adapter, &upstreamCaps, &item.Priority, &item.Weight, &item.Enabled, &baseURL, &allowPrivate, &timeout, &connectionRevision, &preset, &label, &description, &publicCaps, &modelRevision, &ciphertext, &nonce, &external, &priceVersion, &inputRate, &outputRate, &cacheReadRate, &priceSource, &priceCreated, &sampleCount, &first, &total, &until, &observedAt); err != nil {
 			return RoutePlan{}, err
 		}
 		item.SampleCount = sampleCount.Int64
@@ -262,7 +267,7 @@ func (service *Service) Route(ctx context.Context, publicID string, options Rout
 		}
 		if inputRate.Valid && outputRate.Valid {
 			item.priceVersionID = priceVersion.String
-			cost, calcErr := usage.CalculateCost(options.EstimatedInputTokens, options.EstimatedOutputTokens, inputRate.Int64, outputRate.Int64)
+			cost, calcErr := usage.CalculateCost(options.EstimatedInputTokens, options.EstimatedOutputTokens, usage.ConservativeInputRate(inputRate.Int64, nullableInt64(cacheReadRate)), outputRate.Int64)
 			if calcErr != nil {
 				return RoutePlan{}, calcErr
 			}
@@ -270,7 +275,7 @@ func (service *Service) Route(ctx context.Context, publicID string, options Rout
 			value := usage.FormatUSD(cost)
 			item.EstimatedCostUSD = &value
 		}
-		if freeOnly && (!inputRate.Valid || !outputRate.Valid || !priceSource.Valid || !priceCreated.Valid || !usage.VerifiedFreePrice(inputRate.Int64, outputRate.Int64, priceSource.String, priceCreated.Int64, now)) {
+		if freeOnly && (!inputRate.Valid || !outputRate.Valid || !priceSource.Valid || !priceCreated.Valid || !usage.VerifiedFreePrice(inputRate.Int64, outputRate.Int64, nullableInt64(cacheReadRate), priceSource.String, priceCreated.Int64, now)) {
 			plan.Rejected = append(plan.Rejected, RouteRejection{item.UpstreamModelID, item.ConnectionID, "not_verified_free"})
 			continue
 		}
@@ -365,6 +370,13 @@ func orderRoute(items []RouteTarget, rejected []RouteRejection, strategy, seed s
 
 func (item RouteTarget) Target() Target         { return item.target }
 func (item RouteTarget) PriceVersionID() string { return item.priceVersionID }
+
+func nullableInt64(value sql.NullInt64) *int64 {
+	if !value.Valid {
+		return nil
+	}
+	return &value.Int64
+}
 
 func (service *Service) HasAvailableRouteTarget(ctx context.Context, publicID string, allowed func(string) bool, eligible func(Target) bool) bool {
 	rows, err := service.database.QueryContext(ctx, `SELECT DISTINCT provider_connections.id,provider_connections.preset,provider_connections.adapter,public_models.capabilities_json,upstream_models.capabilities_json,public_models.routing_strategy,public_models.free_only,provider_credentials.ciphertext,provider_credentials.external_ref FROM public_model_targets JOIN public_models ON public_models.id=public_model_targets.public_model_id JOIN upstream_models ON upstream_models.id=public_model_targets.upstream_model_id JOIN provider_connections ON provider_connections.id=upstream_models.connection_id LEFT JOIN provider_credentials ON provider_credentials.connection_id=provider_connections.id WHERE public_model_targets.public_model_id=? AND public_models.active=1 AND public_model_targets.enabled=1 AND upstream_models.active=1 AND provider_connections.enabled=1`, publicID)

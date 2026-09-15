@@ -4,13 +4,15 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
+	"math"
+	"sort"
 	"strings"
 	"time"
 
 	"github.com/bobalazek/pocket-ai-gateway/internal/features/providers"
 )
 
-const configFormat = 1
+const configFormat = 2
 
 type ConfigBundle struct {
 	Format         int                `json:"format"`
@@ -79,14 +81,17 @@ type ConfigPolicy struct {
 }
 
 type ConfigPrice struct {
-	ID                    string `json:"id"`
-	ConnectionID          string `json:"connection_id"`
-	ModelID               string `json:"model_id"`
-	InputNanosPerMillion  int64  `json:"input_nanos_per_million"`
-	OutputNanosPerMillion int64  `json:"output_nanos_per_million"`
-	Source                string `json:"source"`
-	EffectiveFrom         int64  `json:"effective_from"`
-	EffectiveTo           *int64 `json:"effective_to,omitempty"`
+	ID                       string `json:"id"`
+	ConnectionID             string `json:"connection_id"`
+	ModelID                  string `json:"model_id"`
+	InputNanosPerMillion     int64  `json:"input_nanos_per_million"`
+	OutputNanosPerMillion    int64  `json:"output_nanos_per_million"`
+	CacheReadNanosPerMillion *int64 `json:"cache_read_nanos_per_million,omitempty"`
+	Source                   string `json:"source"`
+	EffectiveFrom            int64  `json:"effective_from"`
+	EffectiveTo              *int64 `json:"effective_to,omitempty"`
+	WeeklyStartMinuteUTC     *int64 `json:"weekly_start_minute_utc,omitempty"`
+	WeeklyEndMinuteUTC       *int64 `json:"weekly_end_minute_utc,omitempty"`
 }
 
 type ConfigCatalog struct {
@@ -164,14 +169,20 @@ func (service *Service) ExportConfig(ctx context.Context) (ConfigBundle, error) 
 			bundle.Policies = append(bundle.Policies, item)
 			return nil
 		}},
-		{`SELECT id,connection_id,model_id,input_nanos_per_million,output_nanos_per_million,source,effective_from,effective_to FROM price_versions ORDER BY id`, func(rows *sql.Rows) error {
+		{`SELECT id,connection_id,model_id,input_nanos_per_million,output_nanos_per_million,cache_read_nanos_per_million,source,effective_from,effective_to,weekly_start_minute_utc,weekly_end_minute_utc FROM price_versions ORDER BY id`, func(rows *sql.Rows) error {
 			var item ConfigPrice
-			var effective sql.NullInt64
-			if err := rows.Scan(&item.ID, &item.ConnectionID, &item.ModelID, &item.InputNanosPerMillion, &item.OutputNanosPerMillion, &item.Source, &item.EffectiveFrom, &effective); err != nil {
+			var cacheRead, effective, weeklyStart, weeklyEnd sql.NullInt64
+			if err := rows.Scan(&item.ID, &item.ConnectionID, &item.ModelID, &item.InputNanosPerMillion, &item.OutputNanosPerMillion, &cacheRead, &item.Source, &item.EffectiveFrom, &effective, &weeklyStart, &weeklyEnd); err != nil {
 				return err
+			}
+			if cacheRead.Valid {
+				item.CacheReadNanosPerMillion = &cacheRead.Int64
 			}
 			if effective.Valid {
 				item.EffectiveTo = &effective.Int64
+			}
+			if weeklyStart.Valid {
+				item.WeeklyStartMinuteUTC, item.WeeklyEndMinuteUTC = &weeklyStart.Int64, &weeklyEnd.Int64
 			}
 			bundle.Prices = append(bundle.Prices, item)
 			return nil
@@ -201,7 +212,7 @@ func (service *Service) ExportConfig(ctx context.Context) (ConfigBundle, error) 
 }
 
 func PreviewConfig(bundle ConfigBundle) (ConfigPreview, error) {
-	if bundle.Format != configFormat || len(bundle.Connections) > 1000 || len(bundle.UpstreamModels) > 10000 || len(bundle.PublicModels) > 10000 || len(bundle.Targets) > 50000 || len(bundle.Policies) > 10000 || len(bundle.Prices) > 100000 {
+	if bundle.Format != 1 && bundle.Format != configFormat || len(bundle.Connections) > 1000 || len(bundle.UpstreamModels) > 10000 || len(bundle.PublicModels) > 10000 || len(bundle.Targets) > 50000 || len(bundle.Policies) > 10000 || len(bundle.Prices) > 100000 {
 		return ConfigPreview{}, ErrInvalid
 	}
 	normalizeSettings(&bundle.Settings)
@@ -278,9 +289,14 @@ func PreviewConfig(bundle ConfigBundle) (ConfigPreview, error) {
 		}
 	}
 	for _, item := range bundle.Prices {
-		if !connections[item.ConnectionID] || models[item.ModelID].ID == "" || item.InputNanosPerMillion < 0 || item.OutputNanosPerMillion < 0 || strings.TrimSpace(item.Source) == "" || item.EffectiveFrom <= 0 || item.EffectiveTo != nil && *item.EffectiveTo <= item.EffectiveFrom {
+		legacyWithV2Fields := bundle.Format == 1 && (item.CacheReadNanosPerMillion != nil || item.WeeklyStartMinuteUTC != nil || item.WeeklyEndMinuteUTC != nil)
+		validWindow := item.WeeklyStartMinuteUTC == nil && item.WeeklyEndMinuteUTC == nil || item.WeeklyStartMinuteUTC != nil && item.WeeklyEndMinuteUTC != nil && *item.WeeklyStartMinuteUTC >= 0 && *item.WeeklyStartMinuteUTC < *item.WeeklyEndMinuteUTC && *item.WeeklyEndMinuteUTC <= 7*24*60
+		if legacyWithV2Fields || !validWindow || !connections[item.ConnectionID] || models[item.ModelID].ID == "" || item.InputNanosPerMillion < 0 || item.OutputNanosPerMillion < 0 || item.CacheReadNanosPerMillion != nil && *item.CacheReadNanosPerMillion < 0 || strings.TrimSpace(item.Source) == "" || item.EffectiveFrom <= 0 || item.EffectiveTo != nil && *item.EffectiveTo <= item.EffectiveFrom {
 			return ConfigPreview{}, ErrInvalid
 		}
+	}
+	if pricesOverlap(bundle.Prices) {
+		return ConfigPreview{}, ErrInvalid
 	}
 	if bundle.Catalog.RefreshIntervalHours < 1 || bundle.Catalog.RefreshIntervalHours > 720 || providers.ValidateCatalogURL(bundle.Catalog.SourceURL) != nil {
 		return ConfigPreview{}, ErrInvalid
@@ -370,7 +386,23 @@ func (service *Service) ImportConfig(ctx context.Context, actor string, bundle C
 		}
 	}
 	for _, item := range bundle.Prices {
-		if _, err = tx.ExecContext(ctx, `INSERT INTO price_versions(id,connection_id,model_id,input_nanos_per_million,output_nanos_per_million,source,effective_from,effective_to,created_at) VALUES(?,?,?,?,?,?,?,?,?) ON CONFLICT(id) DO NOTHING`, item.ID, item.ConnectionID, item.ModelID, item.InputNanosPerMillion, item.OutputNanosPerMillion, item.Source, item.EffectiveFrom, item.EffectiveTo, now); err != nil {
+		var differs bool
+		if err = tx.QueryRowContext(ctx, `SELECT EXISTS(SELECT 1 FROM price_versions WHERE id=? AND
+			(connection_id<>? OR model_id<>? OR input_nanos_per_million<>? OR output_nanos_per_million<>? OR cache_read_nanos_per_million IS NOT ? OR source<>? OR effective_from<>? OR effective_to IS NOT ? OR weekly_start_minute_utc IS NOT ? OR weekly_end_minute_utc IS NOT ?))`, item.ID, item.ConnectionID, item.ModelID, item.InputNanosPerMillion, item.OutputNanosPerMillion, item.CacheReadNanosPerMillion, item.Source, item.EffectiveFrom, item.EffectiveTo, item.WeeklyStartMinuteUTC, item.WeeklyEndMinuteUTC).Scan(&differs); err != nil {
+			return ConfigPreview{}, err
+		}
+		if differs {
+			return ConfigPreview{}, ErrConflict
+		}
+		var overlaps bool
+		if err = tx.QueryRowContext(ctx, `SELECT EXISTS(SELECT 1 FROM price_versions WHERE id<>? AND connection_id=? AND model_id=? AND effective_from<COALESCE(?, ?) AND (effective_to IS NULL OR effective_to>?) AND
+			(weekly_start_minute_utc IS NULL OR ? IS NULL OR weekly_start_minute_utc<? AND weekly_end_minute_utc>?))`, item.ID, item.ConnectionID, item.ModelID, item.EffectiveTo, int64(math.MaxInt64), item.EffectiveFrom, item.WeeklyStartMinuteUTC, item.WeeklyEndMinuteUTC, item.WeeklyStartMinuteUTC).Scan(&overlaps); err != nil {
+			return ConfigPreview{}, err
+		}
+		if overlaps {
+			return ConfigPreview{}, ErrConflict
+		}
+		if _, err = tx.ExecContext(ctx, `INSERT INTO price_versions(id,connection_id,model_id,input_nanos_per_million,output_nanos_per_million,cache_read_nanos_per_million,source,effective_from,effective_to,weekly_start_minute_utc,weekly_end_minute_utc,created_at) VALUES(?,?,?,?,?,?,?,?,?,?,?,?) ON CONFLICT(id) DO NOTHING`, item.ID, item.ConnectionID, item.ModelID, item.InputNanosPerMillion, item.OutputNanosPerMillion, item.CacheReadNanosPerMillion, item.Source, item.EffectiveFrom, item.EffectiveTo, item.WeeklyStartMinuteUTC, item.WeeklyEndMinuteUTC, now); err != nil {
 			return ConfigPreview{}, err
 		}
 	}
@@ -385,6 +417,92 @@ func (service *Service) ImportConfig(ctx context.Context, actor string, bundle C
 		return ConfigPreview{}, err
 	}
 	return preview, tx.Commit()
+}
+
+type priceWindowEvent struct {
+	at         int64
+	start, end int
+	delta      int
+}
+
+func pricesOverlap(prices []ConfigPrice) bool {
+	groups := map[string][]priceWindowEvent{}
+	for _, price := range prices {
+		start, end := 0, 7*24*60
+		if price.WeeklyStartMinuteUTC != nil {
+			start, end = int(*price.WeeklyStartMinuteUTC), int(*price.WeeklyEndMinuteUTC)
+		}
+		key := price.ConnectionID + "\x00" + price.ModelID
+		groups[key] = append(groups[key], priceWindowEvent{at: price.EffectiveFrom, start: start, end: end, delta: 1})
+		to := int64(math.MaxInt64)
+		if price.EffectiveTo != nil {
+			to = *price.EffectiveTo
+		}
+		groups[key] = append(groups[key], priceWindowEvent{at: to, start: start, end: end, delta: -1})
+	}
+	for _, events := range groups {
+		if len(events) == 2 {
+			continue
+		}
+		sort.Slice(events, func(i, j int) bool {
+			return events[i].at < events[j].at || events[i].at == events[j].at && events[i].delta < events[j].delta
+		})
+		coordinates := make([]int, 0, len(events))
+		for _, event := range events {
+			coordinates = append(coordinates, event.start, event.end)
+		}
+		sort.Ints(coordinates)
+		unique := coordinates[:0]
+		for _, coordinate := range coordinates {
+			if len(unique) == 0 || unique[len(unique)-1] != coordinate {
+				unique = append(unique, coordinate)
+			}
+		}
+		segments := len(unique) - 1
+		active := weeklyRangeTree{maximum: make([]int, 4*segments), lazy: make([]int, 4*segments)}
+		for _, event := range events {
+			start, end := sort.SearchInts(unique, event.start), sort.SearchInts(unique, event.end)
+			if event.delta > 0 && active.rangeMax(1, 0, segments, start, end) > 0 {
+				return true
+			}
+			active.rangeAdd(1, 0, segments, start, end, event.delta)
+		}
+	}
+	return false
+}
+
+type weeklyRangeTree struct {
+	maximum, lazy []int
+}
+
+func (tree weeklyRangeTree) rangeAdd(node, left, right, from, to, delta int) {
+	if from <= left && right <= to {
+		tree.maximum[node] += delta
+		tree.lazy[node] += delta
+		return
+	}
+	middle := (left + right) / 2
+	if from < middle {
+		tree.rangeAdd(node*2, left, middle, from, to, delta)
+	}
+	if to > middle {
+		tree.rangeAdd(node*2+1, middle, right, from, to, delta)
+	}
+	tree.maximum[node] = tree.lazy[node] + max(tree.maximum[node*2], tree.maximum[node*2+1])
+}
+
+func (tree weeklyRangeTree) rangeMax(node, left, right, from, to int) int {
+	if from <= left && right <= to {
+		return tree.maximum[node]
+	}
+	middle, result := (left+right)/2, 0
+	if from < middle {
+		result = tree.rangeMax(node*2, left, middle, from, to)
+	}
+	if to > middle {
+		result = max(result, tree.rangeMax(node*2+1, middle, right, from, to))
+	}
+	return tree.lazy[node] + result
 }
 
 func validID(value string) bool {

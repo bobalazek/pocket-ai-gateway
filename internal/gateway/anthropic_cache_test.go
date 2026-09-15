@@ -66,7 +66,7 @@ func TestAnthropicPromptCacheAccountsAndProjectsBreakdown(t *testing.T) {
 	if err := store.SystemDB().QueryRowContext(ctx, `SELECT input_tokens,output_tokens,cache_creation_input_tokens,cache_read_input_tokens,cache_creation_5m_input_tokens,cache_creation_1h_input_tokens,price_version_id,as_recorded_cost_nanos FROM attempts`).Scan(&input, &output, &creation, &read, &five, &one, &price, &cost); err != nil {
 		t.Fatal(err)
 	}
-	if input != 60 || output != 4 || creation != 20 || read != 30 || five != 15 || one != 5 || price.Valid || cost.Valid {
+	if input != 60 || output != 4 || creation != 20 || read != 30 || five != 15 || one != 5 || !price.Valid || cost.Valid {
 		t.Fatalf("usage=%d/%d cache=%d/%d/%d/%d price=%v cost=%v", input, output, creation, read, five, one, price, cost)
 	}
 	var payload string
