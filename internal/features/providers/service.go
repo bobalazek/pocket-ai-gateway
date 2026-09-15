@@ -25,10 +25,10 @@ var (
 )
 
 var adapters = map[string][]string{
-	"openai":            {"chat", "embeddings", "moderations"},
+	"openai":            {"chat", "embeddings", "moderations", "count_tokens"},
 	"anthropic":         {"messages", "count_tokens"},
 	"gemini":            {"generate_content", "count_tokens", "embeddings"},
-	"openai_compatible": {"chat", "embeddings", "moderations"},
+	"openai_compatible": {"chat", "embeddings", "moderations", "count_tokens"},
 }
 
 type Service struct {
@@ -95,12 +95,13 @@ type VisibleModel struct {
 
 type Target struct {
 	PublicModel
-	BaseURL             string
-	AllowPrivateNetwork bool
-	TimeoutMS           int64
-	ConnectionRevision  int64
-	Credential          string
-	Preset              string
+	UpstreamCapabilities []string
+	BaseURL              string
+	AllowPrivateNetwork  bool
+	TimeoutMS            int64
+	ConnectionRevision   int64
+	Credential           string
+	Preset               string
 }
 
 func New(database *sql.DB, key []byte) *Service {
@@ -479,7 +480,7 @@ func (service *Service) ListVisibleModels(ctx context.Context, actor auth.User) 
 		}
 		if !service.HasAvailableRouteTarget(ctx, item.ID, func(id string) bool {
 			return actor.Grants.Unrestricted || containsString(actor.Grants.ConnectionIDs, id)
-		}) {
+		}, nil) {
 			continue
 		}
 		visible = append(visible, VisibleModel{ID: item.ID, Label: item.Label, Description: item.Description, Adapter: item.Adapter, Capabilities: item.Capabilities})

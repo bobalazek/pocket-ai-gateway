@@ -54,7 +54,7 @@ func main() {
 		must(providerService.PutCredential(ctx, owner, connection.ID, "provider-secret", ""))
 		capabilities := []string{"chat"}
 		if adapter == "openai" {
-			capabilities = append(capabilities, "moderations")
+			capabilities = append(capabilities, "moderations", "count_tokens")
 		}
 		upstreamModel, err := providerService.CreateUpstreamModel(ctx, owner, connection.ID, adapter+"-upstream", capabilities)
 		must(err)
@@ -63,7 +63,7 @@ func main() {
 		connections = append(connections, connection.ID)
 	}
 	keyService := keys.New(store.SystemDB())
-	_, secret, err := keyService.Create(ctx, owner.ID, keys.Input{Label: "Official SDK matrix", Scopes: []string{"chat:generate", "responses:generate", "moderations:classify", "models:read"}, ModelPatterns: []string{"target-*"}, ConnectionIDs: connections})
+	_, secret, err := keyService.Create(ctx, owner.ID, keys.Input{Label: "Official SDK matrix", Scopes: []string{"chat:generate", "responses:generate", "moderations:classify", "models:read", "tokens:count"}, ModelPatterns: []string{"target-*"}, ConnectionIDs: connections})
 	must(err)
 
 	mux := http.NewServeMux()
@@ -113,6 +113,10 @@ func upstreamHandler(response http.ResponseWriter, request *http.Request) {
 	}
 	switch target {
 	case "openai":
+		if strings.HasSuffix(request.URL.Path, "/responses/input_tokens") {
+			io.WriteString(response, `{"object":"response.input_tokens","input_tokens":12}`)
+			return
+		}
 		if strings.HasSuffix(request.URL.Path, "/moderations") {
 			io.WriteString(response, `{"id":"modr_1","model":"openai-upstream","results":[{"flagged":true,"categories":{"violence":true},"category_scores":{"violence":0.9}}]}`)
 			return

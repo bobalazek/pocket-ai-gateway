@@ -22,6 +22,7 @@ Base URL: `/api/openai/v1`.
 | `POST /chat/completions` | Implemented | JSON and SSE; shared text, image, structured-output, tool, refusal, stop, and usage semantics translate across capable families |
 | `POST /responses` | Constrained | Non-streaming responses are gateway-stored for the creating API key by default for 30 days; `background:true` runs through the durable local queue; `store:false` supports JSON and lifecycle SSE; synchronous JSON, background jobs, and bounded buffered streams can atomically attach gateway Conversations; hosted tools are rejected |
 | `POST /responses/compact` | Native OpenAI preset only | Inline model/input requests are forwarded; response/conversation/item/file/container references and cross-provider approximations are rejected |
+| `POST /responses/input_tokens` | Native target only | Counts direct model/input requests; provider-owned response, conversation, item, file, and container references are rejected |
 | `POST /embeddings` | Native target only | Preserves order, dimensions, encoding, and usage; no cross-model fallback |
 | `POST /moderations` | Native target only | Preserves the upstream OpenAI moderation taxonomy; requires `moderations:classify` and a moderation-capable model |
 | `GET /responses/{id}`, `DELETE /responses/{id}` | Implemented, gateway-owned | Creating-key retrieval and deletion; the gateway replaces the upstream ID and keeps upstream storage disabled |

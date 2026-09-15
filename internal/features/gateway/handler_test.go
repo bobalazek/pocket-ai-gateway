@@ -182,6 +182,263 @@ func TestModerationModelRewriteDoesNotExpandHTML(t *testing.T) {
 	}
 }
 
+func TestNativeOpenAIResponseInputTokensUseScopedModel(t *testing.T) {
+	var path, authorization, model string
+	calls := 0
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		calls++
+		path, authorization = r.URL.Path, r.Header.Get("Authorization")
+		var body map[string]any
+		_ = json.NewDecoder(r.Body).Decode(&body)
+		model, _ = body["model"].(string)
+		switch body["input"] {
+		case "bad_missing":
+			io.WriteString(w, `{}`)
+			return
+		case "bad_object":
+			io.WriteString(w, `{"object":"wrong","input_tokens":12}`)
+			return
+		case "bad_negative":
+			io.WriteString(w, `{"object":"response.input_tokens","input_tokens":-1}`)
+			return
+		case "bad_null":
+			io.WriteString(w, `{"object":"response.input_tokens","input_tokens":null}`)
+			return
+		case "bad_fraction":
+			io.WriteString(w, `{"object":"response.input_tokens","input_tokens":1.5}`)
+			return
+		case "bad_overflow":
+			io.WriteString(w, `{"object":"response.input_tokens","input_tokens":9223372036854775808}`)
+			return
+		case "bad_unsafe":
+			io.WriteString(w, `{"object":"response.input_tokens","input_tokens":9007199254740992}`)
+			return
+		}
+		io.WriteString(w, `{"object":"response.input_tokens","input_tokens":12}`)
+	}))
+	defer upstream.Close()
+	ctx, store, owner, keyService, providerService, usageService := gatewayFixture(t)
+	defer store.Close()
+	connection, publicModel := publishModel(t, ctx, providerService, owner, "openai", upstream.URL+"/v1", "count-upstream", []string{"count_tokens"})
+	_, secret, err := keyService.Create(ctx, owner.ID, keys.Input{Label: "Count", Scopes: []string{"tokens:count"}, ModelPatterns: []string{publicModel.ID}, ConnectionIDs: []string{connection.ID}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, denied, err := keyService.Create(ctx, owner.ID, keys.Input{Label: "No count", Scopes: []string{"chat:generate"}, ModelPatterns: []string{publicModel.ID}, ConnectionIDs: []string{connection.ID}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	mux := http.NewServeMux()
+	New(store.SystemDB(), keyService, providerService, usageService).Register(mux)
+	server := httptest.NewServer(mux)
+	defer server.Close()
+	requestCount := func(key, payload string) (int, []byte) {
+		request, _ := http.NewRequest(http.MethodPost, server.URL+"/api/openai/v1/responses/input_tokens", strings.NewReader(payload))
+		request.Header.Set("Authorization", "Bearer "+key)
+		response, err := http.DefaultClient.Do(request)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer response.Body.Close()
+		body, _ := io.ReadAll(response.Body)
+		return response.StatusCode, body
+	}
+	status, body := requestCount(secret, `{"model":"`+publicModel.ID+`","input":"hello"}`)
+	if status != http.StatusOK || !bytes.Contains(body, []byte(`"input_tokens":12`)) || path != "/v1/responses/input_tokens" || authorization != "Bearer provider-secret" || model != "count-upstream" {
+		t.Fatalf("status=%d body=%s upstream=%s %s %s", status, body, path, authorization, model)
+	}
+	var usageStatus string
+	var inputTokens, outputTokens, cost int64
+	if err := store.SystemDB().QueryRowContext(ctx, "SELECT usage_status,input_tokens,output_tokens,as_recorded_cost_nanos FROM attempts WHERE state='succeeded'").Scan(&usageStatus, &inputTokens, &outputTokens, &cost); err != nil || usageStatus != "provider_reported" || inputTokens != 12 || outputTokens != 0 || cost != 0 {
+		t.Fatalf("usage=%s %d/%d cost=%d err=%v", usageStatus, inputTokens, outputTokens, cost, err)
+	}
+	status, body = requestCount(secret, `{"model":"`+publicModel.ID+`","input":"hello","tools":[{"type":"function","name":"lookup","parameters":{"type":"object","properties":{"file_id":{"type":"string"},"id":{"type":"string"}}}}]}`)
+	if status != http.StatusOK || !bytes.Contains(body, []byte(`"input_tokens":12`)) {
+		t.Fatalf("function schema status=%d body=%s", status, body)
+	}
+	for _, malformed := range []string{"bad_missing", "bad_object", "bad_negative", "bad_null", "bad_fraction", "bad_overflow", "bad_unsafe"} {
+		status, body = requestCount(secret, `{"model":"`+publicModel.ID+`","input":"`+malformed+`"}`)
+		if status != http.StatusBadGateway {
+			t.Fatalf("malformed %s status=%d body=%s", malformed, status, body)
+		}
+		if _, err := store.SystemDB().ExecContext(ctx, "UPDATE route_observations SET consecutive_failures=0,circuit_open_until=NULL"); err != nil {
+			t.Fatal(err)
+		}
+	}
+	var failed int
+	if err := store.SystemDB().QueryRowContext(ctx, "SELECT COUNT(*) FROM attempts WHERE state='failed' AND usage_status='unknown'").Scan(&failed); err != nil || failed != 7 {
+		t.Fatalf("failed attempts=%d err=%v", failed, err)
+	}
+	for _, invalid := range []string{
+		`{"model":"` + publicModel.ID + `","input":42}`,
+		`{"model":"` + publicModel.ID + `","input":[{"type":"item_reference","id":"item_1"}]}`,
+		`{"model":"` + publicModel.ID + `","input":[{"id":"item_1"}]}`,
+		`{"model":"` + publicModel.ID + `","input":[{"type":null,"id":"item_1"}]}`,
+		`{"model":"` + publicModel.ID + `","input":"hello","conversation":"conv_1"}`,
+		`{"model":"` + publicModel.ID + `","input":"hello","tools":[{"type":"web_search"}]}`,
+	} {
+		if status, _ = requestCount(secret, invalid); status != http.StatusBadRequest {
+			t.Fatalf("invalid status=%d body=%s", status, invalid)
+		}
+	}
+	status, _ = requestCount(denied, `{"model":"`+publicModel.ID+`","input":"hello"}`)
+	if status != http.StatusNotFound || calls != 9 {
+		t.Fatalf("denied status=%d upstream calls=%d", status, calls)
+	}
+}
+
+func TestInputTokenSemanticResponseDoesNotFallback(t *testing.T) {
+	var primaryCalls, fallbackCalls int
+	primary := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		primaryCalls++
+		io.WriteString(w, `{"object":"response.input_tokens","input_tokens":null}`)
+	}))
+	defer primary.Close()
+	fallback := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		fallbackCalls++
+		io.WriteString(w, `{"object":"response.input_tokens","input_tokens":12}`)
+	}))
+	defer fallback.Close()
+
+	ctx, store, owner, keyService, providerService, usageService := gatewayFixture(t)
+	defer store.Close()
+	primaryConnection, publicModel := publishModel(t, ctx, providerService, owner, "openai", primary.URL+"/v1", "primary", []string{"count_tokens"})
+	fallbackConnection, err := providerService.CreateConnection(ctx, owner, providers.ConnectionInput{Name: "fallback", Adapter: "openai", BaseURL: fallback.URL + "/v1", Enabled: true, AllowPrivateNetwork: true, TimeoutMS: 5000})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err = providerService.PutCredential(ctx, owner, fallbackConnection.ID, "provider-secret", ""); err != nil {
+		t.Fatal(err)
+	}
+	fallbackModel, err := providerService.CreateUpstreamModel(ctx, owner, fallbackConnection.ID, "fallback", []string{"count_tokens"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err = providerService.ConfigureRoute(ctx, owner, publicModel.ID, publicModel.Revision, providers.RouteConfigInput{Strategy: "ordered_fallback", Targets: []providers.RouteTargetInput{{UpstreamModelID: publicModel.TargetModelID, Priority: 1, Enabled: true}, {UpstreamModelID: fallbackModel.ID, Priority: 2, Enabled: true}}}); err != nil {
+		t.Fatal(err)
+	}
+	_, secret, err := keyService.Create(ctx, owner.ID, keys.Input{Label: "Count", Scopes: []string{"tokens:count"}, ModelPatterns: []string{publicModel.ID}, ConnectionIDs: []string{primaryConnection.ID, fallbackConnection.ID}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	mux := http.NewServeMux()
+	New(store.SystemDB(), keyService, providerService, usageService).Register(mux)
+	server := httptest.NewServer(mux)
+	defer server.Close()
+	request, _ := http.NewRequest(http.MethodPost, server.URL+"/api/openai/v1/responses/input_tokens", strings.NewReader(`{"model":"`+publicModel.ID+`","input":"hello"}`))
+	request.Header.Set("Authorization", "Bearer "+secret)
+	response, err := http.DefaultClient.Do(request)
+	if err != nil {
+		t.Fatal(err)
+	}
+	response.Body.Close()
+	if response.StatusCode != http.StatusBadGateway || primaryCalls != 1 || fallbackCalls != 0 {
+		t.Fatalf("status=%d primary=%d fallback=%d", response.StatusCode, primaryCalls, fallbackCalls)
+	}
+}
+
+func TestInputTokenCountingRespectsPublishedCapabilities(t *testing.T) {
+	var calls int
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		calls++
+		io.WriteString(w, `{"object":"response.input_tokens","input_tokens":12}`)
+	}))
+	defer upstream.Close()
+	ctx, store, owner, keyService, providerService, usageService := gatewayFixture(t)
+	defer store.Close()
+	connection, err := providerService.CreateConnection(ctx, owner, providers.ConnectionInput{Name: "openai", Adapter: "openai", BaseURL: upstream.URL + "/v1", Enabled: true, AllowPrivateNetwork: true, TimeoutMS: 5000})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err = providerService.PutCredential(ctx, owner, connection.ID, "provider-secret", ""); err != nil {
+		t.Fatal(err)
+	}
+	upstreamModel, err := providerService.CreateUpstreamModel(ctx, owner, connection.ID, "multi-capable", []string{"chat", "count_tokens"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	publicModel, err := providerService.CreatePublicModel(ctx, owner, "chat-only", "Chat only", "", upstreamModel.ID, []string{"chat"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, secret, err := keyService.Create(ctx, owner.ID, keys.Input{Label: "Count", Scopes: []string{"tokens:count"}, ModelPatterns: []string{publicModel.ID}, ConnectionIDs: []string{connection.ID}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	mux := http.NewServeMux()
+	New(store.SystemDB(), keyService, providerService, usageService).Register(mux)
+	server := httptest.NewServer(mux)
+	defer server.Close()
+	request, _ := http.NewRequest(http.MethodPost, server.URL+"/api/openai/v1/responses/input_tokens", strings.NewReader(`{"model":"`+publicModel.ID+`","input":"hello"}`))
+	request.Header.Set("Authorization", "Bearer "+secret)
+	response, err := http.DefaultClient.Do(request)
+	if err != nil {
+		t.Fatal(err)
+	}
+	response.Body.Close()
+	if response.StatusCode != http.StatusNotFound || calls != 0 {
+		t.Fatalf("status=%d upstream calls=%d", response.StatusCode, calls)
+	}
+}
+
+func TestOpenAIModelListUsesEligibleCountTarget(t *testing.T) {
+	ctx, store, owner, keyService, providerService, usageService := gatewayFixture(t)
+	defer store.Close()
+	createTarget := func(adapter, name string) (providers.Connection, providers.UpstreamModel) {
+		connection, err := providerService.CreateConnection(ctx, owner, providers.ConnectionInput{Name: name, Adapter: adapter, BaseURL: "http://127.0.0.1:1", Enabled: true, AllowPrivateNetwork: true, TimeoutMS: 5000})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err = providerService.PutCredential(ctx, owner, connection.ID, "provider-secret", ""); err != nil {
+			t.Fatal(err)
+		}
+		upstream, err := providerService.CreateUpstreamModel(ctx, owner, connection.ID, name, []string{"count_tokens"})
+		if err != nil {
+			t.Fatal(err)
+		}
+		return connection, upstream
+	}
+	anthropicConnection, anthropicModel := createTarget("anthropic", "anthropic-count")
+	openAIConnection, openAIModel := createTarget("openai", "openai-count")
+	publicModel, err := providerService.CreatePublicModel(ctx, owner, "counter", "Counter", "", anthropicModel.ID, []string{"count_tokens"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	configure := func(openAIEnabled bool) {
+		publicModel, err = providerService.ConfigureRoute(ctx, owner, publicModel.ID, publicModel.Revision, providers.RouteConfigInput{Strategy: "ordered_fallback", Targets: []providers.RouteTargetInput{{UpstreamModelID: anthropicModel.ID, Priority: 1, Enabled: true}, {UpstreamModelID: openAIModel.ID, Priority: 2, Enabled: openAIEnabled}}})
+		if err != nil {
+			t.Fatal(err)
+		}
+	}
+	configure(true)
+	_, secret, err := keyService.Create(ctx, owner.ID, keys.Input{Label: "Models", Scopes: []string{"models:read"}, ModelPatterns: []string{publicModel.ID}, ConnectionIDs: []string{anthropicConnection.ID, openAIConnection.ID}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	mux := http.NewServeMux()
+	New(store.SystemDB(), keyService, providerService, usageService).Register(mux)
+	server := httptest.NewServer(mux)
+	defer server.Close()
+	list := func() []byte {
+		request, _ := http.NewRequest(http.MethodGet, server.URL+"/api/openai/v1/models", nil)
+		request.Header.Set("Authorization", "Bearer "+secret)
+		response, err := http.DefaultClient.Do(request)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer response.Body.Close()
+		body, _ := io.ReadAll(response.Body)
+		return body
+	}
+	if body := list(); !bytes.Contains(body, []byte(`"id":"counter"`)) {
+		t.Fatalf("eligible secondary missing: %s", body)
+	}
+	configure(false)
+	if body := list(); bytes.Contains(body, []byte(`"id":"counter"`)) {
+		t.Fatalf("disabled OpenAI target still visible: %s", body)
+	}
+}
+
 func TestNativeModelListsKeepTheirOwnShapes(t *testing.T) {
 	ctx, store, owner, keyService, providerService, usageService := gatewayFixture(t)
 	defer store.Close()
@@ -319,6 +576,13 @@ func TestEmbeddingAdmissionUsesRawBodyAndBatchCardinality(t *testing.T) {
 func TestOpenAIEmbeddingUsageDerivesZeroOutputTokens(t *testing.T) {
 	input, output, _ := parseUsage("openai", []byte(`{"usage":{"prompt_tokens":7,"total_tokens":7}}`))
 	if input == nil || output == nil || *input != 7 || *output != 0 {
+		t.Fatalf("usage = %v/%v", input, output)
+	}
+}
+
+func TestOpenAITopLevelInputTokensAreNotGeneralUsage(t *testing.T) {
+	input, output, _ := parseUsage("openai", []byte(`{"input_tokens":7}`))
+	if input != nil || output != nil {
 		t.Fatalf("usage = %v/%v", input, output)
 	}
 }

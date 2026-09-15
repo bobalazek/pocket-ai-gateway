@@ -157,6 +157,62 @@ func (handler *Handler) compactResponse(response http.ResponseWriter, request *h
 	handler.forwardAuthorized(response, request, "responses_compact", "responses:generate", "responses/compact", "", nil, principal, body)
 }
 
+func (handler *Handler) responseInputTokens(response http.ResponseWriter, request *http.Request) {
+	principal, ok := handler.authenticate(response, request, "openai")
+	if !ok {
+		return
+	}
+	body, err := io.ReadAll(http.MaxBytesReader(response, request.Body, maxInferenceBody))
+	if err != nil {
+		handler.writeError(response, "openai", http.StatusRequestEntityTooLarge, "request_too_large", "Request body exceeds 16 MiB")
+		return
+	}
+	var envelope map[string]json.RawMessage
+	if json.Unmarshal(body, &envelope) != nil || envelope == nil {
+		handler.writeError(response, "openai", http.StatusBadRequest, "invalid_request", "Request body must be a JSON object")
+		return
+	}
+	var model string
+	_ = json.Unmarshal(envelope["model"], &model)
+	if model == "" {
+		handler.writeError(response, "openai", http.StatusBadRequest, "invalid_request", "model is required")
+		return
+	}
+	if raw := bytes.TrimSpace(envelope["input"]); len(raw) > 0 && !bytes.Equal(raw, []byte("null")) {
+		if err := validateCompactInput(raw); err != nil {
+			handler.writeError(response, "openai", http.StatusBadRequest, "invalid_request", err.Error())
+			return
+		}
+	}
+	for _, field := range []string{"stream", "store", "background"} {
+		if _, exists := envelope[field]; exists {
+			handler.writeError(response, "openai", http.StatusBadRequest, "unsupported_feature", field+" is not supported by input token counting")
+			return
+		}
+	}
+	for _, field := range []string{"conversation", "previous_response_id"} {
+		raw := bytes.TrimSpace(envelope[field])
+		if len(raw) > 0 && !bytes.Equal(raw, []byte("null")) && !bytes.Equal(raw, []byte(`""`)) {
+			handler.writeError(response, "openai", http.StatusBadRequest, "unsupported_feature", field+" is not supported by input token counting")
+			return
+		}
+	}
+	if raw := envelope["tools"]; len(raw) > 0 {
+		var tools []map[string]any
+		if json.Unmarshal(raw, &tools) != nil {
+			handler.writeError(response, "openai", http.StatusBadRequest, "invalid_request", "tools must be an array")
+			return
+		}
+		for _, tool := range tools {
+			if kind, _ := tool["type"].(string); kind != "function" {
+				handler.writeError(response, "openai", http.StatusBadRequest, "unsupported_feature", "only function tools are supported by input token counting")
+				return
+			}
+		}
+	}
+	handler.forwardAuthorized(response, request, "openai", "tokens:count", "responses/input_tokens", "", nil, principal, body)
+}
+
 func validateCompactInput(raw json.RawMessage) error {
 	var input any
 	if json.Unmarshal(raw, &input) != nil {
@@ -186,13 +242,18 @@ func rejectCompactReferences(value any) error {
 			}
 		}
 	case map[string]any:
-		if value["type"] == "item_reference" {
-			return errors.New("provider item references are not supported by compact")
+		kind, _ := value["type"].(string)
+		_, hasType := value["type"]
+		id, _ := value["id"].(string)
+		if kind == "item_reference" || (id != "" && (!hasType || value["type"] == nil)) {
+			return errors.New("provider item references are not supported")
 		}
-		for key, item := range value {
-			if (key == "file_id" || key == "container_id" || key == "item_id") && item != nil && item != "" {
-				return errors.New("provider resource references are not supported by compact")
-			}
+		fileReference := (kind == "input_file" || kind == "input_image" || kind == "computer_screenshot") && value["file_id"] != nil && value["file_id"] != ""
+		containerReference := kind == "container_reference" && value["container_id"] != nil && value["container_id"] != ""
+		if fileReference || containerReference {
+			return errors.New("provider resource references are not supported")
+		}
+		for _, item := range value {
 			if err := rejectCompactReferences(item); err != nil {
 				return err
 			}
@@ -237,7 +298,7 @@ func (handler *Handler) enqueueResponse(response http.ResponseWriter, request *h
 	}
 	if !handler.providers.HasAvailableRouteTarget(request.Context(), modelID, func(connectionID string) bool {
 		return principal.Allows("responses:generate", modelID, connectionID)
-	}) {
+	}, nil) {
 		handler.writeError(response, "responses", http.StatusNotFound, "model_not_found", "Model is unavailable")
 		return
 	}

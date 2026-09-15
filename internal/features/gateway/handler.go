@@ -55,6 +55,7 @@ func (handler *Handler) Register(mux *http.ServeMux) {
 	})
 	mux.HandleFunc("POST /api/openai/v1/responses", handler.responses)
 	mux.HandleFunc("POST /api/openai/v1/responses/compact", handler.compactResponse)
+	mux.HandleFunc("POST /api/openai/v1/responses/input_tokens", handler.responseInputTokens)
 	mux.HandleFunc("POST /api/openai/v1/conversations", handler.createConversation)
 	mux.HandleFunc("GET /api/openai/v1/conversations/{conversation_id}", handler.getConversation)
 	mux.HandleFunc("POST /api/openai/v1/conversations/{conversation_id}", handler.updateConversation)
@@ -190,7 +191,7 @@ func (handler *Handler) forwardAuthorized(response http.ResponseWriter, request 
 	seed := sha256.Sum256(append([]byte(principal.KeyID+"\x00"+publicID+"\x00"+strconv.FormatInt(time.Now().UnixNano(), 10)+"\x00"), body...))
 	plan, err := handler.providers.Route(request.Context(), publicID, providers.RouteOptions{Operation: clientOperation, Streaming: stream, EstimatedInputTokens: inputEstimate, EstimatedOutputTokens: outputEstimate, Seed: string(seed[:]), AllowsConnection: func(connectionID string) bool { return principal.Allows(scope, publicID, connectionID) }, Eligibility: func(target providers.Target) (bool, string) {
 		native := nativeTarget(dialect, target.Adapter)
-		if !hasCapability(target.Capabilities, scope) {
+		if !hasCapability(target.Capabilities, scope) || !hasCapability(target.UpstreamCapabilities, scope) {
 			return false, "unsupported_capability"
 		}
 		if !native && scope != "chat:generate" && scope != "responses:generate" {
@@ -294,6 +295,8 @@ func (handler *Handler) forwardAuthorized(response http.ResponseWriter, request 
 		var result int
 		var raw []byte
 		var copyErr error
+		var countedInputTokens *int64
+		semanticResponseError := false
 		if native {
 			result, raw, copyErr = handler.dispatch(attemptWriter, request, target, targetPath, targetBody, stream, dialect, releaseDispatch)
 		} else {
@@ -301,9 +304,18 @@ func (handler *Handler) forwardAuthorized(response http.ResponseWriter, request 
 		}
 		if native && upstreamPath == "moderations" && copyErr == nil && result >= 200 && result < 300 {
 			raw, copyErr = rewriteResponseModel(raw, publicID)
+			semanticResponseError = copyErr != nil
 			if copyErr == nil {
 				attemptWriter.body.Reset()
 				_, copyErr = attemptWriter.Write(raw)
+			}
+		}
+		if native && upstreamPath == "responses/input_tokens" && copyErr == nil && result >= 200 && result < 300 {
+			var count int64
+			count, copyErr = validateResponseInputTokens(raw)
+			semanticResponseError = copyErr != nil
+			if copyErr == nil {
+				countedInputTokens = &count
 			}
 		}
 		dispatchErr := copyErr
@@ -319,6 +331,10 @@ func (handler *Handler) forwardAuthorized(response http.ResponseWriter, request 
 			accountRaw = attemptWriter.body.Bytes()
 		}
 		inputTokens, outputTokens, cost := parseUsage(accountDialect, accountRaw)
+		if countedInputTokens != nil {
+			zero := int64(0)
+			inputTokens, outputTokens = countedInputTokens, &zero
+		}
 		toolCalls, toolStatus := parseToolMetadata(accountDialect, accountRaw)
 		success := copyErr == nil && result >= 200 && result < 300
 		estimatedUsage := false
@@ -356,7 +372,7 @@ func (handler *Handler) forwardAuthorized(response http.ResponseWriter, request 
 		if request.Context().Err() == nil && (success || copyErr != nil || retryableResult(result, nil)) {
 			_ = handler.providers.RecordRouteOutcome(context.WithoutCancel(request.Context()), target, clientOperation, stream, success, attemptWriter.FirstByte(started), time.Since(started))
 		}
-		retryableDispatchError := native && dispatchErr != nil || errors.Is(dispatchErr, errUpstreamResponseInterrupted)
+		retryableDispatchError := !semanticResponseError && (native && dispatchErr != nil || errors.Is(dispatchErr, errUpstreamResponseInterrupted))
 		retry := !terminalStreamFailure && index+1 < len(plan.Targets) && (retryableDispatchError || retryableResult(result, copyErr)) && !attemptWriter.Committed()
 		state, status := "succeeded", "provider_reported"
 		if estimatedUsage {
@@ -614,6 +630,21 @@ func rewriteResponseModel(raw []byte, publicID string) ([]byte, error) {
 		return nil, errors.New("provider response exceeds 16 MiB")
 	}
 	return bytes.TrimSuffix(encoded.Bytes(), []byte("\n")), nil
+}
+
+func validateResponseInputTokens(raw []byte) (int64, error) {
+	var response struct {
+		Object      string          `json:"object"`
+		InputTokens json.RawMessage `json:"input_tokens"`
+	}
+	if json.Unmarshal(raw, &response) != nil || response.Object != "response.input_tokens" {
+		return 0, errors.New("provider returned an invalid input-token response")
+	}
+	var count *int64
+	if json.Unmarshal(response.InputTokens, &count) != nil || count == nil || *count < 0 || *count > 9_007_199_254_740_991 {
+		return 0, errors.New("provider returned an invalid input-token count")
+	}
+	return *count, nil
 }
 
 func validateResponses(envelope map[string]json.RawMessage) (bool, error) {
@@ -883,22 +914,30 @@ func (handler *Handler) allowedModels(response http.ResponseWriter, request *htt
 	}
 	filtered := items[:0]
 	for _, item := range items {
-		if modelVisibleInDialect(dialect, item) && handler.providers.HasAvailableRouteTarget(request.Context(), item.ID, func(connectionID string) bool { return principal.Allows("models:read", item.ID, connectionID) }) {
+		if handler.providers.HasAvailableRouteTarget(request.Context(), item.ID, func(connectionID string) bool { return principal.Allows("models:read", item.ID, connectionID) }, func(target providers.Target) bool { return modelVisibleInDialect(dialect, item, target) }) {
 			filtered = append(filtered, item)
 		}
 	}
 	return principal, filtered, true
 }
 
-func modelVisibleInDialect(dialect string, model providers.PublicModel) bool {
-	if hasCapability(model.Capabilities, "chat:generate") {
-		return true
+func modelVisibleInDialect(dialect string, model providers.PublicModel, target providers.Target) bool {
+	if hasCapability(model.Capabilities, "chat:generate") && hasCapability(target.UpstreamCapabilities, "chat:generate") {
+		operation := map[string]string{"openai": "chat/completions", "openai_compatible": "chat/completions", "anthropic": "messages", "gemini": "generateContent"}[target.Adapter]
+		return providers.PresetSupports(target.Preset, operation)
 	}
-	if dialect == "openai" && nativeAdapter("openai", model.Adapter) {
-		return hasCapability(model.Capabilities, "embeddings:generate") || hasCapability(model.Capabilities, "moderations:classify")
+	if !nativeAdapter(dialect, target.Adapter) {
+		return false
 	}
-	if dialect == "gemini" && nativeAdapter("gemini", model.Adapter) {
-		return hasCapability(model.Capabilities, "embeddings:generate") || hasCapability(model.Capabilities, "tokens:count")
+	operations := map[string][]struct{ scope, operation string }{
+		"openai":    {{"embeddings:generate", "embeddings"}, {"moderations:classify", "moderations"}, {"tokens:count", "responses/input_tokens"}},
+		"anthropic": {{"tokens:count", "messages/count_tokens"}},
+		"gemini":    {{"embeddings:generate", "embedContent"}, {"tokens:count", "countTokens"}},
+	}[dialect]
+	for _, candidate := range operations {
+		if hasCapability(model.Capabilities, candidate.scope) && hasCapability(target.UpstreamCapabilities, candidate.scope) && providers.PresetSupports(target.Preset, candidate.operation) {
+			return true
+		}
 	}
 	return false
 }

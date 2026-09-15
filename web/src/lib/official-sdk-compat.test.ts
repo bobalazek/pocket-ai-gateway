@@ -92,6 +92,11 @@ describe("official SDK compatibility through the Go gateway", () => {
 		expect(result.results[0]?.flagged).toBe(true);
 	});
 
+  it("counts native OpenAI Responses input tokens", async () => {
+    const result = await openAI().responses.inputTokens.count({ model: "target-openai", input: "hello" });
+    expect(result).toMatchObject({ object: "response.input_tokens", input_tokens: 12 });
+  });
+
   it("manages gateway-owned OpenAI conversations", async () => {
     const client = openAI();
     const empty = await client.conversations.create();

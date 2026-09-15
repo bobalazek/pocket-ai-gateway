@@ -27,6 +27,12 @@ paths:
       description: Compacts inline input through the native OpenAI preset. Gateway response, conversation, item, file, and container references are rejected.
       requestBody: { required: true, content: { application/json: { schema: { type: object, required: [model, input], not: { required: [stream] }, properties: { model: { type: string }, input: { oneOf: [{ type: string }, { type: array, items: { type: object } }] } }, additionalProperties: true } } } }
       responses: { "200": { description: Native response.compaction object }, "404": { description: No capable native target }, default: { description: OpenAI-compatible error } }
+  /responses/input_tokens:
+    post:
+      operationId: countResponseInputTokens
+      description: Counts direct model/input requests through a native capable OpenAI target. Provider-owned response, conversation, item, file, and container references are rejected.
+      requestBody: { required: true, content: { application/json: { schema: { type: object, required: [model], properties: { model: { type: string }, input: { oneOf: [{ type: string }, { type: array, items: { type: object } }, { type: "null" }] }, instructions: { oneOf: [{ type: string }, { type: "null" }] }, tools: { oneOf: [{ type: array, items: { type: object, required: [type], properties: { type: { const: function } }, additionalProperties: true } }, { type: "null" }] } }, additionalProperties: true } } } }
+      responses: { "200": { description: response.input_tokens count object }, "404": { description: No capable native target }, default: { description: OpenAI-compatible error } }
   /responses/{response_id}:
     parameters: [{ name: response_id, in: path, required: true, schema: { type: string } }]
     get:

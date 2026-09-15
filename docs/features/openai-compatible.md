@@ -41,10 +41,12 @@ Chat, embeddings, models, and Responses generation can target OpenAI-compatible,
 
 `POST /responses/compact` supports inline model/input compaction on the native OpenAI preset. It is not translated or sent to custom-compatible targets, and response, conversation, item, file, and container references are rejected rather than resolved with a shared provider credential.
 
+`POST /responses/input_tokens` counts direct model/input requests on a native capable OpenAI target. It requires `tokens:count`; provider-owned response, conversation, item, file, and container references are rejected. Function-tool schemas are supported, while hosted tools remain unavailable.
+
 Gateway-owned Conversations support create/retrieve/update/delete plus bounded item creation, retrieval, deletion, and cursor pagination. Message, function-call, and string function-output items are accepted; unsupported provider resource types and projected provider fields are rejected. Every resource belongs to the creating API key, retained storage has global/owner/key caps, and deleted content is purged after 30 days. Synchronous, durable background, and `store:false` streaming Responses prepend local history. Successful requests atomically append the new input and completed output. Attached streams are bounded and replay a successful terminal event only after the turn is stored; `response.failed` and `error` events are replayed without changing the Conversation.
 
 An OpenAI-shaped client may target native OpenAI, Anthropic, Gemini, or a certified compatible endpoint. Return OpenAI-shaped output in every case. Preserve model aliases, tool correlation, usage provenance, and error class; reject unmappable semantics before dispatch.
 
-Automated coverage includes the pinned OpenAI SDK URL for Chat, Responses, and Moderations, stored and background lifecycle calls, all provider-family translation directions, fragmented tool arguments, stream lifecycle events, native errors, embeddings where supported, and filtered model lists.
+Automated coverage includes the pinned OpenAI SDK URL for Chat, Responses, Responses input-token counting, and Moderations, stored and background lifecycle calls, all provider-family translation directions, fragmented tool arguments, stream lifecycle events, native errors, embeddings where supported, and filtered model lists.
 
 Sources: [Chat API](https://developers.openai.com/api/reference/cli/resources/chat/subresources/completions), [Responses guide](https://developers.openai.com/api/docs/guides/migrate-to-responses).

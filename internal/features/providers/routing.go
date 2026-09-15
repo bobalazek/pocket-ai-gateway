@@ -240,7 +240,7 @@ func (service *Service) Route(ctx context.Context, publicID string, options Rout
 		_ = json.Unmarshal([]byte(upstreamCaps), &item.Capabilities)
 		var publicCapabilities []string
 		_ = json.Unmarshal([]byte(publicCaps), &publicCapabilities)
-		item.target = Target{PublicModel: PublicModel{ID: publicID, Label: label, Description: description, TargetConnectionID: item.ConnectionID, TargetModelID: item.UpstreamModelID, UpstreamID: item.UpstreamID, Adapter: item.Adapter, Capabilities: publicCapabilities, Active: true, Revision: modelRevision, RoutingStrategy: strategy, FreeOnly: freeOnly}, BaseURL: baseURL, AllowPrivateNetwork: allowPrivate, TimeoutMS: timeout, ConnectionRevision: connectionRevision, Preset: preset}
+		item.target = Target{PublicModel: PublicModel{ID: publicID, Label: label, Description: description, TargetConnectionID: item.ConnectionID, TargetModelID: item.UpstreamModelID, UpstreamID: item.UpstreamID, Adapter: item.Adapter, Capabilities: publicCapabilities, Active: true, Revision: modelRevision, RoutingStrategy: strategy, FreeOnly: freeOnly}, UpstreamCapabilities: item.Capabilities, BaseURL: baseURL, AllowPrivateNetwork: allowPrivate, TimeoutMS: timeout, ConnectionRevision: connectionRevision, Preset: preset}
 		if options.AllowsConnection != nil && !options.AllowsConnection(item.ConnectionID) {
 			plan.Rejected = append(plan.Rejected, RouteRejection{item.UpstreamModelID, item.ConnectionID, "connection_not_granted"})
 			continue
@@ -366,17 +366,22 @@ func orderRoute(items []RouteTarget, rejected []RouteRejection, strategy, seed s
 func (item RouteTarget) Target() Target         { return item.target }
 func (item RouteTarget) PriceVersionID() string { return item.priceVersionID }
 
-func (service *Service) HasAvailableRouteTarget(ctx context.Context, publicID string, allowed func(string) bool) bool {
-	rows, err := service.database.QueryContext(ctx, `SELECT DISTINCT provider_connections.id,provider_connections.preset,provider_credentials.ciphertext,provider_credentials.external_ref FROM public_model_targets JOIN upstream_models ON upstream_models.id=public_model_targets.upstream_model_id JOIN provider_connections ON provider_connections.id=upstream_models.connection_id LEFT JOIN provider_credentials ON provider_credentials.connection_id=provider_connections.id WHERE public_model_targets.public_model_id=? AND public_model_targets.enabled=1 AND upstream_models.active=1 AND provider_connections.enabled=1`, publicID)
+func (service *Service) HasAvailableRouteTarget(ctx context.Context, publicID string, allowed func(string) bool, eligible func(Target) bool) bool {
+	rows, err := service.database.QueryContext(ctx, `SELECT DISTINCT provider_connections.id,provider_connections.preset,provider_connections.adapter,upstream_models.capabilities_json,provider_credentials.ciphertext,provider_credentials.external_ref FROM public_model_targets JOIN upstream_models ON upstream_models.id=public_model_targets.upstream_model_id JOIN provider_connections ON provider_connections.id=upstream_models.connection_id LEFT JOIN provider_credentials ON provider_credentials.connection_id=provider_connections.id WHERE public_model_targets.public_model_id=? AND public_model_targets.enabled=1 AND upstream_models.active=1 AND provider_connections.enabled=1`, publicID)
 	if err != nil {
 		return false
 	}
 	defer rows.Close()
 	for rows.Next() {
-		var id, preset string
+		var id, preset, adapter, capabilitiesJSON string
 		var ciphertext []byte
 		var external sql.NullString
-		if rows.Scan(&id, &preset, &ciphertext, &external) != nil || !allowed(id) {
+		if rows.Scan(&id, &preset, &adapter, &capabilitiesJSON, &ciphertext, &external) != nil || !allowed(id) {
+			continue
+		}
+		var capabilities []string
+		_ = json.Unmarshal([]byte(capabilitiesJSON), &capabilities)
+		if eligible != nil && !eligible(Target{PublicModel: PublicModel{TargetConnectionID: id, Adapter: adapter}, UpstreamCapabilities: capabilities, Preset: preset}) {
 			continue
 		}
 		if preset == "ollama" || len(ciphertext) > 0 || external.Valid && os.Getenv(strings.TrimPrefix(external.String, "env:")) != "" {
