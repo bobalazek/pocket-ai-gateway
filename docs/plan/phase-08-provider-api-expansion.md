@@ -1,6 +1,6 @@
 # Phase 8 — Broader providers, full API inventory, and optional self-update
 
-Status: planned; no implementation evidence yet. [Plan index](README.md)
+Status: in progress. The broader OpenAI-compatible preset catalog and its deterministic metadata checks are implemented; live provider certification and the larger resource/auth work remain open. [Plan index](README.md)
 
 Begins after v0.1 unless a specific provider becomes a prerequisite for the user's first deployment.
 

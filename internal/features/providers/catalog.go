@@ -18,20 +18,35 @@ import (
 const maxCatalogBytes = 1 << 20
 
 type Preset struct {
-	ID                 string `json:"id"`
-	Label              string `json:"label"`
-	Adapter            string `json:"adapter"`
-	BaseURL            string `json:"base_url"`
-	CredentialRequired bool   `json:"credential_required"`
-	PrivateNetwork     bool   `json:"private_network"`
+	ID                 string   `json:"id"`
+	Label              string   `json:"label"`
+	Adapter            string   `json:"adapter"`
+	BaseURL            string   `json:"base_url,omitempty"`
+	BaseURLRequired    bool     `json:"base_url_required"`
+	CredentialRequired bool     `json:"credential_required"`
+	PrivateNetwork     bool     `json:"private_network"`
+	Operations         []string `json:"operations"`
+	DocumentationURL   string   `json:"documentation_url"`
+	ReviewedAt         string   `json:"reviewed_at"`
 }
 
 var presets = []Preset{
-	{ID: "openai", Label: "OpenAI", Adapter: "openai", BaseURL: "https://api.openai.com/v1", CredentialRequired: true},
-	{ID: "anthropic", Label: "Anthropic", Adapter: "anthropic", BaseURL: "https://api.anthropic.com/v1", CredentialRequired: true},
-	{ID: "gemini", Label: "Google Gemini", Adapter: "gemini", BaseURL: "https://generativelanguage.googleapis.com/v1beta", CredentialRequired: true},
-	{ID: "openrouter", Label: "OpenRouter", Adapter: "openai_compatible", BaseURL: "https://openrouter.ai/api/v1", CredentialRequired: true},
-	{ID: "ollama", Label: "Ollama", Adapter: "openai_compatible", BaseURL: "http://127.0.0.1:11434/v1", PrivateNetwork: true},
+	{ID: "openai", Label: "OpenAI", Adapter: "openai", BaseURL: "https://api.openai.com/v1", CredentialRequired: true, Operations: []string{"chat/completions", "responses", "embeddings"}, DocumentationURL: "https://developers.openai.com/api/reference/overview", ReviewedAt: "2026-09-15"},
+	{ID: "anthropic", Label: "Anthropic", Adapter: "anthropic", BaseURL: "https://api.anthropic.com/v1", CredentialRequired: true, Operations: []string{"messages", "messages/count_tokens"}, DocumentationURL: "https://platform.claude.com/docs/en/api/overview", ReviewedAt: "2026-09-15"},
+	{ID: "gemini", Label: "Google Gemini", Adapter: "gemini", BaseURL: "https://generativelanguage.googleapis.com/v1beta", CredentialRequired: true, Operations: []string{"generateContent", "streamGenerateContent", "countTokens", "embedContent", "batchEmbedContents"}, DocumentationURL: "https://ai.google.dev/api", ReviewedAt: "2026-09-15"},
+	{ID: "openrouter", Label: "OpenRouter", Adapter: "openai_compatible", BaseURL: "https://openrouter.ai/api/v1", CredentialRequired: true, Operations: []string{"chat/completions"}, DocumentationURL: "https://openrouter.ai/docs/api/reference/overview", ReviewedAt: "2026-09-15"},
+	{ID: "ollama", Label: "Ollama", Adapter: "openai_compatible", BaseURL: "http://127.0.0.1:11434/v1", PrivateNetwork: true, Operations: []string{"chat/completions", "embeddings"}, DocumentationURL: "https://docs.ollama.com/api/openai-compatibility", ReviewedAt: "2026-09-15"},
+	{ID: "mistral", Label: "Mistral AI", Adapter: "openai_compatible", BaseURL: "https://api.mistral.ai/v1", CredentialRequired: true, Operations: []string{"chat/completions", "embeddings"}, DocumentationURL: "https://docs.mistral.ai/api", ReviewedAt: "2026-09-15"},
+	{ID: "groq", Label: "Groq", Adapter: "openai_compatible", BaseURL: "https://api.groq.com/openai/v1", CredentialRequired: true, Operations: []string{"chat/completions", "responses"}, DocumentationURL: "https://console.groq.com/docs/openai", ReviewedAt: "2026-09-15"},
+	{ID: "deepseek", Label: "DeepSeek", Adapter: "openai_compatible", BaseURL: "https://api.deepseek.com", CredentialRequired: true, Operations: []string{"chat/completions", "responses"}, DocumentationURL: "https://api-docs.deepseek.com", ReviewedAt: "2026-09-15"},
+	{ID: "xai", Label: "xAI", Adapter: "openai_compatible", BaseURL: "https://api.x.ai/v1", CredentialRequired: true, Operations: []string{"chat/completions", "responses", "embeddings"}, DocumentationURL: "https://docs.x.ai/developers/rest-api-reference/inference", ReviewedAt: "2026-09-15"},
+	{ID: "together", Label: "Together AI", Adapter: "openai_compatible", BaseURL: "https://api.together.ai/v1", CredentialRequired: true, Operations: []string{"chat/completions", "embeddings"}, DocumentationURL: "https://docs.together.ai/docs/inference/openai-compatibility", ReviewedAt: "2026-09-15"},
+	{ID: "fireworks", Label: "Fireworks AI", Adapter: "openai_compatible", BaseURL: "https://api.fireworks.ai/inference/v1", CredentialRequired: true, Operations: []string{"chat/completions"}, DocumentationURL: "https://docs.fireworks.ai/tools-sdks/openai-compatibility", ReviewedAt: "2026-09-15"},
+	{ID: "cohere", Label: "Cohere", Adapter: "openai_compatible", BaseURL: "https://api.cohere.ai/compatibility/v1", CredentialRequired: true, Operations: []string{"chat/completions", "embeddings"}, DocumentationURL: "https://docs.cohere.com/docs/compatibility-api", ReviewedAt: "2026-09-15"},
+	{ID: "perplexity", Label: "Perplexity", Adapter: "openai_compatible", BaseURL: "https://api.perplexity.ai/v1", CredentialRequired: true, Operations: []string{"chat/completions", "responses"}, DocumentationURL: "https://docs.perplexity.ai/docs/agent-api/openai-compatibility", ReviewedAt: "2026-09-15"},
+	{ID: "azure-openai", Label: "Azure OpenAI", Adapter: "openai_compatible", BaseURLRequired: true, CredentialRequired: true, Operations: []string{"chat/completions", "responses"}, DocumentationURL: "https://learn.microsoft.com/en-us/azure/foundry/openai/api-version-lifecycle", ReviewedAt: "2026-09-15"},
+	{ID: "bedrock", Label: "Amazon Bedrock", Adapter: "openai_compatible", BaseURLRequired: true, CredentialRequired: true, Operations: []string{"chat/completions", "responses"}, DocumentationURL: "https://docs.aws.amazon.com/bedrock/latest/userguide/apis.html", ReviewedAt: "2026-09-15"},
+	{ID: "vertex", Label: "Google Vertex AI", Adapter: "openai_compatible", BaseURLRequired: true, CredentialRequired: true, Operations: []string{"chat/completions"}, DocumentationURL: "https://cloud.google.com/vertex-ai/generative-ai/docs/start/openai", ReviewedAt: "2026-09-15"},
 }
 
 type CatalogCandidate struct {
@@ -61,7 +76,63 @@ type catalogDocument struct {
 	Models  []CatalogCandidate `json:"models"`
 }
 
-func Presets() []Preset { return append([]Preset(nil), presets...) }
+func Presets() []Preset {
+	items := append([]Preset(nil), presets...)
+	for index := range items {
+		items[index].Operations = append([]string(nil), items[index].Operations...)
+	}
+	return items
+}
+
+func PresetSupports(presetID, operation string) bool {
+	if presetID == "" || presetID == "custom" {
+		return true
+	}
+	operation = strings.TrimLeft(strings.SplitN(operation, "?", 2)[0], "/")
+	if separator := strings.LastIndex(operation, ":"); separator >= 0 {
+		operation = operation[separator+1:]
+	}
+	for _, preset := range presets {
+		if preset.ID == presetID {
+			for _, supported := range preset.Operations {
+				if supported == operation {
+					return true
+				}
+			}
+			return false
+		}
+	}
+	return false
+}
+
+func PresetSupportsCapabilities(presetID string, capabilities []string) bool {
+	for _, capability := range capabilities {
+		supported := false
+		for _, operation := range []string{"chat/completions", "messages", "generateContent", "responses", "embeddings", "embedContent", "batchEmbedContents", "messages/count_tokens", "countTokens"} {
+			if operationCapability(operation) == capability && PresetSupports(presetID, operation) {
+				supported = true
+				break
+			}
+		}
+		if !supported {
+			return false
+		}
+	}
+	return true
+}
+
+func operationCapability(operation string) string {
+	switch operation {
+	case "chat/completions", "messages", "generateContent", "responses":
+		return "chat"
+	case "embeddings", "embedContent", "batchEmbedContents":
+		return "embeddings"
+	case "messages/count_tokens", "countTokens":
+		return "count_tokens"
+	default:
+		return ""
+	}
+}
 
 func presetAllowed(id, adapter string) bool {
 	if id == "custom" {
@@ -79,7 +150,9 @@ func applyPreset(input ConnectionInput) ConnectionInput {
 	for _, preset := range presets {
 		if preset.ID == input.Preset {
 			input.Adapter = preset.Adapter
-			input.BaseURL = preset.BaseURL
+			if preset.BaseURL != "" {
+				input.BaseURL = preset.BaseURL
+			}
 			input.AllowPrivateNetwork = preset.PrivateNetwork
 			return input
 		}
@@ -96,7 +169,7 @@ func (service *Service) Catalog(ctx context.Context, actor auth.User) ([]Catalog
 		return nil, CatalogState{}, err
 	}
 	defer rows.Close()
-	var items []CatalogCandidate
+	items := make([]CatalogCandidate, 0)
 	for rows.Next() {
 		var item CatalogCandidate
 		var raw string

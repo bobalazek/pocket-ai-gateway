@@ -21,6 +21,22 @@ import (
 	"github.com/bobalazek/pocket-ai-gateway/internal/storage"
 )
 
+func TestProviderCredentialHeaders(t *testing.T) {
+	tests := []struct{ adapter, preset, header, want string }{
+		{"openai", "openai", "Authorization", "Bearer secret"},
+		{"anthropic", "anthropic", "x-api-key", "secret"},
+		{"gemini", "gemini", "x-goog-api-key", "secret"},
+		{"openai_compatible", "azure-openai", "api-key", "secret"},
+	}
+	for _, test := range tests {
+		request, _ := http.NewRequest(http.MethodPost, "https://example.test", nil)
+		setProviderCredential(request, test.adapter, test.preset, "secret")
+		if value := request.Header.Get(test.header); value != test.want {
+			t.Errorf("%s/%s %s=%q", test.adapter, test.preset, test.header, value)
+		}
+	}
+}
+
 func TestNativeOpenAIForwardingUsesProviderCredentialAndAccounts(t *testing.T) {
 	var gotAuthorization, gotModel string
 	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -281,6 +297,9 @@ func TestCrossProtocolHandlerMatrixUsesNativeClientShapes(t *testing.T) {
 			ctx, store, owner, keyService, providerService, usageService := gatewayFixture(t)
 			defer store.Close()
 			connection, model := publishModel(t, ctx, providerService, owner, test.target, upstream.URL+"/v1", test.target+"-upstream", []string{"chat"})
+			if _, err := store.SystemDB().ExecContext(ctx, "UPDATE provider_connections SET preset=? WHERE id=?", test.target, connection.ID); err != nil {
+				t.Fatal(err)
+			}
 			_, secret, err := keyService.Create(ctx, owner.ID, keys.Input{Label: "Matrix", Scopes: []string{"chat:generate"}, ModelPatterns: []string{model.ID}, ConnectionIDs: []string{connection.ID}})
 			if err != nil {
 				t.Fatal(err)
@@ -358,6 +377,45 @@ func TestResponsesEndpointSupportsEveryTargetFamilyAndRejectsState(t *testing.T)
 				t.Fatalf("unsupported status=%d body=%s calls=%d", status, body, calls)
 			}
 		})
+	}
+}
+
+func TestPresetOperationLimitsDispatch(t *testing.T) {
+	calls := 0
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		calls++
+		_, _ = io.WriteString(w, `{"id":"chat_1","choices":[{"message":{"content":"Hello"},"finish_reason":"stop"}],"usage":{"prompt_tokens":1,"completion_tokens":1}}`)
+	}))
+	defer upstream.Close()
+	ctx, store, owner, keyService, providerService, usageService := gatewayFixture(t)
+	defer store.Close()
+	connection, model := publishModel(t, ctx, providerService, owner, "openai", upstream.URL+"/v1", "model", []string{"chat"})
+	if _, err := store.SystemDB().ExecContext(ctx, "UPDATE provider_connections SET preset='fireworks' WHERE id=?", connection.ID); err != nil {
+		t.Fatal(err)
+	}
+	_, secret, err := keyService.Create(ctx, owner.ID, keys.Input{Label: "Limited preset", Scopes: []string{"chat:generate", "responses:generate"}, ModelPatterns: []string{model.ID}, ConnectionIDs: []string{connection.ID}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	mux := http.NewServeMux()
+	New(keyService, providerService, usageService).Register(mux)
+	server := httptest.NewServer(mux)
+	defer server.Close()
+	call := func(path, body string) int {
+		request, _ := http.NewRequest(http.MethodPost, server.URL+path, strings.NewReader(body))
+		request.Header.Set("Authorization", "Bearer "+secret)
+		response, err := http.DefaultClient.Do(request)
+		if err != nil {
+			t.Fatal(err)
+		}
+		response.Body.Close()
+		return response.StatusCode
+	}
+	if status := call("/api/openai/v1/responses", `{"model":"`+model.ID+`","input":"Hi","store":false}`); status != http.StatusNotFound || calls != 0 {
+		t.Fatalf("responses status=%d calls=%d", status, calls)
+	}
+	if status := call("/api/openai/v1/chat/completions", `{"model":"`+model.ID+`","messages":[{"role":"user","content":"Hi"}]}`); status != http.StatusOK || calls != 1 {
+		t.Fatalf("chat status=%d calls=%d", status, calls)
 	}
 }
 

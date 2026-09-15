@@ -122,7 +122,7 @@ func (service *Service) ListRequests(ctx context.Context, actor auth.User, query
 	if err != nil {
 		return nil, "", err
 	}
-	var items []RequestRecord
+	items := make([]RequestRecord, 0)
 	for rows.Next() {
 		var item RequestRecord
 		var started int64

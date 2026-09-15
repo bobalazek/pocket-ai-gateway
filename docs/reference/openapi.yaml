@@ -1215,14 +1215,18 @@ components:
         created_at: { type: string, format: date-time }
     ProviderPreset:
       type: object
-      required: [id, label, adapter, base_url, credential_required, private_network]
+      required: [id, label, adapter, base_url_required, credential_required, private_network, operations, documentation_url, reviewed_at]
       properties:
-        id: { type: string, enum: [openai, anthropic, gemini, openrouter, ollama] }
+        id: { type: string, enum: [openai, anthropic, gemini, openrouter, ollama, mistral, groq, deepseek, xai, together, fireworks, cohere, perplexity, azure-openai, bedrock, vertex] }
         label: { type: string }
         adapter: { type: string, enum: [openai, anthropic, gemini, openai_compatible] }
         base_url: { type: string, format: uri }
+        base_url_required: { type: boolean, description: True when the installation must supply a resource-specific base URL }
         credential_required: { type: boolean }
         private_network: { type: boolean }
+        operations: { type: array, items: { type: string } }
+        documentation_url: { type: string, format: uri }
+        reviewed_at: { type: string, format: date }
     ProviderConnectionInput:
       type: object
       additionalProperties: false
@@ -1233,7 +1237,10 @@ components:
             preset: { type: string, enum: [custom], default: custom }
         - required: [preset]
           properties:
-            preset: { type: string, enum: [openai, anthropic, gemini, openrouter, ollama] }
+            preset: { type: string, enum: [openai, anthropic, gemini, openrouter, ollama, mistral, groq, deepseek, xai, together, fireworks, cohere, perplexity] }
+        - required: [preset, base_url]
+          properties:
+            preset: { type: string, enum: [azure-openai, bedrock, vertex] }
       properties:
         name: { type: string, minLength: 1, maxLength: 200 }
         adapter: { type: string, enum: [openai, anthropic, gemini, openai_compatible] }
@@ -1241,7 +1248,7 @@ components:
         enabled: { type: boolean }
         allow_private_network: { type: boolean }
         timeout_ms: { type: integer, minimum: 1000, maximum: 600000 }
-        preset: { type: string, enum: [custom, openai, anthropic, gemini, openrouter, ollama], default: custom }
+        preset: { type: string, enum: [custom, openai, anthropic, gemini, openrouter, ollama, mistral, groq, deepseek, xai, together, fireworks, cohere, perplexity, azure-openai, bedrock, vertex], default: custom }
     ProviderConnection:
       allOf:
         - { $ref: "#/components/schemas/ProviderConnectionInput" }

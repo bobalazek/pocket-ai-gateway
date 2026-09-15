@@ -1,6 +1,6 @@
 # Implementation phases
 
-Status: Phases 1 through 7 are complete. Phase 8 remains planned.
+Status: Phases 1 through 7 are complete. Phase 8 is in progress.
 
 ## Build order
 
@@ -46,7 +46,7 @@ Each phase file contains backend work items, frontend scope, requirements, depen
 | 5 | [Compatibility, translation, and usable alpha](phase-05-cross-protocol-compatibility.md) | Complete |
 | 6 | [Routing strategies and provider catalog](phase-06-routing-provider-catalog.md) | Complete |
 | 7 | [Operations, security, and v0.1 release](phase-07-operations-release.md) | Complete |
-| 8 | [Broader providers, full API inventory, and optional self-update](phase-08-provider-api-expansion.md) | Planned |
+| 8 | [Broader providers, full API inventory, and optional self-update](phase-08-provider-api-expansion.md) | In progress |
 
 ## Requirement coverage
 

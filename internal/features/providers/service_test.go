@@ -47,6 +47,10 @@ func TestConnectionModelAndCredentialLifecycle(t *testing.T) {
 		t.Fatal(err)
 	}
 	service := New(store.SystemDB(), make([]byte, 32))
+	empty, err := service.ListConnections(ctx, owner)
+	if err != nil || empty == nil || len(empty) != 0 {
+		t.Fatalf("empty connections = %#v, %v", empty, err)
+	}
 	if _, err := service.CreateConnection(ctx, owner, ConnectionInput{Name: "blocked", Adapter: "openai", BaseURL: "http://127.0.0.1:9000", Enabled: true}); err == nil {
 		t.Fatal("private HTTP connection was accepted")
 	}
@@ -113,5 +117,36 @@ func TestConnectionModelAndCredentialLifecycle(t *testing.T) {
 	}
 	if service.TargetIsCurrent(ctx, target) {
 		t.Fatal("stale target remained current after connection disable")
+	}
+}
+
+func TestConnectionPresetChangeClearsCredential(t *testing.T) {
+	ctx := context.Background()
+	store, err := storage.Open(ctx, t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+	owner := auth.User{ID: "usr_owner", Role: "owner", Status: "active"}
+	now := time.Now().UnixMilli()
+	if _, err = store.SystemDB().ExecContext(ctx, "INSERT INTO users (id,email,display_name,password_hash,role,status,inference_unrestricted,created_at,updated_at) VALUES (?,?,?,'hash','owner','active',1,?,?)", owner.ID, "owner@example.test", "Owner", now, now); err != nil {
+		t.Fatal(err)
+	}
+	service := New(store.SystemDB(), make([]byte, 32))
+	baseURL := "https://resource.openai.azure.com/openai/v1"
+	connection, err := service.CreateConnection(ctx, owner, ConnectionInput{Name: "Azure", Adapter: "openai_compatible", BaseURL: baseURL, Enabled: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err = service.PutCredential(ctx, owner, connection.ID, "provider-secret", ""); err != nil {
+		t.Fatal(err)
+	}
+	connection, err = service.getConnection(ctx, connection.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	updated, err := service.UpdateConnection(ctx, owner, connection.ID, connection.Revision, ConnectionInput{Name: "Azure", Preset: "azure-openai", BaseURL: baseURL, Enabled: true})
+	if err != nil || updated.CredentialState != "missing" {
+		t.Fatalf("updated connection = %#v, %v", updated, err)
 	}
 }

@@ -113,6 +113,99 @@ func TestCatalogValidationAndPresets(t *testing.T) {
 	if err != nil || input.Adapter != "openai_compatible" || input.BaseURL != "https://openrouter.ai/api/v1" {
 		t.Fatalf("preset=%#v err=%v", input, err)
 	}
+	expected := map[string]string{
+		"mistral":    "https://api.mistral.ai/v1",
+		"groq":       "https://api.groq.com/openai/v1",
+		"deepseek":   "https://api.deepseek.com",
+		"xai":        "https://api.x.ai/v1",
+		"together":   "https://api.together.ai/v1",
+		"fireworks":  "https://api.fireworks.ai/inference/v1",
+		"cohere":     "https://api.cohere.ai/compatibility/v1",
+		"perplexity": "https://api.perplexity.ai/v1",
+	}
+	available := Presets()
+	for id, baseURL := range expected {
+		input, err = validateConnection(ConnectionInput{Name: id, Preset: id, Enabled: true})
+		if err != nil || input.Adapter != "openai_compatible" || input.BaseURL != baseURL {
+			t.Errorf("%s preset=%#v err=%v", id, input, err)
+		}
+		found := false
+		for _, preset := range available {
+			if preset.ID == id {
+				found = len(preset.Operations) > 0 && preset.DocumentationURL != "" && preset.ReviewedAt != ""
+			}
+		}
+		if !found {
+			t.Errorf("%s preset metadata is incomplete", id)
+		}
+	}
+	available[0].Operations[0] = "mutated"
+	if Presets()[0].Operations[0] == "mutated" {
+		t.Fatal("preset operations escaped by reference")
+	}
+	clouds := []ConnectionInput{
+		{Name: "Azure", Preset: "azure-openai", BaseURL: "https://gateway.openai.azure.com/openai/v1"},
+		{Name: "Bedrock", Preset: "bedrock", BaseURL: "https://bedrock-runtime.eu-central-1.amazonaws.com/openai/v1"},
+		{Name: "Vertex", Preset: "vertex", BaseURL: "https://europe-west1-aiplatform.googleapis.com/v1/projects/example/locations/europe-west1/endpoints/openapi"},
+	}
+	for _, cloud := range clouds {
+		validated, err := validateConnection(cloud)
+		if err != nil || validated.Adapter != "openai_compatible" || validated.BaseURL != cloud.BaseURL {
+			t.Errorf("cloud preset=%#v err=%v", validated, err)
+		}
+		cloud.BaseURL = "https://example.com/v1"
+		if _, err = validateConnection(cloud); err == nil {
+			t.Errorf("%s accepted an unrelated endpoint", cloud.Preset)
+		}
+	}
+	for _, invalid := range []ConnectionInput{
+		{Name: "Vertex", Preset: "vertex", BaseURL: "https://aiplatform.googleapis.com/projects/example/locations/global/endpoints/openapi"},
+		{Name: "Vertex", Preset: "vertex", BaseURL: "https://us-east1-aiplatform.googleapis.com/v1/projects/example/locations/europe-west1/endpoints/openapi"},
+		{Name: "Vertex", Preset: "vertex", BaseURL: "https://aiplatform.googleapis.com/v1/projects//locations/global/endpoints/openapi"},
+		{Name: "Bedrock", Preset: "bedrock", BaseURL: "https://bedrock-runtime..amazonaws.com/openai/v1"},
+	} {
+		if _, err = validateConnection(invalid); err == nil {
+			t.Errorf("%s accepted malformed cloud endpoint %s", invalid.Preset, invalid.BaseURL)
+		}
+	}
+	if PresetSupports("fireworks", "responses") || PresetSupports("fireworks", "embeddings") || !PresetSupports("fireworks", "chat/completions") || !PresetSupports("gemini", "models/test:generateContent") || !PresetSupports("custom", "anything") {
+		t.Fatal("preset operation limits are not enforced")
+	}
+}
+
+func TestPresetLimitsUpstreamModelCapabilities(t *testing.T) {
+	ctx := context.Background()
+	store, err := storage.Open(ctx, t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+	owner := auth.User{ID: "usr_owner", Role: "owner", Status: "active"}
+	now := time.Now().UnixMilli()
+	if _, err = store.SystemDB().ExecContext(ctx, "INSERT INTO users (id,email,display_name,password_hash,role,status,inference_unrestricted,created_at,updated_at) VALUES (?,?,?,'hash','owner','active',1,?,?)", owner.ID, "owner@example.test", "Owner", now, now); err != nil {
+		t.Fatal(err)
+	}
+	service := New(store.SystemDB(), make([]byte, 32))
+	connection, err := service.CreateConnection(ctx, owner, ConnectionInput{Name: "Fireworks", Preset: "fireworks", Enabled: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err = service.CreateUpstreamModel(ctx, owner, connection.ID, "model", []string{"embeddings"}); err == nil {
+		t.Fatal("chat-only preset accepted embeddings")
+	}
+	if _, err = service.CreateUpstreamModel(ctx, owner, connection.ID, "model", []string{"chat"}); err != nil {
+		t.Fatal(err)
+	}
+	custom, err := service.CreateConnection(ctx, owner, ConnectionInput{Name: "Custom", Adapter: "openai_compatible", BaseURL: "http://127.0.0.1:9000/v1", AllowPrivateNetwork: true, Enabled: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err = service.CreateUpstreamModel(ctx, owner, custom.ID, "embedding-model", []string{"embeddings"}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err = service.UpdateConnection(ctx, owner, custom.ID, custom.Revision, ConnectionInput{Name: custom.Name, Preset: "fireworks", Enabled: true}); err == nil {
+		t.Fatal("preset update stranded an existing embedding model")
+	}
 }
 
 func TestCatalogSourceChangeClearsCandidates(t *testing.T) {

@@ -166,7 +166,7 @@ func (service *Service) ListPrices(ctx context.Context, actor auth.User, cursor 
 		return nil, "", err
 	}
 	defer rows.Close()
-	var items []PriceVersion
+	items := make([]PriceVersion, 0)
 	for rows.Next() {
 		item, err := scanPrice(rows)
 		if err != nil {

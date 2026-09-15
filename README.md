@@ -1,46 +1,42 @@
 # Pocket AI Gateway
 
-Pocket AI Gateway is a self-hosted AI gateway in one executable. It embeds a Next.js dashboard, keeps operational state in local SQLite databases, and gives OpenAI, Anthropic, and Gemini clients separate native API namespaces backed by the provider you choose.
+**A self-hosted AI gateway and control panel in one executable.**
 
-## Features
+Pocket AI Gateway gives applications stable OpenAI, Anthropic, and Gemini API surfaces while routing requests to the providers and models you control. It keeps users, keys, limits, routing, usage, and audit history on your own server in local SQLite databases.
 
-- **One executable** — the dashboard and migrations are embedded in the Go binary; Node.js is only needed to build it.
-- **Three client protocols** — OpenAI Chat and stateless Responses, Anthropic Messages, and Gemini generateContent keep their own request, response, error, and streaming shapes.
-- **Cross-provider translation** — route supported text, image input, JSON schema output, function tools, tool results, stop sequences, token usage, and supported incremental streams across OpenAI, Anthropic, and Gemini families.
-- **Provider and model control** — start from OpenAI, Anthropic, Gemini, OpenRouter, or Ollama presets; configure encrypted credentials, upstream models, stable public names, capabilities, and prices.
-- **Safe routing** — fixed, ordered fallback, weighted, lowest estimated cost, and observed latency strategies filter grants and compatibility before scoring, honor free-only routes, and record every attempt and rejection reason.
-- **Curated catalog** — optionally refresh bounded, versioned model metadata from a configured GitHub source; imported entries remain candidates until an administrator publishes them.
-- **Users and keys** — owner, administrator, and member accounts; scoped application keys; key rotation, expiration, suspension, recovery, and session revocation.
-- **Durable limits** — fixed windows, quotas, token buckets, concurrency controls, request/body/batch ceilings, and spend limits at instance, user, key, and connection scope.
-- **Usage and request history** — token and cost accounting, unknown-usage reconciliation, historical repricing, protocol/target details, and a local dashboard.
-- **Local by default** — no public telemetry, no hosted account, and no prompt capture by default.
-- **Operations and recovery** — local audit and diagnostics, portable configuration, encrypted scheduled local or S3-compatible backups, integrity-checked restore, and owner recovery.
+The dashboard and database migrations are embedded in the Go binary. Build it once, copy one file, and run it without Node.js or a separate database service.
 
-## API namespaces
+## What it provides
 
-| Client | Base URL | Authentication |
-| --- | --- | --- |
-| OpenAI SDK | `http://127.0.0.1:8080/api/openai/v1` | `Authorization: Bearer <gateway-key>` |
-| Anthropic SDK | `http://127.0.0.1:8080/api/anthropic` | `x-api-key: <gateway-key>` |
-| Google Gen AI SDK | `http://127.0.0.1:8080/api/gemini`, API version `v1beta` | `x-goog-api-key: <gateway-key>` |
-| Gateway management | `http://127.0.0.1:8080/api/v1` | Browser session |
+| Area | Included |
+| --- | --- |
+| Client APIs | Separate OpenAI, Anthropic, and Gemini namespaces with native request, response, error, and streaming shapes |
+| Providers | OpenAI, Anthropic, Gemini, OpenRouter, Ollama, Mistral, Groq, DeepSeek, xAI, Together, Fireworks, Cohere, Perplexity, Azure OpenAI, Bedrock, Vertex AI, and custom compatible endpoints |
+| Routing | Fixed, ordered fallback, weighted, lowest estimated cost, and observed latency strategies |
+| Access | Multiple administrators and members, browser sessions, scoped application keys, rotation, expiration, and revocation |
+| Control | Per-instance, user, key, and connection request, token, concurrency, quota, and spend limits |
+| Visibility | Dashboard, request history, token and cost accounting, routing decisions, status, and audit log |
+| Operations | Encrypted credentials, portable configuration, scheduled local or S3-compatible backups, verified restore, and owner recovery |
+| Privacy | Local storage, no hosted account, no public telemetry, and no prompt capture by default |
 
-The URL selects the client protocol. A public model can point to a different upstream family while the client still receives its native wire format.
+Public model names decouple applications from upstream providers. An application can keep using its OpenAI client while an administrator moves the model to Anthropic, Gemini, or another compatible provider, provided the requested features can be translated safely.
 
-## Build once, run anywhere
+## Quick start
 
-Prerequisites: Go 1.27.1, Node.js 22 or newer, pnpm 10.30.3, and `curl` for verification.
+You need Go 1.27.1, Node.js 22 or newer, pnpm 10.30.3, and `curl` to build from source.
 
 ```sh
+git clone https://github.com/bobalazek/pocket-ai-gateway.git
+cd pocket-ai-gateway
 ./scripts/build.sh
 ./dist/pocket-ai-gateway serve
 ```
 
-The build exports the dashboard, embeds it in the binary, and writes `dist/pocket-ai-gateway`. You can copy that single binary to another machine with the same operating system and architecture; it does not need the source tree or Node.js at runtime.
+Open [http://127.0.0.1:8080/_/](http://127.0.0.1:8080/_/). On a new installation, the dashboard opens onboarding and the server prints the location of a one-time setup code. Use it to create the first owner account; the gateway never creates a default password.
 
-Open [http://127.0.0.1:8080/_/](http://127.0.0.1:8080/_/). A new data directory redirects to onboarding and prints the path of an owner-only `setup-code` file. Use that code to create the first owner account; Pocket AI Gateway never creates default credentials.
+The build produces a standalone executable at `dist/pocket-ai-gateway`. Copy that file to a machine with the same operating system and architecture and run it there. The source tree, Node.js, and pnpm are build-time requirements only.
 
-Runtime data is written to `./pocket_gateway_data` by default:
+Runtime state is stored in `./pocket_gateway_data` unless `--data-dir` is set:
 
 ```text
 pocket_gateway_data/
@@ -50,31 +46,21 @@ pocket_gateway_data/
   instance.lock
 ```
 
-Keep the whole directory private and persistent. `system.db` stores identity, configuration, limits, and accounting. `data.db` stores projections. `master.key` protects provider credentials and must be backed up with the databases.
+Keep this directory private and persistent. The databases hold identity, configuration, limits, accounting, and projections; `master.key` protects provider credentials.
 
-## Docker
+## Connect a provider
 
-Build and start the local Compose deployment:
+After onboarding:
 
-```sh
-docker compose up --build -d
-docker compose logs gateway
-```
-
-Then open [http://localhost:8080/_/](http://localhost:8080/_/). The named volume preserves both databases and the credential key. The container runs as a non-root user with a read-only root filesystem.
-
-For an HTTPS deployment, a system service, data-directory permissions, reverse-proxy examples, upgrades, and Docker volume handling, see the [deployment guide](docs/guides/deployment.md).
-
-## First provider and request
-
-1. Complete onboarding at `/_/setup/`.
-2. Add a provider connection in **Providers** and save its credential.
-3. Add its upstream model and publish a stable name in **Models**.
-4. Choose a routing strategy, add fallback targets, and preview the result in **Models**.
-5. Create a scoped key that grants every connection the route may select.
-6. Verify the setup in **Playground** or call the matching client namespace.
+1. Add a provider connection in **Providers** and save its credential.
+2. Add an upstream model and publish a stable name in **Models**.
+3. Choose a routing strategy and add any fallback targets.
+4. Create a scoped application key in **API keys**.
+5. Test the route in **Playground** or use one of the client endpoints below.
 
 ```sh
+export POCKET_GATEWAY_KEY="your-gateway-key"
+
 curl http://127.0.0.1:8080/api/openai/v1/chat/completions \
   -H "Authorization: Bearer $POCKET_GATEWAY_KEY" \
   -H "Content-Type: application/json" \
@@ -85,26 +71,61 @@ curl http://127.0.0.1:8080/api/openai/v1/chat/completions \
   }'
 ```
 
-## Compatibility boundaries
+## Client API surfaces
 
-Cross-protocol generation supports the shared, tested subset described above. Stateless OpenAI Responses requires `store: false`. Provider-owned conversations, background Responses, hosted tools, opaque reasoning blocks, and Gemini thought signatures are rejected before dispatch when they cannot be preserved. Embeddings and token counting use native capable targets; the gateway does not invent equivalent vector spaces or tokenizer results.
+The base URL selects the client protocol; protocol families are never mixed at one path.
 
-Anthropic streaming currently requires an Anthropic-compatible target because its first `message_start` event must include input usage that OpenAI and Gemini streams only report at completion. Cross-provider Anthropic requests remain available as ordinary JSON responses.
+| Client | Base URL | Gateway authentication |
+| --- | --- | --- |
+| OpenAI SDK | `http://127.0.0.1:8080/api/openai/v1` | `Authorization: Bearer <key>` |
+| Anthropic SDK | `http://127.0.0.1:8080/api/anthropic` | `x-api-key: <key>` |
+| Google Gen AI SDK | `http://127.0.0.1:8080/api/gemini` with API version `v1beta` | `x-goog-api-key: <key>` |
+| Management API | `http://127.0.0.1:8080/api/v1` | Browser session |
 
-See the [API contract](docs/reference/api.md) and protocol guides for [OpenAI](docs/features/openai-compatible.md), [Anthropic](docs/features/anthropic-compatible.md), and [Gemini](docs/features/gemini-compatible.md).
+Supported cross-protocol generation includes text, image input, JSON schema output, function tools and results, stop sequences, token usage, and compatible incremental streams. Embeddings and token counting stay on targets that natively support them so the gateway does not invent vector spaces or tokenizer results.
 
-## Operations
+See the detailed [compatibility matrix](docs/project/compatibility.md) and API guides for [OpenAI](docs/features/openai-compatible.md), [Anthropic](docs/features/anthropic-compatible.md), and [Gemini](docs/features/gemini-compatible.md).
 
-Set a separately protected archive key, then create an encrypted backup while the server is stopped:
+## Dashboard
+
+The embedded dashboard covers:
+
+- system status and diagnostics;
+- usage, cost, latency, and request history;
+- users, roles, sessions, recovery, and account settings;
+- application keys and their grants, limits, and spend controls;
+- provider connections, credentials, upstream models, and public models;
+- routing strategies, route previews, fallback outcomes, and pricing;
+- audit events, data retention, configuration export/import, and backups.
+
+All browser calls go through the typed management API client. The dashboard does not connect to the databases or providers directly.
+
+## Docker
+
+Build and start the included local deployment:
+
+```sh
+docker compose up --build -d
+docker compose logs gateway
+```
+
+Open [http://localhost:8080/_/](http://localhost:8080/_/). Named volumes preserve the data and backup directories. The container runs as a non-root user with a read-only root filesystem.
+
+For HTTPS, systemd, Caddy, data-directory permissions, multi-platform images, upgrades, backups, and restore, use the [deployment guide](docs/guides/deployment.md).
+
+## Back up and restore
+
+Set a separately stored archive key, stop the gateway, and create an encrypted backup:
 
 ```sh
 export POCKET_AI_GATEWAY_BACKUP_KEY="$(openssl rand -base64 32)"
+
 ./dist/pocket-ai-gateway backup \
   --data-dir ./pocket_gateway_data \
   --output ./gateway.pagbak
 ```
 
-Restore into an absent directory:
+Restore into a directory that does not exist yet:
 
 ```sh
 ./dist/pocket-ai-gateway restore-backup \
@@ -112,13 +133,38 @@ Restore into an absent directory:
   --data-dir ./restored_gateway_data
 ```
 
-Run the complete local verification gate:
+The archive contains both databases and the credential master key. Restore authenticates the archive, validates file hashes, and checks database integrity before replacing service data. Scheduled local and S3-compatible backups are available in **Settings**.
+
+## Build and verify
 
 ```sh
+./scripts/build.sh
 ./scripts/verify.sh
 ```
 
-More documentation: [architecture](docs/architecture/README.md), [deployment](docs/guides/deployment.md), [operations and recovery](docs/guides/operations.md), [compatibility](docs/project/compatibility.md), [contributing](CONTRIBUTING.md), [security](SECURITY.md), and [agent-readable help](llms.txt).
+`build.sh` exports and embeds the dashboard, then builds the executable. `verify.sh` checks formatting, generated code and notices, API contracts, frontend boundaries, unit and integration tests, race detection, the production dashboard build, the embedded runtime, and the packaged smoke path.
+
+Create release archives for supported platforms with:
+
+```sh
+./scripts/package.sh v0.1.0
+```
+
+## Documentation
+
+- [Deployment](docs/guides/deployment.md)
+- [Operations and recovery](docs/guides/operations.md)
+- [API reference](docs/reference/api.md)
+- [Provider adapters](docs/guides/adapters.md)
+- [Provider compatibility and certification](docs/project/provider-certification.md)
+- [Architecture](docs/architecture/README.md)
+- [Security policy](SECURITY.md)
+- [Contributing](CONTRIBUTING.md)
+- [Agent-readable help](llms.txt)
+
+## Project status
+
+Pocket AI Gateway is under active development. The compatibility matrix records the exact surfaces covered by deterministic tests and calls out known boundaries. Live provider certification requires provider credentials and available models and is reported separately from local protocol conformance.
 
 ## License
 

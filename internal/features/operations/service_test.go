@@ -81,6 +81,10 @@ func TestConfigPreviewRejectsUnsafeProviderAndRetentionPreservesEnforcement(t *t
 	if _, err := PreviewConfig(bundle); err == nil {
 		t.Fatal("unsafe provider URL was accepted")
 	}
+	bundle = ConfigBundle{Format: 1, Settings: Settings{BackupIntervalHours: 24, BackupRetention: 14, BackupDestination: "local", S3Region: "us-east-1", S3AccessKeyEnv: "AWS_ACCESS_KEY_ID", S3SecretKeyEnv: "AWS_SECRET_ACCESS_KEY", RequestRetention: 90, AuditRetention: 365}, Catalog: ConfigCatalog{RefreshIntervalHours: 24}, Connections: []ConfigConnection{{ID: "con_test", Name: "Fireworks", Adapter: "openai_compatible", BaseURL: "https://api.fireworks.ai/inference/v1", Enabled: true, TimeoutMS: 60000, Preset: "fireworks"}}, UpstreamModels: []ConfigUpstream{{ID: "up_test", ConnectionID: "con_test", UpstreamID: "embedding", Capabilities: []string{"embeddings"}, Active: true}}}
+	if _, err := PreviewConfig(bundle); err == nil {
+		t.Fatal("config import accepted capabilities outside the provider preset")
+	}
 
 	ctx := context.Background()
 	store, err := storage.Open(ctx, filepath.Join(t.TempDir(), "data"))
@@ -211,6 +215,36 @@ func TestConfigImportClearsCredentialWhenEndpointChanges(t *testing.T) {
 	var credentials int
 	if err := store.SystemDB().QueryRowContext(ctx, `SELECT COUNT(*) FROM provider_credentials WHERE connection_id='con_test'`).Scan(&credentials); err != nil || credentials != 0 {
 		t.Fatalf("credentials = %d, error = %v", credentials, err)
+	}
+}
+
+func TestConfigImportRejectsIncompatiblePreservedModel(t *testing.T) {
+	ctx := context.Background()
+	store, err := storage.Open(ctx, filepath.Join(t.TempDir(), "data"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+	now := time.Now().UnixMilli()
+	if _, err = store.SystemDB().ExecContext(ctx, `INSERT INTO users(id,email,display_name,password_hash,role,status,inference_unrestricted,created_at,updated_at) VALUES('usr_owner','owner@example.test','Owner','hash','owner','active',1,?,?)`, now, now); err != nil {
+		t.Fatal(err)
+	}
+	if _, err = store.SystemDB().ExecContext(ctx, `INSERT INTO provider_connections(id,name,adapter,base_url,enabled,allow_private_network,timeout_ms,preset,created_at,updated_at) VALUES('con_test','Test','openai_compatible','https://api.example.com/v1',1,0,60000,'custom',?,?)`, now, now); err != nil {
+		t.Fatal(err)
+	}
+	if _, err = store.SystemDB().ExecContext(ctx, `INSERT INTO upstream_models(id,connection_id,upstream_id,capabilities_json,created_at,updated_at) VALUES('up_test','con_test','embedding','["embeddings"]',?,?)`, now, now); err != nil {
+		t.Fatal(err)
+	}
+	service := New(store, providers.New(store.SystemDB(), make([]byte, 32)), "test", func(string) string { return "" })
+	bundle, err := service.ExportConfig(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	bundle.Connections[0].Preset = "fireworks"
+	bundle.Connections[0].BaseURL = "https://api.fireworks.ai/inference/v1"
+	bundle.UpstreamModels = nil
+	if _, err = service.ImportConfig(ctx, "usr_owner", bundle); err == nil {
+		t.Fatal("partial import stranded a preserved embedding model")
 	}
 }
 

@@ -136,7 +136,7 @@ func (service *Service) ListConnections(ctx context.Context, actor auth.User) ([
 		return nil, err
 	}
 	defer rows.Close()
-	var items []Connection
+	items := make([]Connection, 0)
 	for rows.Next() {
 		item, err := scanConnection(rows)
 		if err != nil {
@@ -217,6 +217,34 @@ func (service *Service) UpdateConnection(ctx context.Context, actor auth.User, i
 	if err = requireManager(ctx, tx, &actor); err != nil {
 		return Connection{}, err
 	}
+	rows, err := tx.QueryContext(ctx, "SELECT capabilities_json FROM upstream_models WHERE connection_id=?", id)
+	if err != nil {
+		return Connection{}, err
+	}
+	for rows.Next() {
+		var raw string
+		var capabilities []string
+		if err = rows.Scan(&raw); err == nil {
+			err = json.Unmarshal([]byte(raw), &capabilities)
+		}
+		if err != nil || !PresetSupportsCapabilities(input.Preset, capabilities) {
+			rows.Close()
+			if err != nil {
+				return Connection{}, err
+			}
+			return Connection{}, errors.New("existing model capabilities exceed the selected provider preset")
+		}
+	}
+	if err = rows.Err(); err != nil {
+		rows.Close()
+		return Connection{}, err
+	}
+	if err = rows.Close(); err != nil {
+		return Connection{}, err
+	}
+	if _, err = tx.ExecContext(ctx, `DELETE FROM provider_credentials WHERE connection_id=? AND EXISTS (SELECT 1 FROM provider_connections WHERE id=? AND (adapter<>? OR base_url<>? OR preset<>?))`, id, id, input.Adapter, input.BaseURL, input.Preset); err != nil {
+		return Connection{}, err
+	}
 	result, err := tx.ExecContext(ctx, `UPDATE provider_connections SET name=?,adapter=?,base_url=?,enabled=?,allow_private_network=?,timeout_ms=?,preset=?,revision=revision+1,updated_at=? WHERE id=? AND revision=?`, input.Name, input.Adapter, input.BaseURL, input.Enabled, input.AllowPrivateNetwork, input.TimeoutMS, input.Preset, time.Now().UnixMilli(), id, revision)
 	if err != nil {
 		return Connection{}, err
@@ -286,13 +314,17 @@ func (service *Service) CreateUpstreamModel(ctx context.Context, actor auth.User
 	if err := requireManager(ctx, service.database, &actor); err != nil {
 		return UpstreamModel{}, err
 	}
-	if _, err := service.getConnection(ctx, connectionID); err != nil {
+	connection, err := service.getConnection(ctx, connectionID)
+	if err != nil {
 		return UpstreamModel{}, err
 	}
 	upstreamID = strings.TrimSpace(upstreamID)
 	capabilities = normalizeCapabilities(capabilities)
 	if upstreamID == "" || len(upstreamID) > 300 || len(capabilities) == 0 || !validCapabilities(capabilities) {
 		return UpstreamModel{}, errors.New("upstream_id and capabilities are required")
+	}
+	if !PresetSupportsCapabilities(connection.Preset, capabilities) {
+		return UpstreamModel{}, errors.New("capabilities exceed the selected provider preset")
 	}
 	idPart, err := credentials.RandomToken(12)
 	if err != nil {
@@ -330,7 +362,7 @@ func (service *Service) ListUpstreamModels(ctx context.Context, actor auth.User,
 		return nil, err
 	}
 	defer rows.Close()
-	var items []UpstreamModel
+	items := make([]UpstreamModel, 0)
 	for rows.Next() {
 		var item UpstreamModel
 		var raw string
@@ -408,7 +440,7 @@ func (service *Service) listPublicModels(ctx context.Context, query string) ([]P
 		return nil, err
 	}
 	defer rows.Close()
-	var items []PublicModel
+	items := make([]PublicModel, 0)
 	for rows.Next() {
 		item, err := scanPublicModel(rows)
 		if err != nil {
@@ -474,7 +506,7 @@ func (service *Service) Target(ctx context.Context, id string) (Target, error) {
 	target.PublicModel = model
 	var ciphertext, nonce []byte
 	var external sql.NullString
-	err = service.database.QueryRowContext(ctx, `SELECT base_url,allow_private_network,timeout_ms,revision,provider_credentials.ciphertext,provider_credentials.nonce,provider_credentials.external_ref FROM provider_connections JOIN provider_credentials ON provider_credentials.connection_id=provider_connections.id WHERE provider_connections.id=? AND enabled=1`, model.TargetConnectionID).Scan(&target.BaseURL, &target.AllowPrivateNetwork, &target.TimeoutMS, &target.ConnectionRevision, &ciphertext, &nonce, &external)
+	err = service.database.QueryRowContext(ctx, `SELECT base_url,allow_private_network,timeout_ms,revision,preset,provider_credentials.ciphertext,provider_credentials.nonce,provider_credentials.external_ref FROM provider_connections JOIN provider_credentials ON provider_credentials.connection_id=provider_connections.id WHERE provider_connections.id=? AND enabled=1`, model.TargetConnectionID).Scan(&target.BaseURL, &target.AllowPrivateNetwork, &target.TimeoutMS, &target.ConnectionRevision, &target.Preset, &ciphertext, &nonce, &external)
 	if errors.Is(err, sql.ErrNoRows) {
 		return Target{}, ErrNotFound
 	}
@@ -530,6 +562,9 @@ func validateConnection(input ConnectionInput) (ConnectionInput, error) {
 	if err != nil || parsed.Hostname() == "" || parsed.User != nil || parsed.Fragment != "" || parsed.RawQuery != "" {
 		return ConnectionInput{}, errors.New("base_url must be an absolute URL without credentials, query, or fragment")
 	}
+	if !presetBaseURLAllowed(input.Preset, parsed) {
+		return ConnectionInput{}, errors.New("base_url does not match the selected cloud provider endpoint")
+	}
 	if parsed.Scheme != "https" && !(input.AllowPrivateNetwork && parsed.Scheme == "http") {
 		return ConnectionInput{}, errors.New("base_url must use HTTPS unless private-network HTTP is enabled")
 	}
@@ -540,6 +575,28 @@ func validateConnection(input ConnectionInput) (ConnectionInput, error) {
 		return ConnectionInput{}, errors.New("timeout_ms must be between 1000 and 600000")
 	}
 	return input, nil
+}
+
+func presetBaseURLAllowed(preset string, parsed *url.URL) bool {
+	host := strings.ToLower(parsed.Hostname())
+	endpointPath := strings.TrimRight(parsed.EscapedPath(), "/")
+	switch preset {
+	case "azure-openai":
+		return (strings.HasSuffix(host, ".openai.azure.com") || strings.HasSuffix(host, ".services.ai.azure.com")) && endpointPath == "/openai/v1"
+	case "bedrock":
+		region := strings.TrimSuffix(strings.TrimPrefix(host, "bedrock-runtime."), ".amazonaws.com")
+		mantleRegion := strings.TrimSuffix(strings.TrimPrefix(host, "bedrock-mantle."), ".api.aws")
+		return strings.HasPrefix(host, "bedrock-runtime.") && strings.HasSuffix(host, ".amazonaws.com") && region != "" && !strings.Contains(region, ".") && endpointPath == "/openai/v1" ||
+			strings.HasPrefix(host, "bedrock-mantle.") && strings.HasSuffix(host, ".api.aws") && mantleRegion != "" && !strings.Contains(mantleRegion, ".") && endpointPath == "/v1"
+	case "vertex":
+		segments := strings.Split(strings.Trim(endpointPath, "/"), "/")
+		if len(segments) != 7 || segments[0] != "v1" && segments[0] != "v1beta1" || segments[1] != "projects" || segments[2] == "" || segments[3] != "locations" || segments[4] == "" || segments[5] != "endpoints" || segments[6] != "openapi" {
+			return false
+		}
+		return host == "aiplatform.googleapis.com" || host == segments[4]+"-aiplatform.googleapis.com"
+	default:
+		return true
+	}
 }
 
 func ValidatePortableConnection(input ConnectionInput) (ConnectionInput, error) {

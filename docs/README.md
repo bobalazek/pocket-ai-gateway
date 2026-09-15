@@ -17,6 +17,8 @@ Updated September 15, 2026. Phase files separate recorded implementation evidenc
 | [Deployment](guides/deployment.md) | Standalone build, Docker, systemd, TLS proxy, data volume, and upgrade examples |
 | [Provider adapters](guides/adapters.md) | Rules and evidence required for new upstream adapters |
 | [Compatibility](project/compatibility.md) | Tested client operations and explicit boundaries |
+| [API parity inventory](project/api-parity-inventory.md) | Implemented, rejected, and pending official API surfaces |
+| [Provider certification](project/provider-certification.md) | Preset evidence, cloud authentication boundaries, and live-test status |
 | [Release checklist](project/release-checklist.md) | Artifact, restore, provenance, and platform release gate |
 | [Testing](project/testing.md) | Unit, integration, end-to-end, browser, and compatibility test policy |
 | [Roadmap](plan/README.md) | Backend phases, matching frontend work, dependencies, and release gates |

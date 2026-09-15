@@ -217,16 +217,19 @@ func PreviewConfig(bundle ConfigBundle) (ConfigPreview, error) {
 			seen[id] = true
 		}
 	}
-	connections, upstream, models := map[string]bool{}, map[string]ConfigUpstream{}, map[string]ConfigModel{}
+	connections, connectionPresets, upstream, models := map[string]bool{}, map[string]string{}, map[string]ConfigUpstream{}, map[string]ConfigModel{}
 	for _, item := range bundle.Connections {
 		connections[item.ID] = true
-		if _, err := providers.ValidatePortableConnection(providers.ConnectionInput{Name: item.Name, Adapter: item.Adapter, BaseURL: item.BaseURL, Enabled: item.Enabled, AllowPrivateNetwork: item.AllowPrivateNetwork, TimeoutMS: item.TimeoutMS, Preset: item.Preset}); err != nil {
+		validated, err := providers.ValidatePortableConnection(providers.ConnectionInput{Name: item.Name, Adapter: item.Adapter, BaseURL: item.BaseURL, Enabled: item.Enabled, AllowPrivateNetwork: item.AllowPrivateNetwork, TimeoutMS: item.TimeoutMS, Preset: item.Preset})
+		if err != nil {
 			return ConfigPreview{}, ErrInvalid
 		}
+		connectionPresets[item.ID] = validated.Preset
 	}
 	for _, item := range bundle.UpstreamModels {
 		upstream[item.ID] = item
-		if _, ok := providers.NormalizePortableCapabilities(item.Capabilities); !connections[item.ConnectionID] || item.UpstreamID == "" || len(item.UpstreamID) > 300 || !ok {
+		capabilities, ok := providers.NormalizePortableCapabilities(item.Capabilities)
+		if !connections[item.ConnectionID] || item.UpstreamID == "" || len(item.UpstreamID) > 300 || !ok || !providers.PresetSupportsCapabilities(connectionPresets[item.ConnectionID], capabilities) {
 			return ConfigPreview{}, ErrInvalid
 		}
 	}
@@ -308,7 +311,7 @@ func (service *Service) ImportConfig(ctx context.Context, actor string, bundle C
 		validated, _ := providers.ValidatePortableConnection(providers.ConnectionInput{Name: item.Name, Adapter: item.Adapter, BaseURL: item.BaseURL, Enabled: item.Enabled, AllowPrivateNetwork: item.AllowPrivateNetwork, TimeoutMS: item.TimeoutMS, Preset: item.Preset})
 		item.Name, item.Adapter, item.BaseURL, item.Enabled, item.AllowPrivateNetwork, item.TimeoutMS, item.Preset = validated.Name, validated.Adapter, validated.BaseURL, validated.Enabled, validated.AllowPrivateNetwork, validated.TimeoutMS, validated.Preset
 		bundle.Connections[index] = item
-		if _, err = tx.ExecContext(ctx, `DELETE FROM provider_credentials WHERE connection_id=? AND EXISTS (SELECT 1 FROM provider_connections WHERE id=? AND (adapter<>? OR base_url<>?))`, item.ID, item.ID, item.Adapter, item.BaseURL); err != nil {
+		if _, err = tx.ExecContext(ctx, `DELETE FROM provider_credentials WHERE connection_id=? AND EXISTS (SELECT 1 FROM provider_connections WHERE id=? AND (adapter<>? OR base_url<>? OR preset<>?))`, item.ID, item.ID, item.Adapter, item.BaseURL, item.Preset); err != nil {
 			return ConfigPreview{}, err
 		}
 		if _, err = tx.ExecContext(ctx, `INSERT INTO provider_connections(id,name,adapter,base_url,enabled,allow_private_network,timeout_ms,preset,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?,?,?) ON CONFLICT(id) DO UPDATE SET name=excluded.name,adapter=excluded.adapter,base_url=excluded.base_url,enabled=excluded.enabled,allow_private_network=excluded.allow_private_network,timeout_ms=excluded.timeout_ms,preset=excluded.preset,revision=provider_connections.revision+1,updated_at=excluded.updated_at`, item.ID, item.Name, item.Adapter, item.BaseURL, item.Enabled, item.AllowPrivateNetwork, item.TimeoutMS, item.Preset, now, now); err != nil {
@@ -320,6 +323,28 @@ func (service *Service) ImportConfig(ctx context.Context, actor string, bundle C
 		capabilities, _ := json.Marshal(normalized)
 		if _, err = tx.ExecContext(ctx, `INSERT INTO upstream_models(id,connection_id,upstream_id,capabilities_json,active,created_at,updated_at) VALUES(?,?,?,?,?,?,?) ON CONFLICT(id) DO UPDATE SET connection_id=excluded.connection_id,upstream_id=excluded.upstream_id,capabilities_json=excluded.capabilities_json,active=excluded.active,updated_at=excluded.updated_at`, item.ID, item.ConnectionID, item.UpstreamID, string(capabilities), item.Active, now, now); err != nil {
 			return ConfigPreview{}, err
+		}
+	}
+	for _, connection := range bundle.Connections {
+		rows, queryErr := tx.QueryContext(ctx, "SELECT capabilities_json FROM upstream_models WHERE connection_id=?", connection.ID)
+		if queryErr != nil {
+			return ConfigPreview{}, queryErr
+		}
+		for rows.Next() {
+			var raw string
+			var capabilities []string
+			if queryErr = rows.Scan(&raw); queryErr == nil {
+				queryErr = json.Unmarshal([]byte(raw), &capabilities)
+			}
+			if queryErr != nil || !providers.PresetSupportsCapabilities(connection.Preset, capabilities) {
+				rows.Close()
+				return ConfigPreview{}, ErrInvalid
+			}
+		}
+		queryErr = rows.Err()
+		rows.Close()
+		if queryErr != nil {
+			return ConfigPreview{}, queryErr
 		}
 	}
 	for _, item := range bundle.PublicModels {

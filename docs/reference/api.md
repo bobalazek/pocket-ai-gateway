@@ -166,13 +166,17 @@ Setup, user/grant mutations, imports, and multi-policy updates transact with the
 | OpenRouter | OpenAI-compatible preset; downstream-provider guarantees require separately configured OpenRouter controls |
 | Ollama | OpenAI-compatible local preset with explicit private-network access and no credential requirement |
 | Generic OpenAI-compatible | Configurable endpoint with explicitly selected capabilities |
-| Azure OpenAI, AWS Bedrock, Google Vertex AI | Dedicated authentication/resource/routing probes required before native adapters |
-| Mistral, Groq, DeepSeek, xAI, Together, Fireworks, Cohere, Perplexity | Compatible adapter only where current official docs and tests establish the claimed operation |
+| Azure OpenAI | OpenAI-compatible v1 preset with a validated resource URL and `api-key` authentication |
+| Amazon Bedrock | OpenAI-compatible runtime or Mantle resource URL with a Bedrock bearer API key; SigV4 is outside this preset |
+| Google Vertex AI | OpenAI-compatible regional or global resource URL with a Google Cloud access token; token refresh remains operator-managed |
+| Mistral, Groq, DeepSeek, xAI, Together, Fireworks, Cohere, Perplexity | Built-in OpenAI-compatible presets pin reviewed endpoints and advertised operations; deterministic adapter conformance is tested, while live certification is tracked separately |
 
 Gemini, OpenRouter, and Ollama document compatible surfaces, but expose different features. Their inclusion is a testing commitment, not an assumption of native parity. [Gemini compatibility](https://ai.google.dev/gemini-api/docs/openai), [OpenRouter quickstart](https://openrouter.ai/docs/quickstart), [Ollama compatibility](https://docs.ollama.com/api/openai-compatibility)
 
 Do not hardcode a “latest” model in a protocol adapter. Bundle small versioned catalog entries/presets with provenance, allow operator overrides, and treat remote discovery as untrusted candidate metadata.
 
 Each certification records date, pinned SDK/version, endpoint, adapter version, configured model ID/revision, feature, native/translated path, expected result, limitations, and test evidence. Deterministic mocks run in ordinary CI. Real-provider smoke tests require configured credentials and a small explicit cost ceiling; secrets are unavailable to untrusted pull requests.
+
+The current evidence and provider-specific boundaries are recorded in [provider certification](../project/provider-certification.md).
 
 Do not claim general coding-agent compatibility from one chat request. Such a claim needs the specific client's tool, reasoning, Responses, stream, and resource behavior exercised end to end.

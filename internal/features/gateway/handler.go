@@ -123,6 +123,7 @@ func (handler *Handler) forward(response http.ResponseWriter, request *http.Requ
 	}
 	translationSupport := map[string]bool{}
 	translationChecked := map[string]bool{}
+	translationOperation := map[string]string{}
 	seed := sha256.Sum256(append([]byte(principal.KeyID+"\x00"+publicID+"\x00"+strconv.FormatInt(time.Now().UnixNano(), 10)+"\x00"), body...))
 	plan, err := handler.providers.Route(request.Context(), publicID, providers.RouteOptions{Operation: clientOperation, Streaming: stream, EstimatedInputTokens: inputEstimate, EstimatedOutputTokens: outputEstimate, Seed: string(seed[:]), AllowsConnection: func(connectionID string) bool { return principal.Allows(scope, publicID, connectionID) }, Eligibility: func(target providers.Target) (bool, string) {
 		native := nativeTarget(dialect, target.Adapter)
@@ -137,12 +138,22 @@ func (handler *Handler) forward(response http.ResponseWriter, request *http.Requ
 		}
 		if !native {
 			if !translationChecked[target.Adapter] {
-				_, _, err := translateRequest(dialect, target.Adapter, translationBody, target.UpstreamID)
+				targetPath, _, err := translateRequest(dialect, target.Adapter, translationBody, target.UpstreamID)
 				translationChecked[target.Adapter], translationSupport[target.Adapter] = true, err == nil
+				translationOperation[target.Adapter] = targetPath
 			}
 			if !translationSupport[target.Adapter] {
 				return false, "request_translation_unsupported"
 			}
+		}
+		targetOperation := upstreamPath
+		if native && dialect == "gemini" {
+			targetOperation = clientOperation
+		} else if !native {
+			targetOperation = translationOperation[target.Adapter]
+		}
+		if !providers.PresetSupports(target.Preset, targetOperation) {
+			return false, "preset_operation_unsupported"
 		}
 		return true, ""
 	}})
@@ -430,7 +441,7 @@ func (handler *Handler) dispatch(response http.ResponseWriter, request *http.Req
 		return 0, nil, err
 	}
 	upstream.Header.Set("Content-Type", "application/json")
-	setProviderCredential(upstream, target.Adapter, target.Credential)
+	setProviderCredential(upstream, target.Adapter, target.Preset, target.Credential)
 	copyProtocolHeaders(upstream.Header, request.Header, target.Adapter)
 	client := safeClient(time.Duration(target.TimeoutMS)*time.Millisecond, target.AllowPrivateNetwork)
 	result, err := client.Do(upstream)
@@ -492,7 +503,7 @@ func (handler *Handler) dispatchTranslated(response http.ResponseWriter, request
 		return 0, nil, err
 	}
 	upstream.Header.Set("Content-Type", "application/json")
-	setProviderCredential(upstream, target.Adapter, target.Credential)
+	setProviderCredential(upstream, target.Adapter, target.Preset, target.Credential)
 	if target.Adapter == "anthropic" {
 		upstream.Header.Set("anthropic-version", "2023-06-01")
 	}
@@ -792,8 +803,12 @@ func joinURL(base, relative string) (string, error) {
 	parsed.RawQuery = reference.RawQuery
 	return parsed.String(), nil
 }
-func setProviderCredential(request *http.Request, adapter, credential string) {
+func setProviderCredential(request *http.Request, adapter, preset, credential string) {
 	if credential == "" {
+		return
+	}
+	if preset == "azure-openai" {
+		request.Header.Set("api-key", credential)
 		return
 	}
 	switch adapter {
