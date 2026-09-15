@@ -1,6 +1,7 @@
 package gateway
 
 import (
+	"bufio"
 	"bytes"
 	"encoding/json"
 	"errors"
@@ -61,13 +62,12 @@ func validateAnthropicWebSearch(envelope map[string]json.RawMessage) (anthropicW
 			return result, fmt.Errorf("server tool type %q is not supported", kind)
 		}
 	}
-	if !result.enabled {
-		return result, nil
-	}
-	if raw, exists := envelope["stream"]; exists {
-		trimmed := bytes.TrimSpace(raw)
-		if !bytes.Equal(trimmed, []byte("false")) && !bytes.Equal(trimmed, []byte("null")) {
-			return result, errors.New("streaming web search Messages are not supported")
+	if result.enabled {
+		if raw, exists := envelope["stream"]; exists && !bytes.Equal(bytes.TrimSpace(raw), []byte("null")) {
+			var stream bool
+			if json.Unmarshal(raw, &stream) != nil {
+				return result, errors.New("stream must be a boolean or null")
+			}
 		}
 	}
 	return result, nil
@@ -232,4 +232,111 @@ func parseAnthropicWebSearchUsage(raw []byte, maximum int64) (*int64, bool, bool
 		return nil, false, true
 	}
 	return &count, true, false
+}
+
+func parseAnthropicWebSearchStream(raw []byte, maximum int64) (*int64, error) {
+	scanner := bufio.NewScanner(bytes.NewReader(raw))
+	scanner.Buffer(make([]byte, 4096), maxInferenceBody+1)
+	var data bytes.Buffer
+	var eventName string
+	var count *int64
+	started, stopped, frames := false, false, 0
+	flush := func() error {
+		defer func() {
+			data.Reset()
+			eventName = ""
+		}()
+		object := bytes.TrimSpace(data.Bytes())
+		if len(object) == 0 {
+			return nil
+		}
+		frames++
+		if frames > maxConversationStreamFrames {
+			return errors.New("provider returned too many SSE events")
+		}
+		var event map[string]json.RawMessage
+		if json.Unmarshal(object, &event) != nil || event == nil {
+			return errors.New("provider returned malformed SSE data")
+		}
+		var kind string
+		if json.Unmarshal(event["type"], &kind) != nil || kind == "" {
+			return errors.New("provider returned an untyped SSE event")
+		}
+		if eventName != "" && eventName != kind {
+			return errors.New("provider returned mismatched SSE event and data types")
+		}
+		if stopped {
+			return errors.New("provider returned data after message_stop")
+		}
+		switch kind {
+		case "error":
+			return errors.New("provider returned an in-stream error")
+		case "ping":
+			return nil
+		case "message_start":
+			if started {
+				return errors.New("provider returned duplicate message_start")
+			}
+			started = true
+		case "message_delta":
+			if !started {
+				return errors.New("provider omitted message_start")
+			}
+			tokens := parseUsageDetails("anthropic", object)
+			if tokens.inputTokens == nil || tokens.outputTokens == nil {
+				return errors.New("provider omitted terminal token usage")
+			}
+			parsed, known, exceeded := parseAnthropicWebSearchUsage(object, maximum)
+			if exceeded {
+				return errors.New("provider exceeded max_uses")
+			}
+			if !known {
+				return errors.New("provider omitted terminal web-search usage")
+			}
+			if count != nil && *parsed < *count {
+				return errors.New("provider decreased cumulative web-search usage")
+			}
+			count = parsed
+		case "message_stop":
+			if !started {
+				return errors.New("provider omitted message_start")
+			}
+			if count == nil {
+				return errors.New("provider omitted terminal web-search usage")
+			}
+			stopped = true
+		default:
+			if !started {
+				return errors.New("provider omitted message_start")
+			}
+		}
+		return nil
+	}
+	for scanner.Scan() {
+		line := scanner.Bytes()
+		if len(bytes.TrimSpace(line)) == 0 {
+			if err := flush(); err != nil {
+				return nil, err
+			}
+			continue
+		}
+		if bytes.HasPrefix(line, []byte("event:")) {
+			eventName = string(bytes.TrimSpace(bytes.TrimPrefix(line, []byte("event:"))))
+		} else if bytes.HasPrefix(line, []byte("data:")) {
+			if data.Len() > 0 {
+				data.WriteByte('\n')
+			}
+			data.Write(bytes.TrimSpace(bytes.TrimPrefix(line, []byte("data:"))))
+		}
+	}
+	if err := scanner.Err(); err != nil {
+		return nil, errors.New("provider returned malformed SSE data")
+	}
+	if err := flush(); err != nil {
+		return nil, err
+	}
+	if !stopped {
+		return nil, errors.New("provider stream ended before message_stop")
+	}
+	return count, nil
 }

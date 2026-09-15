@@ -40,7 +40,7 @@ func permanentSettlementError(err error) bool {
 	return errors.Is(err, usage.ErrConflict) || errors.Is(err, usage.ErrNotFound)
 }
 
-func (handler *Handler) dispatch(response http.ResponseWriter, request *http.Request, target providers.Target, relative string, body []byte, stream bool, dialect string, releaseDispatch func()) (int, []byte, error) {
+func (handler *Handler) dispatch(response http.ResponseWriter, request *http.Request, target providers.Target, relative string, body []byte, stream bool, dialect string, captureStreamTail bool, releaseDispatch func()) (int, []byte, error) {
 	released := false
 	release := func() {
 		if !released {
@@ -106,9 +106,13 @@ func (handler *Handler) dispatch(response http.ResponseWriter, request *http.Req
 	capture := &limitedCapture{limit: 8 << 20}
 	captureWriter := io.Writer(capture)
 	var tail *tailCapture
+	var window *headTailCapture
 	if relative == "audio/transcriptions" {
 		tail = &tailCapture{limit: maxInferenceBody}
 		captureWriter = tail
+	} else if captureStreamTail {
+		window = &headTailCapture{head: limitedCapture{limit: 1 << 20}, tail: tailCapture{limit: maxInferenceBody}}
+		captureWriter = window
 	}
 	_, err = io.Copy(flushWriter{writer: response, flusher: flusher}, io.TeeReader(result.Body, captureWriter))
 	raw := capture.Bytes()
@@ -117,6 +121,8 @@ func (handler *Handler) dispatch(response http.ResponseWriter, request *http.Req
 		if err == nil {
 			err = validateAudioTranscriptionStream(contentType, raw)
 		}
+	} else if window != nil {
+		raw = window.Bytes()
 	}
 	return result.StatusCode, raw, err
 }
@@ -252,6 +258,52 @@ type tailCapture struct {
 	data        []byte
 	limit, size int
 	next        int
+}
+
+type headTailCapture struct {
+	head  limitedCapture
+	tail  tailCapture
+	total int64
+}
+
+func (capture *headTailCapture) Write(value []byte) (int, error) {
+	capture.total += int64(len(value))
+	_, _ = capture.head.Write(value)
+	return capture.tail.Write(value)
+}
+
+func (capture *headTailCapture) Bytes() []byte {
+	tail := capture.tail.Bytes()
+	if capture.total <= int64(capture.tail.limit) {
+		return tail
+	}
+	head := completeSSEPrefix(capture.head.Bytes())
+	tail = completeSSETail(tail)
+	result := make([]byte, 0, len(head)+len(tail))
+	result = append(result, head...)
+	return append(result, tail...)
+}
+
+func completeSSEPrefix(value []byte) []byte {
+	lf, crlf := bytes.LastIndex(value, []byte("\n\n")), bytes.LastIndex(value, []byte("\r\n\r\n"))
+	if crlf > lf {
+		return value[:crlf+4]
+	}
+	if lf >= 0 {
+		return value[:lf+2]
+	}
+	return nil
+}
+
+func completeSSETail(value []byte) []byte {
+	lf, crlf := bytes.Index(value, []byte("\n\n")), bytes.Index(value, []byte("\r\n\r\n"))
+	if crlf >= 0 && (lf < 0 || crlf < lf) {
+		return value[crlf+4:]
+	}
+	if lf >= 0 {
+		return value[lf+2:]
+	}
+	return value
 }
 
 func (capture *tailCapture) Write(value []byte) (int, error) {

@@ -119,6 +119,57 @@ describe("official SDK compatibility through the Go gateway", () => {
     expect(result.usage.server_tool_use?.web_search_requests).toBe(1);
   });
 
+  it("streams bounded native Anthropic basic web search", async () => {
+    const stream = anthropic().messages.stream({
+      model: "target-anthropic",
+      max_tokens: 128,
+      messages: [{ role: "user", content: "Find a source about Pocket AI Gateway" }],
+      tools: [{
+        type: "web_search_20250305",
+        name: "web_search",
+        max_uses: 1,
+        allowed_callers: ["direct"],
+      }],
+    });
+    const events = [];
+    for await (const event of stream) events.push(event);
+    const result = await stream.finalMessage();
+
+    const serverTool = result.content.find((block) => block.type === "server_tool_use");
+    const toolResult = result.content.find((block) => block.type === "web_search_tool_result");
+    expect(result.model).toBe("anthropic-upstream");
+    expect(serverTool).toMatchObject({
+      name: "web_search",
+      caller: { type: "direct" },
+      input: { query: "Pocket AI Gateway" },
+    });
+    expect(toolResult).toMatchObject({
+      tool_use_id: serverTool?.id,
+      caller: { type: "direct" },
+      content: [{
+        type: "web_search_result",
+        url: "https://example.com/source",
+        encrypted_content: "encrypted-result",
+      }],
+    });
+    expect(result.content.find((block) => block.type === "text")).toMatchObject({
+      citations: [{
+        type: "web_search_result_location",
+        url: "https://example.com/source",
+        encrypted_index: "encrypted-index",
+      }],
+    });
+    expect(result.usage.server_tool_use?.web_search_requests).toBe(1);
+
+    const terminal = events.find((event) => event.type === "message_delta");
+    expect(terminal?.delta.stop_reason).toBe("end_turn");
+    expect(terminal?.usage).toMatchObject({
+      input_tokens: expect.any(Number),
+      output_tokens: expect.any(Number),
+      server_tool_use: { web_search_requests: 1 },
+    });
+  });
+
   it.each(models)("decodes Google Gen AI through %s", async (model) => {
     const result = await gemini().models.generateContent({ model, contents: "Hi" });
     expect(result.text).toBe("Hello");

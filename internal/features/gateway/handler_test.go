@@ -1486,7 +1486,7 @@ func TestNativeNonStreamResponseIsBounded(t *testing.T) {
 	recorder := httptest.NewRecorder()
 	writer := newAttemptWriter(recorder, false, 0)
 	request := httptest.NewRequest(http.MethodPost, "/", nil)
-	status, _, err := new(Handler).dispatch(writer, request, providers.Target{BaseURL: upstream.URL, AllowPrivateNetwork: true, TimeoutMS: 5000}, "v1/chat", nil, false, "openai", func() {})
+	status, _, err := new(Handler).dispatch(writer, request, providers.Target{BaseURL: upstream.URL, AllowPrivateNetwork: true, TimeoutMS: 5000}, "v1/chat", nil, false, "openai", false, func() {})
 	writer.Commit()
 	if err == nil || status != http.StatusOK || recorder.Code != http.StatusBadGateway || recorder.Body.Len() > 1024 {
 		t.Fatalf("status=%d gateway=%d bytes=%d err=%v", status, recorder.Code, recorder.Body.Len(), err)

@@ -336,7 +336,7 @@ func (handler *Handler) forwardAuthorized(response http.ResponseWriter, request 
 		var countedInputTokens *int64
 		semanticResponseError := false
 		if native {
-			result, raw, copyErr = handler.dispatch(attemptWriter, request, target, targetPath, targetBody, stream, dialect, releaseDispatch)
+			result, raw, copyErr = handler.dispatch(attemptWriter, request, target, targetPath, targetBody, stream, dialect, anthropicWebSearch.enabled && stream, releaseDispatch)
 		} else {
 			result, raw, copyErr = handler.dispatchTranslated(attemptWriter, request, target, targetPath, targetBody, dialect, publicID, stream, releaseDispatch)
 		}
@@ -386,12 +386,21 @@ func (handler *Handler) forwardAuthorized(response http.ResponseWriter, request 
 			}
 		}
 		if anthropicWebSearch.enabled && copyErr == nil && result >= 200 && result < 300 {
-			var exceeded bool
-			webSearchCallCount, anthropicWebSearchUsageKnown, exceeded = parseAnthropicWebSearchUsage(raw, anthropicWebSearch.maxUses)
-			if exceeded {
-				copyErr = errors.New("provider exceeded max_uses")
+			if stream {
+				webSearchCallCount, copyErr = parseAnthropicWebSearchStream(raw, anthropicWebSearch.maxUses)
+				anthropicWebSearchUsageKnown = copyErr == nil
+			} else {
+				var exceeded bool
+				webSearchCallCount, anthropicWebSearchUsageKnown, exceeded = parseAnthropicWebSearchUsage(raw, anthropicWebSearch.maxUses)
+				if exceeded {
+					copyErr = errors.New("provider exceeded max_uses")
+				}
+			}
+			if copyErr != nil {
 				semanticResponseError = true
-				attemptWriter.Reset()
+				if !attemptWriter.Committed() {
+					attemptWriter.Reset()
+				}
 			}
 		}
 		dispatchErr := copyErr

@@ -11,6 +11,7 @@ import (
 	"strings"
 	"sync/atomic"
 	"testing"
+	"time"
 
 	"github.com/bobalazek/pocket-ai-gateway/internal/features/auth"
 	"github.com/bobalazek/pocket-ai-gateway/internal/features/keys"
@@ -23,6 +24,7 @@ func TestAnthropicWebSearchValidation(t *testing.T) {
 		`{"tools":[{"type":"web_search_20250305","name":"web_search","max_uses":1}]}`,
 		`{"stream":false,"tools":[{"name":"weather","description":"Local weather","input_schema":{"type":"object"}},{"type":"custom","name":"clock","input_schema":{"type":"object"}},{"type":"web_search_20250305","name":"web_search","max_uses":4,"allowed_domains":["example.com","docs.example.com/guides/*"],"user_location":{"type":"approximate","city":"Ljubljana","country":"SI","region":null,"timezone":"Europe/Ljubljana"},"allowed_callers":["direct"]}]}`,
 		`{"stream":null,"tools":[{"type":"web_search_20250305","name":"web_search","max_uses":2,"blocked_domains":[]}]}`,
+		`{"stream":true,"tools":[{"type":"web_search_20250305","name":"web_search","max_uses":1}]}`,
 		`{"tools":[{"type":"web_search_20250305","name":"web_search","max_uses":1,"allowed_domains":null,"blocked_domains":null,"user_location":null}]}`,
 	}
 	for _, raw := range valid {
@@ -53,7 +55,10 @@ func TestAnthropicWebSearchValidation(t *testing.T) {
 		`{"tools":[{"type":"web_search_20250305","name":"web_search","max_uses":1,"allowed_callers":null}]}`,
 		`{"tools":[{"type":"web_search_20250305","name":"web_search","max_uses":1,"allowed_callers":[]}]}`,
 		`{"tools":[{"type":"web_search_20250305","name":"web_search","max_uses":1,"allowed_callers":["code_execution_20260120"]}]}`,
-		`{"stream":true,"tools":[{"type":"web_search_20250305","name":"web_search","max_uses":1}]}`,
+		`{"stream":"true","tools":[{"type":"web_search_20250305","name":"web_search","max_uses":1}]}`,
+		`{"stream":1,"tools":[{"type":"web_search_20250305","name":"web_search","max_uses":1}]}`,
+		`{"stream":[],"tools":[{"type":"web_search_20250305","name":"web_search","max_uses":1}]}`,
+		`{"stream":{},"tools":[{"type":"web_search_20250305","name":"web_search","max_uses":1}]}`,
 	}
 	for _, raw := range invalid {
 		var envelope map[string]json.RawMessage
@@ -82,6 +87,44 @@ func TestAnthropicWebSearchUsageParsing(t *testing.T) {
 		if (test.want != nil) != known || test.want != nil && (got == nil || *got != *test.want) || exceeded != test.exceeded {
 			t.Fatalf("parse %s = %v/%t/%t, want %v exceeded=%t", test.raw, got, known, exceeded, test.want, test.exceeded)
 		}
+	}
+}
+
+func TestAnthropicWebSearchStreamParsing(t *testing.T) {
+	valid := anthropicWebSearchSSE("end_turn", `{"web_search_requests":2}`, "")
+	decreasing := strings.Replace(anthropicWebSearchSSE("end_turn", `{"web_search_requests":1}`, ""), "event: message_delta", "event: message_delta\ndata: {\"type\":\"message_delta\",\"usage\":{\"input_tokens\":7,\"output_tokens\":1,\"server_tool_use\":{\"web_search_requests\":2}}}\n\nevent: message_delta", 1)
+	count, err := parseAnthropicWebSearchStream([]byte(valid), 2)
+	if err != nil || count == nil || *count != 2 {
+		t.Fatalf("valid stream count=%v err=%v", count, err)
+	}
+	count, err = parseAnthropicWebSearchStream([]byte(strings.ReplaceAll(valid, "\n", "\r\n")), 2)
+	if err != nil || count == nil || *count != 2 {
+		t.Fatalf("valid CRLF stream count=%v err=%v", count, err)
+	}
+	for name, raw := range map[string]string{
+		"missing start":    strings.SplitN(valid, "\n\n", 2)[1],
+		"missing stop":     strings.TrimSuffix(valid, "event: message_stop\ndata: {\"type\":\"message_stop\"}\n\n"),
+		"missing usage":    anthropicWebSearchSSE("end_turn", "", ""),
+		"malformed":        anthropicWebSearchSSE("end_turn", `{"web_search_requests":"two"}`, ""),
+		"overrun":          anthropicWebSearchSSE("end_turn", `{"web_search_requests":3}`, ""),
+		"decreasing count": decreasing,
+		"mismatched type":  strings.Replace(valid, "event: message_delta", "event: content_block_delta", 1),
+		"error":            "event: error\ndata: {\"type\":\"error\",\"error\":{\"type\":\"overloaded_error\"}}\n\n",
+	} {
+		t.Run(name, func(t *testing.T) {
+			if _, err := parseAnthropicWebSearchStream([]byte(raw), 2); err == nil {
+				t.Fatalf("invalid stream accepted: %s", raw)
+			}
+		})
+	}
+	increasing := strings.Replace(anthropicWebSearchSSE("end_turn", `{"web_search_requests":2}`, ""), "event: message_delta", "event: message_delta\ndata: {\"type\":\"message_delta\",\"usage\":{\"input_tokens\":7,\"output_tokens\":1,\"server_tool_use\":{\"web_search_requests\":1}}}\n\nevent: message_delta", 1)
+	count, err = parseAnthropicWebSearchStream([]byte(increasing), 2)
+	if err != nil || count == nil || *count != 2 {
+		t.Fatalf("increasing cumulative count=%v err=%v", count, err)
+	}
+	newlineHeavy := append(bytes.Repeat([]byte{'\n'}, 1<<20), []byte("event: error\ndata: {}\n\n")...)
+	if _, err := parseAnthropicWebSearchStream(newlineHeavy, 2); err == nil {
+		t.Fatal("newline-heavy error stream accepted")
 	}
 }
 
@@ -286,6 +329,177 @@ func TestAnthropicWebSearchDoesNotFallbackAfterDispatch(t *testing.T) {
 	if embeddedState != "succeeded" || embeddedUsageStatus != "provider_reported" || embeddedInput != 11 || embeddedOutput != 2 || embeddedCalls != 0 || embeddedCost.Valid || embeddedToolStatus != "none" {
 		t.Fatalf("embedded accounting=%s/%s input=%d output=%d calls=%d cost=%v tool=%s", embeddedState, embeddedUsageStatus, embeddedInput, embeddedOutput, embeddedCalls, embeddedCost, embeddedToolStatus)
 	}
+}
+
+func TestAnthropicWebSearchStreamingSuccess(t *testing.T) {
+	for _, test := range []struct {
+		name, stop, serverUsage, content string
+		calls, tools                     int64
+	}{
+		{
+			name:        "zero search embedded error",
+			stop:        "pause_turn",
+			serverUsage: "null",
+			content:     "event: content_block_start\ndata: {\"type\":\"content_block_start\",\"index\":0,\"content_block\":{\"type\":\"web_search_tool_result\",\"tool_use_id\":\"srvtoolu_1\",\"caller\":{\"type\":\"direct\"},\"content\":{\"type\":\"web_search_tool_result_error\",\"error_code\":\"too_many_requests\"}}}\n\nevent: content_block_stop\ndata: {\"type\":\"content_block_stop\",\"index\":0}\n\n",
+		},
+		{name: "completed search", stop: "end_turn", serverUsage: `{"web_search_requests":1}`, content: "event: content_block_start\ndata: {\"type\":\"content_block_start\",\"index\":0,\"content_block\":{\"type\":\"server_tool_use\",\"id\":\"srvtoolu_1\",\"name\":\"web_search\",\"input\":{\"query\":\"News\"}}}\n\nevent: content_block_stop\ndata: {\"type\":\"content_block_stop\",\"index\":0}\n\n", calls: 1, tools: 1},
+		{name: "search plus function tool", stop: "tool_use", serverUsage: `{"web_search_requests":1}`, content: "event: content_block_start\ndata: {\"type\":\"content_block_start\",\"index\":0,\"content_block\":{\"type\":\"tool_use\",\"id\":\"toolu_1\",\"name\":\"local\",\"input\":{}}}\n\nevent: content_block_stop\ndata: {\"type\":\"content_block_stop\",\"index\":0}\n\n", calls: 1, tools: 2},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			stream := anthropicWebSearchSSE(test.stop, test.serverUsage, test.content)
+			ctx, database, handler, secret, firstCalls, secondCalls := anthropicWebSearchStreamFixture(t, func(response http.ResponseWriter, _ *http.Request) {
+				response.Header().Set("Content-Type", "text/event-stream")
+				_, _ = io.WriteString(response, stream)
+			})
+			result := performAnthropicRequest(t, handler, secret, `{"model":"claude-search","max_tokens":64,"stream":true,"messages":[{"role":"user","content":"News"}],"tools":[{"type":"web_search_20250305","name":"web_search","max_uses":2}]}`)
+			if result.Code != http.StatusOK || result.Body.String() != stream || firstCalls.Load() != 1 || secondCalls.Load() != 0 {
+				t.Fatalf("response=%d first=%d second=%d body=%s", result.Code, firstCalls.Load(), secondCalls.Load(), result.Body.String())
+			}
+			var state, usageStatus, toolStatus string
+			var input, output, searchCalls, tools int64
+			var cost sql.NullInt64
+			if err := database.QueryRowContext(ctx, `SELECT state,usage_status,input_tokens,output_tokens,web_search_call_count,response_tool_call_count,tool_call_status,as_recorded_cost_nanos FROM attempts`).Scan(&state, &usageStatus, &input, &output, &searchCalls, &tools, &toolStatus, &cost); err != nil {
+				t.Fatal(err)
+			}
+			if state != "succeeded" || usageStatus != "provider_reported" || input != 7 || output != 2 || searchCalls != test.calls || tools != test.tools || cost.Valid || toolStatus != map[bool]string{true: "completed", false: "none"}[test.tools > 0] {
+				t.Fatalf("accounting=%s/%s input=%d output=%d search=%d tools=%d/%s cost=%v", state, usageStatus, input, output, searchCalls, tools, toolStatus, cost)
+			}
+		})
+	}
+}
+
+func TestAnthropicWebSearchStreamingFailuresDoNotFallback(t *testing.T) {
+	valid := anthropicWebSearchSSE("end_turn", `{"web_search_requests":1}`, "")
+	for name, stream := range map[string]string{
+		"overrun":         anthropicWebSearchSSE("end_turn", `{"web_search_requests":2}`, ""),
+		"truncated":       strings.TrimSuffix(valid, "event: message_stop\ndata: {\"type\":\"message_stop\"}\n\n"),
+		"missing usage":   anthropicWebSearchSSE("end_turn", "", ""),
+		"missing input":   strings.ReplaceAll(valid, `"input_tokens":7,`, ""),
+		"missing output":  strings.Replace(valid, `"output_tokens":2`, `"output_tokens":null`, 1),
+		"malformed usage": anthropicWebSearchSSE("end_turn", `{"web_search_requests":"one"}`, ""),
+		"in-stream error": "event: message_start\ndata: {\"type\":\"message_start\",\"message\":{\"usage\":{\"input_tokens\":7,\"output_tokens\":0}}}\n\nevent: error\ndata: {\"type\":\"error\",\"error\":{\"type\":\"overloaded_error\",\"message\":\"busy\"}}\n\n",
+	} {
+		t.Run(name, func(t *testing.T) {
+			ctx, database, handler, secret, firstCalls, secondCalls := anthropicWebSearchStreamFixture(t, func(response http.ResponseWriter, _ *http.Request) {
+				response.Header().Set("Content-Type", "text/event-stream")
+				_, _ = io.WriteString(response, stream)
+			})
+			result := performAnthropicRequest(t, handler, secret, `{"model":"claude-search","max_tokens":64,"stream":true,"messages":[{"role":"user","content":"News"}],"tools":[{"type":"web_search_20250305","name":"web_search","max_uses":1}]}`)
+			if result.Code != http.StatusOK || result.Body.String() != stream || firstCalls.Load() != 1 || secondCalls.Load() != 0 {
+				t.Fatalf("response=%d first=%d second=%d body=%s", result.Code, firstCalls.Load(), secondCalls.Load(), result.Body.String())
+			}
+			var state, usageStatus string
+			var input, output, searchCalls sql.NullInt64
+			if err := database.QueryRowContext(ctx, `SELECT state,usage_status,input_tokens,output_tokens,web_search_call_count FROM attempts`).Scan(&state, &usageStatus, &input, &output, &searchCalls); err != nil {
+				t.Fatal(err)
+			}
+			if state != "failed" || usageStatus != "unknown" || input.Valid || output.Valid || searchCalls.Valid {
+				t.Fatalf("accounting=%s/%s input=%v output=%v search=%v", state, usageStatus, input, output, searchCalls)
+			}
+		})
+	}
+}
+
+func TestAnthropicWebSearchStreamingCancellationIsInterrupted(t *testing.T) {
+	started := make(chan struct{}, 1)
+	ctx, database, handler, secret, firstCalls, secondCalls := anthropicWebSearchStreamFixture(t, func(response http.ResponseWriter, request *http.Request) {
+		response.Header().Set("Content-Type", "text/event-stream")
+		_, _ = io.WriteString(response, "event: message_start\ndata: {\"type\":\"message_start\",\"message\":{\"usage\":{\"input_tokens\":7,\"output_tokens\":0}}}\n\n")
+		response.(http.Flusher).Flush()
+		started <- struct{}{}
+		<-request.Context().Done()
+	})
+	requestContext, cancel := context.WithCancel(context.Background())
+	request := httptest.NewRequest(http.MethodPost, "/api/anthropic/v1/messages", strings.NewReader(`{"model":"claude-search","max_tokens":64,"stream":true,"messages":[{"role":"user","content":"News"}],"tools":[{"type":"web_search_20250305","name":"web_search","max_uses":1}]}`)).WithContext(requestContext)
+	request.Header.Set("x-api-key", secret)
+	request.Header.Set("anthropic-version", "2023-06-01")
+	response := httptest.NewRecorder()
+	done := make(chan struct{})
+	go func() {
+		handler.ServeHTTP(response, request)
+		close(done)
+	}()
+	select {
+	case <-started:
+	case <-time.After(5 * time.Second):
+		t.Fatal("upstream stream did not start")
+	}
+	cancel()
+	select {
+	case <-done:
+	case <-time.After(5 * time.Second):
+		t.Fatal("cancelled gateway request did not stop")
+	}
+	if firstCalls.Load() != 1 || secondCalls.Load() != 0 {
+		t.Fatalf("first=%d second=%d", firstCalls.Load(), secondCalls.Load())
+	}
+	var state, usageStatus string
+	var input, output, searchCalls sql.NullInt64
+	if err := database.QueryRowContext(ctx, `SELECT state,usage_status,input_tokens,output_tokens,web_search_call_count FROM attempts`).Scan(&state, &usageStatus, &input, &output, &searchCalls); err != nil {
+		t.Fatal(err)
+	}
+	if state != "interrupted_unknown" || usageStatus != "unknown" || input.Valid || output.Valid || searchCalls.Valid {
+		t.Fatalf("accounting=%s/%s input=%v output=%v search=%v", state, usageStatus, input, output, searchCalls)
+	}
+}
+
+func TestOrdinaryAnthropicToolStreamingRemainsUnchanged(t *testing.T) {
+	stream := "event: message_start\ndata: {\"type\":\"message_start\",\"message\":{\"usage\":{\"input_tokens\":3,\"output_tokens\":0}}}\n\nevent: content_block_start\ndata: {\"type\":\"content_block_start\",\"index\":0,\"content_block\":{\"type\":\"tool_use\",\"id\":\"toolu_1\",\"name\":\"weather\",\"input\":{}}}\n\nevent: content_block_stop\ndata: {\"type\":\"content_block_stop\",\"index\":0}\n\nevent: message_delta\ndata: {\"type\":\"message_delta\",\"delta\":{\"stop_reason\":\"tool_use\"},\"usage\":{\"output_tokens\":1}}\n\nevent: message_stop\ndata: {\"type\":\"message_stop\"}\n\n"
+	ctx, database, handler, secret, firstCalls, secondCalls := anthropicWebSearchStreamFixture(t, func(response http.ResponseWriter, _ *http.Request) {
+		response.Header().Set("Content-Type", "text/event-stream")
+		_, _ = io.WriteString(response, stream)
+	})
+	result := performAnthropicRequest(t, handler, secret, `{"model":"claude-search","max_tokens":64,"stream":true,"messages":[{"role":"user","content":"Weather"}],"tools":[{"name":"weather","input_schema":{"type":"object"}}]}`)
+	if result.Code != http.StatusOK || result.Body.String() != stream || firstCalls.Load() != 1 || secondCalls.Load() != 0 {
+		t.Fatalf("response=%d first=%d second=%d body=%s", result.Code, firstCalls.Load(), secondCalls.Load(), result.Body.String())
+	}
+	var state, usageStatus, toolStatus string
+	var input, output, tools int64
+	if err := database.QueryRowContext(ctx, `SELECT state,usage_status,input_tokens,output_tokens,response_tool_call_count,tool_call_status FROM attempts`).Scan(&state, &usageStatus, &input, &output, &tools, &toolStatus); err != nil {
+		t.Fatal(err)
+	}
+	if state != "succeeded" || usageStatus != "provider_reported" || input != 3 || output != 1 || tools != 1 || toolStatus != "completed" {
+		t.Fatalf("accounting=%s/%s input=%d output=%d tools=%d/%s", state, usageStatus, input, output, tools, toolStatus)
+	}
+}
+
+func anthropicWebSearchSSE(stop, serverUsage, content string) string {
+	usage := `{"input_tokens":7,"output_tokens":2}`
+	if serverUsage != "" {
+		usage = `{"input_tokens":7,"output_tokens":2,"server_tool_use":` + serverUsage + `}`
+	}
+	return "event: message_start\ndata: {\"type\":\"message_start\",\"message\":{\"model\":\"claude-upstream\",\"usage\":{\"input_tokens\":7,\"output_tokens\":0}}}\n\n" + content + "event: message_delta\ndata: {\"type\":\"message_delta\",\"delta\":{\"stop_reason\":\"" + stop + "\",\"stop_sequence\":null},\"usage\":" + usage + "}\n\nevent: message_stop\ndata: {\"type\":\"message_stop\"}\n\n"
+}
+
+func anthropicWebSearchStreamFixture(t *testing.T, serve http.HandlerFunc) (context.Context, *sql.DB, http.Handler, string, *atomic.Int64, *atomic.Int64) {
+	t.Helper()
+	firstCalls, secondCalls := new(atomic.Int64), new(atomic.Int64)
+	first := httptest.NewServer(http.HandlerFunc(func(response http.ResponseWriter, request *http.Request) {
+		firstCalls.Add(1)
+		serve(response, request)
+	}))
+	second := httptest.NewServer(http.HandlerFunc(func(response http.ResponseWriter, _ *http.Request) {
+		secondCalls.Add(1)
+		response.Header().Set("Content-Type", "text/event-stream")
+		_, _ = io.WriteString(response, anthropicWebSearchSSE("end_turn", `{"web_search_requests":0}`, ""))
+	}))
+	t.Cleanup(first.Close)
+	t.Cleanup(second.Close)
+	ctx, store, owner, keyService, providerService, usageService := gatewayFixture(t)
+	t.Cleanup(func() { _ = store.Close() })
+	firstConnection, firstUpstream, model := publishAnthropicWebSearchModel(t, ctx, store.SystemDB(), providerService, owner, first.URL+"/v1", "first", "claude-search")
+	secondConnection, secondUpstream, _ := publishAnthropicWebSearchModel(t, ctx, store.SystemDB(), providerService, owner, second.URL+"/v1", "second", "")
+	model, err := providerService.ConfigureRoute(ctx, owner, model.ID, model.Revision, providers.RouteConfigInput{Strategy: "ordered_fallback", Targets: []providers.RouteTargetInput{{UpstreamModelID: firstUpstream.ID, Priority: 1, Weight: 1, Enabled: true}, {UpstreamModelID: secondUpstream.ID, Priority: 2, Weight: 1, Enabled: true}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, secret, err := keyService.Create(ctx, owner.ID, keys.Input{Label: "Stream", Scopes: []string{"chat:generate", "messages:web_search"}, ModelPatterns: []string{model.ID}, ConnectionIDs: []string{firstConnection.ID, secondConnection.ID}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	mux := http.NewServeMux()
+	New(store.SystemDB(), keyService, providerService, usageService).Register(mux)
+	return ctx, store.SystemDB(), mux, secret, firstCalls, secondCalls
 }
 
 func publishAnthropicWebSearchModel(t *testing.T, ctx context.Context, database *sql.DB, service *providers.Service, owner auth.User, baseURL, upstreamID, publicID string) (providers.Connection, providers.UpstreamModel, providers.PublicModel) {

@@ -86,7 +86,7 @@ func TestWebSearchSettlementIsUnpricedBoundedAndProjectedOnce(t *testing.T) {
 	}
 }
 
-func TestAnthropicWebSearchUsesSharedAccountingContract(t *testing.T) {
+func TestStreamingAnthropicWebSearchUsesSharedAccountingContract(t *testing.T) {
 	ctx, service, owner, keyID, store := testService(t)
 	defer store.Close()
 	policy := createPolicy(t, ctx, service, owner, PolicyInput{ScopeKind: "key", ScopeID: keyID, Metric: "tokens", Algorithm: "quota", Period: "lifetime", LimitUnits: 1000})
@@ -108,6 +108,12 @@ func TestAnthropicWebSearchUsesSharedAccountingContract(t *testing.T) {
 	}
 	// Even a restored row with a base token price must retain unknown hosted-search cost.
 	if _, err := store.SystemDB().ExecContext(ctx, "UPDATE attempts SET price_version_id=? WHERE id=?", price.ID, admission.AttemptID); err != nil {
+		t.Fatal(err)
+	}
+	if err := service.MarkDispatching(ctx, admission.AttemptID); err != nil {
+		t.Fatal(err)
+	}
+	if err := service.MarkStreaming(ctx, admission.AttemptID); err != nil {
 		t.Fatal(err)
 	}
 	input, output, calls := int64(70), int64(15), int64(3)
