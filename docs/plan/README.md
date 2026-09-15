@@ -81,7 +81,7 @@ This table assigns each requirement to delivery phases. Phase 1 provides only th
 
 ## Verification strategy
 
-One local command runs formatting, static analysis, focused automated tests, frontend type checks/build, and an embedded-binary smoke test. CI invokes the same gate. Supported-platform race/artifact tests and bounded fuzz/vulnerability jobs add release coverage; their scope is documented separately.
+One local command runs formatting, static analysis, focused automated tests, frontend type checks/build, race checks, and an embedded-binary smoke test. Routine CI invokes its quick mode without race or copied-binary smoke checks; releases run the full gate. Bounded fuzz, vulnerability, and live-provider jobs add release coverage where documented.
 
 | Layer | Evidence required |
 | --- | --- |

@@ -15,13 +15,14 @@ Each record states status/source, context, decision, and consequences. A recomme
 | ADR-007 | [Earlier protocol proposal](2026-09-14-protocol-boundaries.md) | Protocol scope superseded by ADR-008 and ADR-015 |
 | ADR-008 | [Three client protocols and translation](2026-09-14-three-protocol-compatibility.md) | Accepted |
 | ADR-009 | [Feature namespaces and authentication](2026-09-14-feature-api-namespaces.md) | Accepted |
-| ADR-010 | [Dashboard system, onboarding, and test layers](2026-09-14-dashboard-system-onboarding-tests.md) | Accepted |
+| ADR-010 | [Earlier dashboard onboarding decision](2026-09-14-dashboard-system-onboarding-tests.md) | Onboarding protection superseded by ADR-017 |
 | ADR-011 | [Dashboard palette, icons, and browser API client](2026-09-14-brand-and-browser-client.md) | Accepted |
 | ADR-012 | [Concurrency and coordination](2026-09-14-concurrency-and-coordination.md) | Accepted direction |
 | ADR-013 | [Session and API-key security](2026-09-14-session-and-key-security.md) | Technical choice made under delegated authority |
 | ADR-014 | [v0.1 local SQLite authority](2026-09-15-v01-local-sqlite-authority.md) | Technical scope refining ADR-003; remote certification retained |
 | ADR-015 | [Gateway-owned Responses state](2026-09-15-response-resources.md) | Stored and asynchronous responses accepted; ownership contract selected |
 | ADR-016 | [Gateway-owned Conversations and attached streams](2026-09-15-conversation-resources.md) | Technical choice extending ADR-015 |
+| ADR-017 | [Browser-first owner setup](2026-09-15-browser-first-owner-setup.md) | Accepted user decision superseding ADR-010 onboarding protection |
 
 Historical: [initial proposal](2026-09-14-initial-proposal.md), superseded by the records above where they differ. Its A/P/D/M identifiers are historical references only; current documents use ADR IDs.
 

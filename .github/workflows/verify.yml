@@ -27,4 +27,4 @@ jobs:
           node-version: 22
           cache: pnpm
           cache-dependency-path: web/pnpm-lock.yaml
-      - run: ./scripts/verify.sh
+      - run: POCKET_AI_GATEWAY_QUICK_VERIFY=1 ./scripts/verify.sh

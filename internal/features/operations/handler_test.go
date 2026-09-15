@@ -22,11 +22,7 @@ func TestOwnerOnlyOperationsAndRecentAuthentication(t *testing.T) {
 	}
 	defer store.Close()
 	authService := auth.New(store.SystemDB())
-	code, _, err := authService.PrepareSetup(ctx)
-	if err != nil {
-		t.Fatal(err)
-	}
-	owner, ownerToken, err := authService.Claim(ctx, auth.ClaimInput{SetupCode: code, Email: "owner@example.test", DisplayName: "Owner", Password: "correct-horse-battery"})
+	owner, ownerToken, err := authService.Claim(ctx, auth.ClaimInput{Email: "owner@example.test", DisplayName: "Owner", Password: "correct-horse-battery"})
 	if err != nil {
 		t.Fatal(err)
 	}

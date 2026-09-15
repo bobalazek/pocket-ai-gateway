@@ -20,15 +20,10 @@ func TestOwnerSetupIsOneTimeAndCreatesSession(t *testing.T) {
 	defer store.Close()
 	service := New(store.SystemDB())
 
-	code, required, err := service.PrepareSetup(ctx)
-	if err != nil || !required || code == "" {
-		t.Fatalf("PrepareSetup() = %q, %v, %v", code, required, err)
+	if required, err := service.SetupRequired(ctx); err != nil || !required {
+		t.Fatalf("SetupRequired() = %v, %v", required, err)
 	}
-	if _, _, err := service.Claim(ctx, ClaimInput{SetupCode: "wrong", Email: "owner@example.test", DisplayName: "Owner", Password: "correct-horse-battery"}); !errors.Is(err, ErrInvalidSetupCode) {
-		t.Fatalf("invalid code error = %v", err)
-	}
-
-	user, session, err := service.Claim(ctx, ClaimInput{SetupCode: code, Email: "OWNER@example.test", DisplayName: " Owner ", Password: "correct-horse-battery"})
+	user, session, err := service.Claim(ctx, ClaimInput{Email: "OWNER@example.test", DisplayName: " Owner ", Password: "correct-horse-battery"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -41,30 +36,11 @@ func TestOwnerSetupIsOneTimeAndCreatesSession(t *testing.T) {
 	if required, err := service.SetupRequired(ctx); err != nil || required {
 		t.Fatalf("SetupRequired() = %v, %v", required, err)
 	}
-	if state, err := service.SetupStatus(ctx); err != nil || !state.Recoverable {
-		t.Fatalf("SetupStatus() = %#v, %v", state, err)
-	}
-	if nextCode, required, err := service.PrepareSetup(ctx); err != nil || required || nextCode != "" {
-		t.Fatalf("PrepareSetup() after claim = %q, %v, %v", nextCode, required, err)
-	}
-	current, retrySession, err := service.Claim(ctx, ClaimInput{SetupCode: code, Email: "owner@example.test", DisplayName: "Owner", Password: "correct-horse-battery"})
-	if err != nil || current.ID != user.ID || retrySession == "" {
-		t.Fatalf("retry claim = %#v, %q, %v", current, retrySession, err)
-	}
-	if _, err := service.Session(ctx, session); !errors.Is(err, ErrInvalidSession) {
-		t.Fatalf("replaced setup session error = %v", err)
-	}
-	if retryUser, err := service.Session(ctx, retrySession); err != nil || retryUser.ID != user.ID {
-		t.Fatalf("retry session = %#v, %v", retryUser, err)
-	}
 	var setupAudits int
-	if err := store.SystemDB().QueryRowContext(ctx, "SELECT COUNT(*) FROM audit_events WHERE action IN ('owner.setup_claim', 'owner.setup_replay')").Scan(&setupAudits); err != nil || setupAudits != 2 {
+	if err := store.SystemDB().QueryRowContext(ctx, "SELECT COUNT(*) FROM audit_events WHERE action = 'owner.setup_claim'").Scan(&setupAudits); err != nil || setupAudits != 1 {
 		t.Fatalf("setup audits = %d, %v", setupAudits, err)
 	}
-	if _, _, err := service.Claim(ctx, ClaimInput{SetupCode: code, Email: "owner@example.test", DisplayName: "Owner", Password: "wrong-password-value"}); !errors.Is(err, ErrInvalidSetupCode) {
-		t.Fatalf("retry with wrong password error = %v", err)
-	}
-	if _, _, err := service.Claim(ctx, ClaimInput{SetupCode: code, Email: "second@example.test", DisplayName: "Second", Password: "correct-horse-battery"}); !errors.Is(err, ErrInvalidSetupCode) {
+	if _, _, err := service.Claim(ctx, ClaimInput{Email: "second@example.test", DisplayName: "Second", Password: "correct-horse-battery"}); !errors.Is(err, ErrSetupComplete) {
 		t.Fatalf("second claim error = %v", err)
 	}
 
@@ -85,10 +61,6 @@ func TestConcurrentOwnerClaimsRespectPasswordSlots(t *testing.T) {
 	}
 	defer store.Close()
 	service := New(store.SystemDB())
-	code, _, err := service.PrepareSetup(ctx)
-	if err != nil {
-		t.Fatal(err)
-	}
 	passwordSlots <- struct{}{}
 	passwordSlots <- struct{}{}
 	defer func() { <-passwordSlots; <-passwordSlots }()
@@ -98,7 +70,7 @@ func TestConcurrentOwnerClaimsRespectPasswordSlots(t *testing.T) {
 	for range 2 {
 		go func() {
 			<-start
-			_, _, claimErr := service.Claim(ctx, ClaimInput{SetupCode: code, Email: "owner@example.test", DisplayName: "Owner", Password: "correct-horse-battery"})
+			_, _, claimErr := service.Claim(ctx, ClaimInput{Email: "owner@example.test", DisplayName: "Owner", Password: "correct-horse-battery"})
 			results <- claimErr
 		}()
 	}
@@ -118,11 +90,6 @@ func TestOnlyOneConcurrentOwnerClaimSucceeds(t *testing.T) {
 	}
 	defer store.Close()
 	service := New(store.SystemDB())
-	code, _, err := service.PrepareSetup(ctx)
-	if err != nil {
-		t.Fatal(err)
-	}
-
 	start := make(chan struct{})
 	results := make(chan error, 2)
 	var ready sync.WaitGroup
@@ -131,7 +98,7 @@ func TestOnlyOneConcurrentOwnerClaimSucceeds(t *testing.T) {
 		go func() {
 			ready.Done()
 			<-start
-			_, _, claimErr := service.Claim(ctx, ClaimInput{SetupCode: code, Email: "owner" + string(rune('a'+index)) + "@example.test", DisplayName: "Owner", Password: "correct-horse-battery"})
+			_, _, claimErr := service.Claim(ctx, ClaimInput{Email: "owner" + string(rune('a'+index)) + "@example.test", DisplayName: "Owner", Password: "correct-horse-battery"})
 			results <- claimErr
 		}()
 	}
@@ -142,7 +109,7 @@ func TestOnlyOneConcurrentOwnerClaimSucceeds(t *testing.T) {
 	for range 2 {
 		if err := <-results; err == nil {
 			successes++
-		} else if !errors.Is(err, ErrSetupComplete) && !errors.Is(err, ErrInvalidSetupCode) {
+		} else if !errors.Is(err, ErrSetupComplete) {
 			t.Fatalf("unexpected claim error: %v", err)
 		}
 	}

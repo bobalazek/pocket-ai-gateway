@@ -196,20 +196,14 @@ func serve(ctx context.Context, version string, cfg Config, logOutput io.Writer)
 	if err := usageService.Recover(ctx); err != nil {
 		return fmt.Errorf("recover usage accounting: %w", err)
 	}
-	setupCode, setupRequired, err := authService.PrepareSetup(ctx)
+	setupRequired, err := authService.SetupRequired(ctx)
 	if err != nil {
-		return fmt.Errorf("prepare owner setup: %w", err)
+		return fmt.Errorf("read owner setup state: %w", err)
 	}
 	if setupRequired {
-		if err := writeSetupCode(stores.DataDir(), setupCode); err != nil {
-			return err
-		}
-		fmt.Fprintf(logOutput, "First-time setup: %s\nSetup code file: %s\n", setupURL(publicOrigin), filepath.Join(stores.DataDir(), "setup-code"))
-	} else if state, stateErr := authService.SetupStatus(ctx); stateErr != nil {
-		return fmt.Errorf("read owner setup state: %w", stateErr)
-	} else if !state.Recoverable {
-		_ = os.Remove(filepath.Join(stores.DataDir(), "setup-code"))
+		fmt.Fprintf(logOutput, "First-time setup: %s\n", setupURL(publicOrigin))
 	}
+	_ = os.Remove(filepath.Join(stores.DataDir(), "setup-code"))
 
 	logger := slog.New(slog.NewTextHandler(logOutput, &slog.HandlerOptions{Level: slog.LevelInfo}))
 	workerContext, stopWorker := context.WithCancel(ctx)
@@ -285,14 +279,10 @@ func projectUsage(ctx context.Context, stores *storage.Store, logger *slog.Logge
 
 func setupURL(publicOrigin string) string { return strings.TrimRight(publicOrigin, "/") + "/_/setup/" }
 
-func writeSetupCode(dataDir, code string) (err error) {
-	return writeProtectedCode(dataDir, "setup-code", code)
-}
-
 func writeProtectedCode(dataDir, name, code string) (err error) {
 	temporary, err := os.CreateTemp(dataDir, "."+name+"-")
 	if err != nil {
-		return fmt.Errorf("create setup code file: %w", err)
+		return fmt.Errorf("create protected code file: %w", err)
 	}
 	temporaryName := temporary.Name()
 	defer func() {
@@ -302,27 +292,27 @@ func writeProtectedCode(dataDir, name, code string) (err error) {
 		}
 	}()
 	if err = temporary.Chmod(0o600); err != nil {
-		return fmt.Errorf("protect setup code file: %w", err)
+		return fmt.Errorf("protect code file: %w", err)
 	}
 	if _, err = temporary.WriteString(code + "\n"); err != nil {
-		return fmt.Errorf("write setup code file: %w", err)
+		return fmt.Errorf("write protected code file: %w", err)
 	}
 	if err = temporary.Sync(); err != nil {
-		return fmt.Errorf("sync setup code file: %w", err)
+		return fmt.Errorf("sync protected code file: %w", err)
 	}
 	if err = temporary.Close(); err != nil {
-		return fmt.Errorf("close setup code file: %w", err)
+		return fmt.Errorf("close protected code file: %w", err)
 	}
 	if err = os.Rename(temporaryName, filepath.Join(dataDir, name)); err != nil {
-		return fmt.Errorf("publish setup code file: %w", err)
+		return fmt.Errorf("publish protected code file: %w", err)
 	}
 	directory, err := os.Open(dataDir)
 	if err != nil {
-		return fmt.Errorf("open setup code directory: %w", err)
+		return fmt.Errorf("open protected code directory: %w", err)
 	}
 	defer directory.Close()
 	if err = directory.Sync(); err != nil {
-		return fmt.Errorf("sync setup code directory: %w", err)
+		return fmt.Errorf("sync protected code directory: %w", err)
 	}
 	return nil
 }

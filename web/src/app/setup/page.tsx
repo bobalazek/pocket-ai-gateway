@@ -19,13 +19,16 @@ export default function SetupPage() {
     const form = new FormData(event.currentTarget);
     try {
       await gatewayAPI.claimOwner({
-        setup_code: String(form.get("setup_code") ?? ""),
         display_name: String(form.get("display_name") ?? ""),
         email: String(form.get("email") ?? ""),
         password: String(form.get("password") ?? ""),
       });
       window.location.replace("/_/providers/");
     } catch (failure) {
+      if (failure instanceof GatewayAPIError && failure.code === "setup_complete") {
+        window.location.replace("/_/");
+        return;
+      }
       setError(failure instanceof GatewayAPIError ? failure.message : "Setup could not be completed");
       setSubmitting(false);
     }
@@ -37,11 +40,10 @@ export default function SetupPage() {
         <div className="brand setup-brand"><span className="brand-mark" aria-hidden="true">P</span><span><strong>Pocket AI</strong><small>Gateway</small></span></div>
         <p className="context">First-time setup</p>
         <h1>Create the owner account.</h1>
-        <p className="lede">Use the one-time code stored in the protected setup file named by the gateway. This account controls recovery and can add administrators later.</p>
+        <p className="lede">Create the first account for this gateway. The owner can add administrators and manage recovery later.</p>
       </div>
       <Card className="setup-card">
         <form onSubmit={submit}>
-          <div className="field"><Label htmlFor="setup-code">Setup code</Label><Input id="setup-code" name="setup_code" autoComplete="one-time-code" required /></div>
           <div className="field"><Label htmlFor="display-name">Name</Label><Input id="display-name" name="display_name" autoComplete="name" maxLength={100} required /></div>
           <div className="field"><Label htmlFor="email">Email</Label><Input id="email" name="email" type="email" autoComplete="email" maxLength={254} required /></div>
           <div className="field"><Label htmlFor="password">Password</Label><Input id="password" name="password" type="password" autoComplete="new-password" minLength={12} maxLength={1024} required /><small>Use at least 12 characters.</small></div>

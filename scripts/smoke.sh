@@ -75,14 +75,8 @@ expect_status 404 "$base/v1/missing"
 curl --silent "$base/api/openai/v1/missing" | grep -q '"code":"not_found"'
 curl --silent "$base/llms.txt" | grep -q '^# Pocket AI Gateway$'
 curl --silent "$base/api/v1/auth/setup/status" | grep -q '"setup_required":true'
-setup_code=$(tr -d '\n' < "$scratch/data/setup-code")
-[[ -n "$setup_code" ]]
-if grep -Fq -- "$setup_code" "$scratch/server.log"; then
-  echo "setup code leaked into process logs" >&2
-  exit 1
-fi
 curl --silent --fail --cookie-jar "$scratch/cookies" --header "Content-Type: application/json" --header "Origin: $base" \
-  --data "{\"setup_code\":\"$setup_code\",\"display_name\":\"Smoke Owner\",\"email\":\"owner@example.test\",\"password\":\"correct-horse-battery\"}" \
+  --data '{"display_name":"Smoke Owner","email":"owner@example.test","password":"correct-horse-battery"}' \
   "$base/api/v1/auth/setup/claim" | grep -q '"role":"owner"'
 curl --silent "$base/api/v1/auth/setup/status" | grep -q '"setup_required":false'
 curl --silent --cookie "$scratch/cookies" "$base/api/v1/auth/session" | grep -q '"email":"owner@example.test"'

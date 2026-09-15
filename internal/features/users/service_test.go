@@ -18,8 +18,7 @@ func TestRolesSuspensionAndOwnerTransfer(t *testing.T) {
 	}
 	defer store.Close()
 	authService := auth.New(store.SystemDB())
-	setupCode, _, _ := authService.PrepareSetup(ctx)
-	owner, _, err := authService.Claim(ctx, auth.ClaimInput{SetupCode: setupCode, Email: "owner@example.test", DisplayName: "Owner", Password: "correct-horse-battery"})
+	owner, _, err := authService.Claim(ctx, auth.ClaimInput{Email: "owner@example.test", DisplayName: "Owner", Password: "correct-horse-battery"})
 	if err != nil {
 		t.Fatal(err)
 	}

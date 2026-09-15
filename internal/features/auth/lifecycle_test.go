@@ -20,8 +20,7 @@ func TestLoginPasswordAndActivationLifecycle(t *testing.T) {
 	}
 	defer store.Close()
 	service := New(store.SystemDB())
-	code, _, _ := service.PrepareSetup(ctx)
-	owner, setupSession, err := service.Claim(ctx, ClaimInput{SetupCode: code, Email: "owner@example.test", DisplayName: "Owner", Password: "correct-horse-battery"})
+	owner, setupSession, err := service.Claim(ctx, ClaimInput{Email: "owner@example.test", DisplayName: "Owner", Password: "correct-horse-battery"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -88,8 +87,7 @@ func TestStaleSessionCannotOverwriteCredentials(t *testing.T) {
 	}
 	defer store.Close()
 	service := New(store.SystemDB())
-	code, _, _ := service.PrepareSetup(ctx)
-	owner, token, err := service.Claim(ctx, ClaimInput{SetupCode: code, Email: "owner@example.test", DisplayName: "Owner", Password: "correct-horse-battery"})
+	owner, token, err := service.Claim(ctx, ClaimInput{Email: "owner@example.test", DisplayName: "Owner", Password: "correct-horse-battery"})
 	if err != nil {
 		t.Fatal(err)
 	}

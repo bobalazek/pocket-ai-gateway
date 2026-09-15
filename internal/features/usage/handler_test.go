@@ -29,16 +29,12 @@ func TestPolicyHTTPFlowRequiresSessionCSRFAndRevision(t *testing.T) {
 	}
 	defer store.Close()
 	authService := auth.New(store.SystemDB())
-	code, _, err := authService.PrepareSetup(ctx)
-	if err != nil {
-		t.Fatal(err)
-	}
 	mux := http.NewServeMux()
 	authHandler := auth.NewHandler(authService)
 	authHandler.Register(mux)
 	NewHandler(New(store.SystemDB()), authHandler).Register(mux)
 
-	claim := httptest.NewRequest(http.MethodPost, "http://gateway.test/api/v1/auth/setup/claim", strings.NewReader(`{"setup_code":"`+code+`","email":"owner@example.test","display_name":"Owner","password":"correct-horse-battery"}`))
+	claim := httptest.NewRequest(http.MethodPost, "http://gateway.test/api/v1/auth/setup/claim", strings.NewReader(`{"email":"owner@example.test","display_name":"Owner","password":"correct-horse-battery"}`))
 	claim.Header.Set("Content-Type", "application/json")
 	claim.Header.Set("Origin", "http://gateway.test")
 	claimed := httptest.NewRecorder()

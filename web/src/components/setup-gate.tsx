@@ -20,7 +20,7 @@ export function SetupGate({ children }: { children: ReactNode }) {
     const setupPath = "/_/setup/";
     const currentPath = window.location.pathname;
     const isSetupPath = isSetupRoute(currentPath);
-    void gatewayAPI.setupStatus(controller.signal).then(async ({ setup_required: setupRequired, setup_recovery_available: recoveryAvailable }) => {
+    void gatewayAPI.setupStatus(controller.signal).then(async ({ setup_required: setupRequired }) => {
       if (setupRequired && !isSetupPath) {
         window.location.replace(setupPath);
         return;
@@ -35,7 +35,7 @@ export function SetupGate({ children }: { children: ReactNode }) {
         else setState({ ready: true, user });
       } catch (error) {
         if (error instanceof GatewayAPIError && error.status === 401) {
-		  const destination = unauthenticatedDestination(currentPath, recoveryAvailable);
+		  const destination = unauthenticatedDestination(currentPath);
 		  if (destination) window.location.replace(destination);
 		  else setState({ ready: true, user: null });
           return;

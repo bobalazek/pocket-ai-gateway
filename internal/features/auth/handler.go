@@ -47,13 +47,13 @@ func (handler *Handler) Register(mux *http.ServeMux) {
 }
 
 func (handler *Handler) setupStatus(response http.ResponseWriter, request *http.Request) {
-	state, err := handler.service.SetupStatus(request.Context())
+	required, err := handler.service.SetupRequired(request.Context())
 	if err != nil {
 		WriteError(response, http.StatusServiceUnavailable, "storage_unavailable", "Setup status is unavailable")
 		return
 	}
 	response.Header().Set("Cache-Control", "no-store")
-	WriteJSON(response, http.StatusOK, map[string]bool{"setup_required": state.Required, "setup_recovery_available": state.Recoverable})
+	WriteJSON(response, http.StatusOK, map[string]bool{"setup_required": required})
 }
 
 func (handler *Handler) claim(response http.ResponseWriter, request *http.Request) {
@@ -359,8 +359,6 @@ func writeAuthError(response http.ResponseWriter, err error, fallbackCode, fallb
 	switch {
 	case errors.Is(err, ErrSetupComplete):
 		WriteError(response, http.StatusConflict, "setup_complete", "Owner setup is already complete")
-	case errors.Is(err, ErrInvalidSetupCode):
-		WriteError(response, http.StatusUnauthorized, "invalid_setup_code", "Setup code is invalid or expired")
 	case errors.Is(err, ErrInvalidActivation):
 		WriteError(response, http.StatusUnauthorized, "invalid_activation_code", "Activation code is invalid or expired")
 	case errors.Is(err, ErrInvalidCredentials):

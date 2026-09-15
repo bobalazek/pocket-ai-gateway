@@ -58,7 +58,7 @@ Start offline, initialize migrations and protected key material, acquire an OS-b
 
 ### IAM-01 — Users and secure access
 
-On the first dashboard visit, an instance without an owner enters a resumable setup flow. Require a short-lived, single-use setup code shown through the local process before creating the owner; never ship a pre-created account or default credentials. Use password hashing designed for human passwords, revocable server-side sessions, login throttling, CSRF/origin protection, secure cookie handling, and offline owner recovery. Activation/recovery codes expire and are stored as verifiers.
+On the first dashboard visit, an instance without an owner enters the setup flow and the first successful same-origin claim creates the owner; never ship a pre-created account or default credentials. Optional setup protection may be added later as an opt-in control. Use password hashing designed for human passwords, revocable server-side sessions, login throttling, CSRF/origin protection, secure cookie handling, and offline owner recovery. Activation/recovery codes expire and are stored as verifiers.
 
 Enforce the actor matrix on the server for every resource and field. Role changes, account suspension, recovery, and credential operations are audited. Members never receive other users' records through lists, details, exports, counts, or indirect identifiers.
 

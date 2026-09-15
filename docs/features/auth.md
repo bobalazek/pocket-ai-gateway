@@ -6,8 +6,8 @@ Phase 2 implements owner bootstrap, activation/recovery, login/logout, password 
 
 | Operation | Behavior |
 | --- | --- |
-| GET /setup/status under auth root | Implemented: return only whether owner setup is required or a short same-owner recovery retry remains available; never expose setup codes |
-| POST /setup/claim under auth root | Implemented: one-time local setup action creates the sole owner atomically; safe replay with the same short-lived code, identity, and password replaces the setup session if its response/cookie was lost |
+| GET /setup/status under auth root | Implemented: return only whether owner setup is required |
+| POST /setup/claim under auth root | Implemented: the first same-origin browser claim atomically creates the sole owner |
 | GET /session | Implemented: return safe fields for the current server-side session |
 | POST /activate | Implemented: consume a 24-hour activation/recovery code, set an Argon2id password, revoke earlier sessions, and sign in |
 | POST /login | Implemented: use a uniform error, persistent failure throttle, bounded password hashing, and a fresh server-side session |
@@ -24,7 +24,7 @@ Login input:
 {"email":"operator@example.com","password":"example-only"}
 ~~~
 
-Response contains safe user fields and CSRF/session metadata where needed; session secrets are in HttpOnly cookies, never browser localStorage. Passwords, setup/activation codes, and verifiers are never returned by read APIs.
+Response contains safe user fields and CSRF/session metadata where needed; session secrets are in HttpOnly cookies, never browser localStorage. Passwords, activation codes, and verifiers are never returned by read APIs.
 
 User lifecycle controls and recovery-code issuance are under /api/v1/admin/users. Admin/member authorization is checked on the server. An invalid login does not disclose whether a user exists. No default password, public signup, or required SMTP service.
 

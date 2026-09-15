@@ -25,7 +25,7 @@ All routes below are under /_. List/detail views use the same route hierarchy; c
 
 | Screen/route | Job and composition | Actions/data | Critical states |
 | --- | --- | --- | --- |
-| /setup | Claim → owner → provider → model → key → first request | Setup code, password, provider wizard; retention explanation | Claimed already, expired code, DB failure; resume after login |
+| /setup | Claim → owner → provider → model → key → first request | Owner identity and password, provider wizard; retention explanation | Claimed already, DB failure; resume after login |
 | /login and /activate | Authenticate/choose initial password | Session APIs; code in POST body | Invalid/expired/throttled; local recovery instructions |
 | /overview | Understand health and recent activity | Request/failure counts, known/estimated spend, unresolved usage, recent requests | No traffic, partial data, upstream unavailable, recovery mode |
 | /users/ and /users/?id=… | Manage who can access what | Member list, status, grants, aggregate policies, activation/suspension | Last-owner guard, own-role limits, activation pending |
@@ -114,9 +114,8 @@ Tablet uses a collapsible rail and compact tables where readable. Mobile uses st
 ~~~text
 Pocket AI Gateway
 Step 1 of 5: Claim this instance
-[Setup code]
+[Name] [Email] [Password]
 [Continue]
-Help: obtain the code from the local server terminal.
 
 Recovery mode:
 Restored snapshot: timestamp

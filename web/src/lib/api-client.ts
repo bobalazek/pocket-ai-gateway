@@ -88,10 +88,10 @@ export class GatewayAPIClient {
   }
 
   setupStatus(signal?: AbortSignal) {
-    return this.request<{ setup_required: boolean; setup_recovery_available: boolean }>("/api/v1/auth/setup/status", { signal });
+    return this.request<{ setup_required: boolean }>("/api/v1/auth/setup/status", { signal });
   }
 
-  claimOwner(input: { setup_code: string; email: string; display_name: string; password: string }, signal?: AbortSignal) {
+  claimOwner(input: { email: string; display_name: string; password: string }, signal?: AbortSignal) {
     return this.request<{ user: GatewayUser }>("/api/v1/auth/setup/claim", { method: "POST", body: input, signal });
   }
 

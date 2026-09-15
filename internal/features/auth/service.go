@@ -2,7 +2,6 @@ package auth
 
 import (
 	"context"
-	"crypto/subtle"
 	"database/sql"
 	"encoding/json"
 	"errors"
@@ -15,16 +14,14 @@ import (
 )
 
 const (
-	setupLifetime       = 15 * time.Minute
 	sessionLifetime     = 24 * time.Hour
 	sessionIdleLifetime = 30 * time.Minute
 	sessionTouchAfter   = 5 * time.Minute
 )
 
 var (
-	ErrSetupComplete    = errors.New("owner setup is already complete")
-	ErrInvalidSetupCode = errors.New("setup code is invalid or expired")
-	ErrInvalidSession   = errors.New("session is invalid or expired")
+	ErrSetupComplete  = errors.New("owner setup is already complete")
+	ErrInvalidSession = errors.New("session is invalid or expired")
 )
 
 type Service struct {
@@ -58,13 +55,7 @@ type AuthenticatedSession struct {
 	UserAgent       string
 }
 
-type SetupState struct {
-	Required    bool
-	Recoverable bool
-}
-
 type ClaimInput struct {
-	SetupCode   string `json:"setup_code"`
 	Email       string `json:"email"`
 	DisplayName string `json:"display_name"`
 	Password    string `json:"password"`
@@ -79,44 +70,12 @@ func New(database *sql.DB) *Service {
 }
 
 func (service *Service) SetupRequired(ctx context.Context) (bool, error) {
-	state, err := service.SetupStatus(ctx)
-	return state.Required, err
-}
-
-func (service *Service) SetupStatus(ctx context.Context) (SetupState, error) {
-	var ownerExists, recoverable bool
-	err := service.database.QueryRowContext(ctx, `
-		SELECT EXISTS(SELECT 1 FROM users WHERE role = 'owner' AND status = 'active'),
-		       EXISTS(SELECT 1 FROM setup_tokens WHERE claimed_user_id IS NOT NULL AND expires_at > ?)`,
-		time.Now().UnixMilli(),
-	).Scan(&ownerExists, &recoverable)
+	var ownerExists bool
+	err := service.database.QueryRowContext(ctx, "SELECT EXISTS(SELECT 1 FROM users WHERE role = 'owner' AND status = 'active')").Scan(&ownerExists)
 	if err != nil {
-		return SetupState{}, fmt.Errorf("check owner setup: %w", err)
+		return false, fmt.Errorf("check owner setup: %w", err)
 	}
-	return SetupState{Required: !ownerExists, Recoverable: ownerExists && recoverable}, nil
-}
-
-func (service *Service) PrepareSetup(ctx context.Context) (code string, required bool, err error) {
-	if _, err = service.database.ExecContext(ctx, "DELETE FROM setup_tokens WHERE expires_at <= ?", time.Now().UnixMilli()); err != nil {
-		return "", false, fmt.Errorf("remove expired setup token: %w", err)
-	}
-	required, err = service.SetupRequired(ctx)
-	if err != nil || !required {
-		return "", required, err
-	}
-	code, err = credentials.RandomToken(24)
-	if err != nil {
-		return "", true, err
-	}
-	verifier := credentials.Verifier(code)
-	_, err = service.database.ExecContext(ctx,
-		"INSERT INTO setup_tokens (singleton, verifier, expires_at, claimed_user_id) VALUES (1, ?, ?, NULL) ON CONFLICT(singleton) DO UPDATE SET verifier = excluded.verifier, expires_at = excluded.expires_at, claimed_user_id = NULL",
-		verifier[:], time.Now().Add(setupLifetime).UnixMilli(),
-	)
-	if err != nil {
-		return "", true, fmt.Errorf("store setup token: %w", err)
-	}
-	return code, true, nil
+	return !ownerExists, nil
 }
 
 func (service *Service) Claim(ctx context.Context, input ClaimInput) (User, string, error) {
@@ -124,16 +83,12 @@ func (service *Service) Claim(ctx context.Context, input ClaimInput) (User, stri
 	if err != nil {
 		return User{}, "", err
 	}
-	state, err := service.SetupStatus(ctx)
+	required, err := service.SetupRequired(ctx)
 	if err != nil {
 		return User{}, "", err
 	}
-	if !state.Required && !state.Recoverable {
+	if !required {
 		return User{}, "", ErrSetupComplete
-	}
-	claimedUserID, err := validateSetupCode(ctx, service.database, input.SetupCode)
-	if err != nil {
-		return User{}, "", err
 	}
 	select {
 	case passwordSlots <- struct{}{}:
@@ -141,16 +96,13 @@ func (service *Service) Claim(ctx context.Context, input ClaimInput) (User, stri
 	default:
 		return User{}, "", ErrTooManyAttempts
 	}
-	var passwordHash, userID string
-	if claimedUserID == "" {
-		passwordHash, err = credentials.HashPassword(input.Password)
-		if err != nil {
-			return User{}, "", err
-		}
-		userID, err = credentials.RandomToken(16)
-		if err != nil {
-			return User{}, "", err
-		}
+	passwordHash, err := credentials.HashPassword(input.Password)
+	if err != nil {
+		return User{}, "", err
+	}
+	userID, err := credentials.RandomToken(16)
+	if err != nil {
+		return User{}, "", err
 	}
 	sessionToken, err := credentials.RandomToken(32)
 	if err != nil {
@@ -163,39 +115,7 @@ func (service *Service) Claim(ctx context.Context, input ClaimInput) (User, stri
 	}
 	defer tx.Rollback()
 
-	claimedUserID, err = validateSetupCode(ctx, tx, input.SetupCode)
-	if err != nil {
-		return User{}, "", err
-	}
-
 	now := time.Now().UnixMilli()
-	if claimedUserID != "" {
-		user, storedPasswordHash, err := readClaimedUser(ctx, tx, claimedUserID)
-		if err != nil {
-			return User{}, "", err
-		}
-		passwordMatches, err := credentials.VerifyPassword(input.Password, storedPasswordHash)
-		if err != nil {
-			return User{}, "", err
-		}
-		if user.Email != email || user.DisplayName != displayName || !passwordMatches {
-			return User{}, "", ErrInvalidSetupCode
-		}
-		if _, err := tx.ExecContext(ctx, "DELETE FROM user_sessions WHERE user_id = ?", user.ID); err != nil {
-			return User{}, "", fmt.Errorf("replace owner setup session: %w", err)
-		}
-		if err := createSession(ctx, tx, user.ID, sessionToken, now, "", 0); err != nil {
-			return User{}, "", err
-		}
-		if err := insertAudit(ctx, tx, user.ID, "owner.setup_replay", user.ID, map[string]any{"sessions_replaced": true}); err != nil {
-			return User{}, "", err
-		}
-		if err := tx.Commit(); err != nil {
-			return User{}, "", fmt.Errorf("commit owner setup retry: %w", err)
-		}
-		return user, sessionToken, nil
-	}
-
 	var existingOwners int
 	if err := tx.QueryRowContext(ctx, "SELECT COUNT(*) FROM users WHERE role = 'owner' AND status = 'active'").Scan(&existingOwners); err != nil {
 		return User{}, "", fmt.Errorf("check owner setup: %w", err)
@@ -213,9 +133,6 @@ func (service *Service) Claim(ctx context.Context, input ClaimInput) (User, stri
 		}
 		return User{}, "", fmt.Errorf("create owner: %w", err)
 	}
-	if _, err := tx.ExecContext(ctx, "UPDATE setup_tokens SET claimed_user_id = ?, expires_at = ? WHERE singleton = 1", user.ID, time.Now().Add(setupLifetime).UnixMilli()); err != nil {
-		return User{}, "", fmt.Errorf("mark setup token claimed: %w", err)
-	}
 	if err := createSession(ctx, tx, user.ID, sessionToken, now, "", 0); err != nil {
 		return User{}, "", err
 	}
@@ -226,45 +143,6 @@ func (service *Service) Claim(ctx context.Context, input ClaimInput) (User, stri
 		return User{}, "", fmt.Errorf("commit owner setup: %w", err)
 	}
 	return user, sessionToken, nil
-}
-
-type rowQueryer interface {
-	QueryRowContext(context.Context, string, ...any) *sql.Row
-}
-
-func validateSetupCode(ctx context.Context, database rowQueryer, code string) (string, error) {
-	var expected []byte
-	var expiresAt int64
-	var claimedUserID sql.NullString
-	if err := database.QueryRowContext(ctx, "SELECT verifier, expires_at, claimed_user_id FROM setup_tokens WHERE singleton = 1").Scan(&expected, &expiresAt, &claimedUserID); err != nil {
-		if errors.Is(err, sql.ErrNoRows) {
-			return "", ErrInvalidSetupCode
-		}
-		return "", fmt.Errorf("read setup token: %w", err)
-	}
-	actual := credentials.Verifier(strings.TrimSpace(code))
-	if time.Now().UnixMilli() >= expiresAt || subtle.ConstantTimeCompare(actual[:], expected) != 1 {
-		return "", ErrInvalidSetupCode
-	}
-	return claimedUserID.String, nil
-}
-
-func readClaimedUser(ctx context.Context, database rowQueryer, userID string) (User, string, error) {
-	var user User
-	var passwordHash string
-	var scopesJSON, modelsJSON, connectionsJSON string
-	err := database.QueryRowContext(ctx, "SELECT id, email, display_name, role, status, password_hash, inference_unrestricted, scopes_json, model_patterns_json, connection_ids_json FROM users WHERE id = ? AND status = 'active'", userID).
-		Scan(&user.ID, &user.Email, &user.DisplayName, &user.Role, &user.Status, &passwordHash, &user.Grants.Unrestricted, &scopesJSON, &modelsJSON, &connectionsJSON)
-	if errors.Is(err, sql.ErrNoRows) {
-		return User{}, "", ErrSetupComplete
-	}
-	if err != nil {
-		return User{}, "", fmt.Errorf("read claimed owner: %w", err)
-	}
-	if err := decodeUserGrants(&user, scopesJSON, modelsJSON, connectionsJSON); err != nil {
-		return User{}, "", err
-	}
-	return user, passwordHash, nil
 }
 
 func createSession(ctx context.Context, tx *sql.Tx, userID, token string, now int64, userAgent string, expectedAuthRevision int64) error {
