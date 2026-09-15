@@ -18,7 +18,7 @@ export function ModelCard({ item, dashboard }: { item: CatalogModel | PublicMode
   const preview = dashboard.previews[item.id];
   const routingHelp = webSearchModel
     ? item.adapter === "anthropic"
-      ? "Anthropic basic web search requires chat and web_search on the public and upstream model plus an Anthropic-adapter target using the built-in Anthropic preset. Only direct, non-streaming web_search_20250305 is supported with a 1–4 use limit and no prompt-cache controls. Requests never fall back after dispatch and reject lowest-cost, free-only, and spend policies because provider search cost is not represented by the gateway."
+      ? "Anthropic basic web search requires chat and web_search on the public and upstream model plus an Anthropic-adapter target using the built-in Anthropic preset. Direct JSON or SSE web_search_20250305 is supported with a 1–4 use limit and no prompt-cache controls. Requests never fall back after dispatch and reject lowest-cost, free-only, and spend policies because provider search cost is not represented by the gateway."
       : "Web-search Responses require chat and web_search on the public and upstream model plus an OpenAI-adapter target using the built-in OpenAI preset. They never fall back after dispatch and reject lowest-cost, free-only, and spend policies because provider search cost is not available to the gateway."
     : embeddingModel
       ? "Embedding models keep one fixed target so their vector space cannot change."

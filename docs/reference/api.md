@@ -46,7 +46,7 @@ The prefix names the **client API specification**, not a forced upstream provide
 | POST /api/openai/v1/embeddings | OpenAI embedding inputs/indexes/encoding/dimensions/usage |
 | POST /api/openai/v1/moderations | Native OpenAI moderation request and taxonomy; no streaming or cross-provider translation |
 | GET /api/openai/v1/models and /models/{id} beneath that root | OpenAI model list/detail; authorized public models |
-| POST /api/anthropic/v1/messages | Anthropic message/content blocks, stop reasons, usage, typed content stream, and bounded native JSON `web_search_20250305` with `messages:web_search` |
+| POST /api/anthropic/v1/messages | Anthropic message/content blocks, stop reasons, usage, typed content stream, and bounded native JSON/SSE `web_search_20250305` with `messages:web_search` |
 | POST /api/anthropic/v1/messages/count_tokens | Target-appropriate counting; no invented exact cross-model token count |
 | GET /api/anthropic/v1/models and /models/{id} beneath that root | Anthropic model list/detail/pagination |
 | POST /api/gemini/v1beta/models/{model}:generateContent | Gemini contents/parts, candidates, finish/safety metadata, usageMetadata |

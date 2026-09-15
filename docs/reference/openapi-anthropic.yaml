@@ -1,5 +1,5 @@
 openapi: 3.1.0
-info: { title: Pocket AI Gateway Anthropic-Compatible API, version: 0.5.0 }
+info: { title: Pocket AI Gateway Anthropic-Compatible API, version: 0.6.0 }
 servers: [{ url: /api/anthropic/v1 }]
 security: [{ apiKey: [] }]
 paths:
@@ -22,13 +22,13 @@ paths:
               type: object
               required: [model, messages, max_tokens]
               additionalProperties: true
-              description: Prompt caching is available only through a native model on the built-in Anthropic preset. A request may use top-level automatic cache control or explicit controls on tool definitions, system content blocks, and message content blocks. The combined request supports at most four breakpoints; 1h breakpoints must precede 5m breakpoints. Bounded hosted web search is also native-only and accepts one direct web_search_20250305 tool with max_uses from 1 through 4 in non-streaming JSON requests. Prompt caching and web search cannot be combined.
+              description: Prompt caching is available only through a native model on the built-in Anthropic preset. A request may use top-level automatic cache control or explicit controls on tool definitions, system content blocks, and message content blocks. The combined request supports at most four breakpoints; 1h breakpoints must precede 5m breakpoints. Bounded hosted web search is also native-only and accepts one direct web_search_20250305 tool with max_uses from 1 through 4 in JSON or SSE requests. Prompt caching and web search cannot be combined.
               properties:
                 model: { type: string, minLength: 1 }
                 max_tokens: { type: integer, minimum: 1 }
                 stream:
                   type: [boolean, "null"]
-                  description: General Messages requests may stream. Requests containing web_search_20250305 must set this to false or omit it.
+                  description: Set true for native Anthropic SSE. Bounded web_search_20250305 supports both false/omitted JSON delivery and true SSE delivery.
                 cache_control: { $ref: "#/components/schemas/CacheControl" }
                 tools:
                   type: array
@@ -45,14 +45,54 @@ paths:
                   items: { $ref: "#/components/schemas/MessageInput" }
       responses:
         "200":
-          description: Native Anthropic Message JSON or SSE. Web-search requests return JSON only and preserve direct server-tool/result blocks, citations, pause_turn, and reported web-search usage. Cache usage remains in the provider response while gateway accounting counts ordinary input, cache creation, and cache reads as total input.
+          description: Native Anthropic Message JSON or SSE. Web-search responses preserve direct server-tool/result blocks, citations, pause_turn, and reported web-search usage. Cache usage remains in the provider response while gateway accounting counts ordinary input, cache creation, and cache reads as total input.
           content:
             application/json:
               schema: { $ref: "#/components/schemas/MessageResponse" }
             text/event-stream:
               schema:
                 type: string
-                description: SSE frames follow the Anthropic Messages contract. message_start.message.usage uses MessageUsage; message_delta.usage uses MessageDeltaUsage and reports cumulative counters.
+                description: >-
+                  Native Anthropic SSE. message_start contains the provider-reported upstream model and initial MessageUsage; the native stream is byte-preserved rather than rewriting this response field to the public model. A direct search begins with a server_tool_use content_block_start, streams its input through input_json_delta frames, and closes that block. Its paired web_search_tool_result arrives complete in content_block_start and is followed by content_block_stop. Text may use text_delta and citations_delta frames. The terminal message_delta carries the stop reason and cumulative MessageDeltaUsage, including server_tool_use.web_search_requests, before message_stop. Ping and unknown future Anthropic events are preserved; an Anthropic error event may terminate a stream after HTTP 200 without an invented success event.
+              examples:
+                boundedWebSearch:
+                  summary: One native direct search with a cited answer and cumulative terminal usage
+                  value: |
+                    event: message_start
+                    data: {"type":"message_start","message":{"id":"msg_example","type":"message","role":"assistant","model":"anthropic-upstream","content":[],"container":null,"stop_details":null,"stop_reason":null,"stop_sequence":null,"usage":{"cache_creation":null,"cache_creation_input_tokens":0,"cache_read_input_tokens":0,"inference_geo":null,"input_tokens":12,"output_tokens":1,"output_tokens_details":null,"server_tool_use":{"web_fetch_requests":0,"web_search_requests":0},"service_tier":"standard"}}}
+
+                    event: content_block_start
+                    data: {"type":"content_block_start","index":0,"content_block":{"type":"server_tool_use","id":"srvtoolu_example","name":"web_search","input":{},"caller":{"type":"direct"}}}
+
+                    event: content_block_delta
+                    data: {"type":"content_block_delta","index":0,"delta":{"type":"input_json_delta","partial_json":"{\"query\":\"Pocket AI Gateway\"}"}}
+
+                    event: content_block_stop
+                    data: {"type":"content_block_stop","index":0}
+
+                    event: content_block_start
+                    data: {"type":"content_block_start","index":1,"content_block":{"type":"web_search_tool_result","tool_use_id":"srvtoolu_example","caller":{"type":"direct"},"content":[{"type":"web_search_result","url":"https://example.com/source","title":"Example source","encrypted_content":"opaque-result","page_age":null}]}}
+
+                    event: content_block_stop
+                    data: {"type":"content_block_stop","index":1}
+
+                    event: content_block_start
+                    data: {"type":"content_block_start","index":2,"content_block":{"type":"text","text":"","citations":[]}}
+
+                    event: content_block_delta
+                    data: {"type":"content_block_delta","index":2,"delta":{"type":"text_delta","text":"Cited answer"}}
+
+                    event: content_block_delta
+                    data: {"type":"content_block_delta","index":2,"delta":{"type":"citations_delta","citation":{"type":"web_search_result_location","url":"https://example.com/source","title":"Example source","encrypted_index":"opaque-index","cited_text":"Source text"}}}
+
+                    event: content_block_stop
+                    data: {"type":"content_block_stop","index":2}
+
+                    event: message_delta
+                    data: {"type":"message_delta","delta":{"container":null,"stop_details":null,"stop_reason":"end_turn","stop_sequence":null},"usage":{"input_tokens":24,"cache_creation_input_tokens":0,"cache_read_input_tokens":0,"output_tokens":9,"output_tokens_details":null,"server_tool_use":{"web_fetch_requests":0,"web_search_requests":1}}}
+
+                    event: message_stop
+                    data: {"type":"message_stop"}
         default: { description: Anthropic-compatible error }
   /messages/count_tokens:
     post:
@@ -150,12 +190,18 @@ components:
     MessageDeltaUsage:
       type: object
       additionalProperties: true
-      required: [cache_creation_input_tokens, cache_read_input_tokens, input_tokens, output_tokens]
+      description: Cumulative usage through the message_delta event. For web search, server_tool_use.web_search_requests is the cumulative provider-reported successful search count.
+      required: [cache_creation_input_tokens, cache_read_input_tokens, input_tokens, output_tokens, output_tokens_details, server_tool_use]
       properties:
         input_tokens: { type: [integer, "null"], minimum: 0 }
         cache_creation_input_tokens: { type: [integer, "null"], minimum: 0 }
         cache_read_input_tokens: { type: [integer, "null"], minimum: 0 }
         output_tokens: { type: integer, minimum: 0 }
+        output_tokens_details: { type: [object, "null"], additionalProperties: true }
+        server_tool_use:
+          oneOf:
+            - { type: "null" }
+            - { $ref: "#/components/schemas/ServerToolUsage" }
     MessageInput:
       type: object
       additionalProperties: true
@@ -211,8 +257,9 @@ components:
     ServerToolUsage:
       type: object
       additionalProperties: true
-      required: [web_search_requests]
+      required: [web_fetch_requests, web_search_requests]
       properties:
+        web_fetch_requests: { type: integer, minimum: 0 }
         web_search_requests: { type: integer, minimum: 0, maximum: 4, description: Successful provider-reported searches; failed searches are not billed }
     ServerToolUseBlock:
       type: object
