@@ -11,7 +11,7 @@ A built-in preset means its endpoint and advertised operations were checked agai
 
 | Provider | Base URL | Adapter | Advertised operations | Documentation reviewed | Live certification |
 | --- | --- | --- | --- | --- | --- |
-| OpenAI | `https://api.openai.com/v1` | OpenAI | Chat, Responses, embeddings | 2026-09-15 | Credentials required |
+| OpenAI | `https://api.openai.com/v1` | OpenAI | Chat, Responses, embeddings, moderations | 2026-09-15 | Credentials required |
 | Anthropic | `https://api.anthropic.com/v1` | Anthropic | Messages, token counting | 2026-09-15 | Credentials required |
 | Google Gemini | `https://generativelanguage.googleapis.com/v1beta` | Gemini | Generation, streaming, token counting, embeddings | 2026-09-15 | Credentials required |
 | OpenRouter | `https://openrouter.ai/api/v1` | OpenAI compatible | Chat | 2026-09-15 | Credentials required |
@@ -36,7 +36,7 @@ Ordinary verification covers:
 
 - immutable preset-to-adapter and preset-to-base-URL mappings;
 - bearer, `x-api-key`, and `x-goog-api-key` credential replacement;
-- OpenAI Chat, stateless Responses, embeddings, and streaming against local upstreams;
+- OpenAI Chat, stateless Responses, embeddings, moderations, and streaming against local upstreams;
 - native Anthropic Messages/token counting and Gemini generation/counting/embeddings;
 - cross-protocol request, response, tool, refusal, usage, and stream mappings;
 - key grants, limits, request accounting, fallback attempts, cancellation, response bounds, and safe provider errors.

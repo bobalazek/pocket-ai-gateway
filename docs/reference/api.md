@@ -35,6 +35,7 @@ The prefix names the **client API specification**, not a forced upstream provide
 | POST/GET /api/openai/v1/conversations/{id}/items | Add or paginate gateway-owned conversation items |
 | GET/DELETE /api/openai/v1/conversations/{id}/items/{item_id} | Retrieve or remove one gateway-owned item |
 | POST /api/openai/v1/embeddings | OpenAI embedding inputs/indexes/encoding/dimensions/usage |
+| POST /api/openai/v1/moderations | Native OpenAI moderation request and taxonomy; no streaming or cross-provider translation |
 | GET /api/openai/v1/models and /models/{id} beneath that root | OpenAI model list/detail; authorized public models |
 | POST /api/anthropic/v1/messages | Anthropic message/content blocks, stop reasons, usage, typed content stream |
 | POST /api/anthropic/v1/messages/count_tokens | Target-appropriate counting; no invented exact cross-model token count |
@@ -48,7 +49,7 @@ The prefix names the **client API specification**, not a forced upstream provide
 
 The model name in Gemini's path and the model field in other protocols resolve to the same stable published-model object. No raw upstream name bypasses publication.
 
-Official schema references: [OpenAI Chat](https://developers.openai.com/api/reference/cli/resources/chat/subresources/completions), [OpenAI Responses](https://developers.openai.com/api/docs/guides/migrate-to-responses), [Anthropic API](https://platform.claude.com/docs/en/api/overview), [Gemini generation](https://ai.google.dev/api/generate-content), [Gemini token counting](https://ai.google.dev/api/tokens), [Gemini embeddings](https://ai.google.dev/api/embeddings).
+Official schema references: [OpenAI Chat](https://developers.openai.com/api/reference/cli/resources/chat/subresources/completions), [OpenAI Responses](https://developers.openai.com/api/docs/guides/migrate-to-responses), [OpenAI Moderations](https://developers.openai.com/api/reference/resources/moderations/methods/create), [Anthropic API](https://platform.claude.com/docs/en/api/overview), [Gemini generation](https://ai.google.dev/api/generate-content), [Gemini token counting](https://ai.google.dev/api/tokens), [Gemini embeddings](https://ai.google.dev/api/embeddings).
 
 ## SDK base URLs and authentication
 
@@ -74,8 +75,9 @@ Every generation cell below has deterministic request/response coverage. Feature
 | OpenAI Responses | Native stateless | Translated stateless | Translated stateless |
 | Anthropic Messages | Translated | Native | Translated |
 | Gemini generateContent | Translated | Translated | Native |
+| OpenAI Moderations | Native only | Unsupported | Unsupported |
 
-This is nine protocol-family paths, plus OpenAI's distinct Chat/Responses cases. Embeddings run only on providers/models implementing embeddings; Anthropic text models do not become embedding targets. Counting uses the target's tokenizer/provider capability or returns an explicit unsupported operation.
+This is nine protocol-family paths, plus OpenAI's distinct Chat/Responses cases. Embeddings and moderations run only on providers/models implementing those native operations; Anthropic text models do not become embedding or moderation targets. Counting uses the target's tokenizer/provider capability or returns an explicit unsupported operation.
 
 Required cases for each eligible path:
 

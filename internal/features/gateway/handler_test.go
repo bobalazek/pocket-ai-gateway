@@ -82,6 +82,106 @@ func TestNativeOpenAIForwardingUsesProviderCredentialAndAccounts(t *testing.T) {
 	_ = model
 }
 
+func TestNativeOpenAIModerationsUseScopedModel(t *testing.T) {
+	var path, authorization, model string
+	calls := 0
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		calls++
+		w.Header().Set("Content-Type", "application/json")
+		path, authorization = r.URL.Path, r.Header.Get("Authorization")
+		var body map[string]any
+		_ = json.NewDecoder(r.Body).Decode(&body)
+		model, _ = body["model"].(string)
+		if body["input"] == "invalid" {
+			w.WriteHeader(http.StatusBadRequest)
+			io.WriteString(w, `{"error":{"message":"invalid moderation input","type":"invalid_request_error","code":"bad_input","param":"input","unsafe":"discard"}}`)
+			return
+		}
+		if body["input"] == "limited" {
+			w.WriteHeader(http.StatusTooManyRequests)
+			io.WriteString(w, `{"error":{"message":"slow down","type":"rate_limit_error","code":"rate_limit","param":null,"unsafe":"discard"}}`)
+			return
+		}
+		io.WriteString(w, `{"id":"modr_1","model":"omni-moderation-latest","results":[{"flagged":true,"categories":{"violence":true},"category_scores":{"violence":0.9}}]}`)
+	}))
+	defer upstream.Close()
+	ctx, store, owner, keyService, providerService, usageService := gatewayFixture(t)
+	defer store.Close()
+	connection, publicModel := publishModel(t, ctx, providerService, owner, "openai", upstream.URL+"/v1", "moderation-upstream", []string{"moderations"})
+	key, secret, err := keyService.Create(ctx, owner.ID, keys.Input{Label: "Moderation", Scopes: []string{"moderations:classify"}, ModelPatterns: []string{publicModel.ID}, ConnectionIDs: []string{connection.ID}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err = usageService.CreatePolicy(ctx, owner, usage.PolicyInput{ScopeKind: "key", ScopeID: key.ID, Metric: "tokens", Algorithm: "quota", Period: "lifetime", LimitUnits: 10_000}); err != nil {
+		t.Fatal(err)
+	}
+	_, denied, err := keyService.Create(ctx, owner.ID, keys.Input{Label: "No moderation", Scopes: []string{"chat:generate"}, ModelPatterns: []string{publicModel.ID}, ConnectionIDs: []string{connection.ID}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	mux := http.NewServeMux()
+	New(store.SystemDB(), keyService, providerService, usageService).Register(mux)
+	server := httptest.NewServer(mux)
+	defer server.Close()
+	requestModeration := func(key, payload string) (int, []byte) {
+		request, _ := http.NewRequest(http.MethodPost, server.URL+"/api/openai/v1/moderations", strings.NewReader(payload))
+		request.Header.Set("Authorization", "Bearer "+key)
+		response, err := http.DefaultClient.Do(request)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer response.Body.Close()
+		responseBody, _ := io.ReadAll(response.Body)
+		return response.StatusCode, responseBody
+	}
+	status, body := requestModeration(secret, `{"model":"`+publicModel.ID+`","input":["violent text"]}`)
+	if status != http.StatusOK || !bytes.Contains(body, []byte(`"flagged":true`)) || !bytes.Contains(body, []byte(`"model":"`+publicModel.ID+`"`)) || bytes.Contains(body, []byte("omni-moderation-latest")) || path != "/v1/moderations" || authorization != "Bearer provider-secret" || model != "moderation-upstream" {
+		t.Fatalf("status=%d body=%s upstream=%s %s %s", status, body, path, authorization, model)
+	}
+	var usageStatus, reservationState string
+	var inputTokens, outputTokens int64
+	if err := store.SystemDB().QueryRowContext(ctx, `SELECT attempts.usage_status,attempts.input_tokens,attempts.output_tokens,reservations.state FROM attempts JOIN reservations ON reservations.attempt_id=attempts.id WHERE attempts.state='succeeded'`).Scan(&usageStatus, &inputTokens, &outputTokens, &reservationState); err != nil || usageStatus != "estimated" || inputTokens <= 0 || outputTokens != 0 || reservationState != "settled" {
+		t.Fatalf("usage=%s %d/%d reservation=%s err=%v", usageStatus, inputTokens, outputTokens, reservationState, err)
+	}
+	for _, invalid := range []string{
+		`{"model":"` + publicModel.ID + `"}`,
+		`{"model":"` + publicModel.ID + `","input":null}`,
+		`{"model":"` + publicModel.ID + `","input":[]}`,
+		`{"model":"` + publicModel.ID + `","input":42}`,
+		`{"model":"` + publicModel.ID + `","input":[42]}`,
+		`{"model":"` + publicModel.ID + `","input":[null]}`,
+		`{"model":"` + publicModel.ID + `","input":[{}]}`,
+		`{"model":"` + publicModel.ID + `","input":["text",{"type":"text","text":"more"}]}`,
+		`{"model":"` + publicModel.ID + `","input":[{"type":"image_url","image_url":{}}]}`,
+		`{"model":"` + publicModel.ID + `","input":"text","stream":true}`,
+	} {
+		if status, _ = requestModeration(secret, invalid); status != http.StatusBadRequest {
+			t.Fatalf("invalid status=%d body=%s", status, invalid)
+		}
+	}
+	for _, providerError := range []struct {
+		input  string
+		status int
+		text   string
+	}{{"invalid", http.StatusBadRequest, "invalid moderation input"}, {"limited", http.StatusTooManyRequests, "slow down"}} {
+		status, body = requestModeration(secret, `{"model":"`+publicModel.ID+`","input":"`+providerError.input+`"}`)
+		if status != providerError.status || !bytes.Contains(body, []byte(providerError.text)) || bytes.Contains(body, []byte("unsafe")) {
+			t.Fatalf("provider error status=%d body=%s", status, body)
+		}
+	}
+	status, _ = requestModeration(denied, `{"model":"`+publicModel.ID+`","input":"text"}`)
+	if status != http.StatusNotFound || calls != 3 {
+		t.Fatalf("denied status=%d upstream calls=%d", status, calls)
+	}
+}
+
+func TestModerationModelRewriteDoesNotExpandHTML(t *testing.T) {
+	rewritten, err := rewriteResponseModel([]byte(`{"model":"upstream","detail":"<&>"}`), "public")
+	if err != nil || !bytes.Contains(rewritten, []byte(`"model":"public"`)) || !bytes.Contains(rewritten, []byte(`"detail":"<&>"`)) {
+		t.Fatalf("rewritten=%s err=%v", rewritten, err)
+	}
+}
+
 func TestNativeModelListsKeepTheirOwnShapes(t *testing.T) {
 	ctx, store, owner, keyService, providerService, usageService := gatewayFixture(t)
 	defer store.Close()

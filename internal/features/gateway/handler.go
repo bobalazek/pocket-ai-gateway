@@ -70,6 +70,9 @@ func (handler *Handler) Register(mux *http.ServeMux) {
 	mux.HandleFunc("POST /api/openai/v1/embeddings", func(w http.ResponseWriter, r *http.Request) {
 		handler.forward(w, r, "openai", "embeddings:generate", "embeddings", "", nil)
 	})
+	mux.HandleFunc("POST /api/openai/v1/moderations", func(w http.ResponseWriter, r *http.Request) {
+		handler.forward(w, r, "openai", "moderations:classify", "moderations", "", nil)
+	})
 	mux.HandleFunc("GET /api/anthropic/v1/models", handler.anthropicModels)
 	mux.HandleFunc("GET /api/anthropic/v1/models/{model}", handler.anthropicModel)
 	mux.HandleFunc("POST /api/anthropic/v1/messages", func(w http.ResponseWriter, r *http.Request) {
@@ -138,6 +141,12 @@ func (handler *Handler) forwardAuthorized(response http.ResponseWriter, request 
 			return
 		}
 	}
+	if upstreamPath == "moderations" {
+		if err = validateModeration(envelope); err != nil {
+			handler.writeError(response, dialect, http.StatusBadRequest, "invalid_request", err.Error())
+			return
+		}
+	}
 	stream := false
 	_ = json.Unmarshal(envelope["stream"], &stream)
 	if streamOverride != nil {
@@ -146,7 +155,7 @@ func (handler *Handler) forwardAuthorized(response http.ResponseWriter, request 
 	inputEstimate := originalBodyBytes
 	outputEstimate := maximumOutput(envelope)
 	batchItems := int64(0)
-	if upstreamPath == "embeddings" {
+	if upstreamPath == "embeddings" || upstreamPath == "moderations" {
 		batchItems = jsonCardinality(envelope["input"])
 	} else if dialect == "gemini" {
 		var object map[string]any
@@ -290,6 +299,13 @@ func (handler *Handler) forwardAuthorized(response http.ResponseWriter, request 
 		} else {
 			result, raw, copyErr = handler.dispatchTranslated(attemptWriter, request, target, targetPath, targetBody, dialect, publicID, stream, releaseDispatch)
 		}
+		if native && upstreamPath == "moderations" && copyErr == nil && result >= 200 && result < 300 {
+			raw, copyErr = rewriteResponseModel(raw, publicID)
+			if copyErr == nil {
+				attemptWriter.body.Reset()
+				_, copyErr = attemptWriter.Write(raw)
+			}
+		}
 		dispatchErr := copyErr
 		accountDialect := recordDialect
 		if !native {
@@ -305,6 +321,11 @@ func (handler *Handler) forwardAuthorized(response http.ResponseWriter, request 
 		inputTokens, outputTokens, cost := parseUsage(accountDialect, accountRaw)
 		toolCalls, toolStatus := parseToolMetadata(accountDialect, accountRaw)
 		success := copyErr == nil && result >= 200 && result < 300
+		estimatedUsage := false
+		if success && upstreamPath == "moderations" && inputTokens == nil && outputTokens == nil {
+			input, zero := inputEstimate, int64(0)
+			inputTokens, outputTokens, estimatedUsage = &input, &zero, true
+		}
 		terminalStreamFailure := false
 		if success && attached != nil {
 			var attachedBody []byte
@@ -338,7 +359,9 @@ func (handler *Handler) forwardAuthorized(response http.ResponseWriter, request 
 		retryableDispatchError := native && dispatchErr != nil || errors.Is(dispatchErr, errUpstreamResponseInterrupted)
 		retry := !terminalStreamFailure && index+1 < len(plan.Targets) && (retryableDispatchError || retryableResult(result, copyErr)) && !attemptWriter.Committed()
 		state, status := "succeeded", "provider_reported"
-		if inputTokens == nil || outputTokens == nil {
+		if estimatedUsage {
+			status = "estimated"
+		} else if inputTokens == nil || outputTokens == nil {
 			status, cost = "unknown", nil
 		}
 		if scope == "tokens:count" && inputTokens != nil {
@@ -527,6 +550,72 @@ func (writer *attemptWriter) Reset() {
 	writer.body.Reset()
 }
 
+func validateModeration(envelope map[string]json.RawMessage) error {
+	if _, exists := envelope["stream"]; exists {
+		return errors.New("stream is not supported for moderations")
+	}
+	var input any
+	if raw, exists := envelope["input"]; !exists || json.Unmarshal(raw, &input) != nil {
+		return errors.New("input must be a string or non-empty array")
+	}
+	switch value := input.(type) {
+	case string:
+		return nil
+	case []any:
+		if len(value) == 0 {
+			break
+		}
+		mode := ""
+		for _, item := range value {
+			switch typed := item.(type) {
+			case string:
+				if mode == "objects" {
+					return errors.New("input array must contain only strings or only multimodal objects")
+				}
+				mode = "strings"
+			case map[string]any:
+				if mode == "strings" || !validModerationObject(typed) {
+					return errors.New("input array must contain only strings or valid multimodal objects")
+				}
+				mode = "objects"
+			default:
+				return errors.New("input array must contain only strings or valid multimodal objects")
+			}
+		}
+		return nil
+	}
+	return errors.New("input must be a string or non-empty array")
+}
+
+func validModerationObject(input map[string]any) bool {
+	switch input["type"] {
+	case "text":
+		_, ok := input["text"].(string)
+		return ok
+	case "image_url":
+		image, ok := input["image_url"].(map[string]any)
+		url, valid := image["url"].(string)
+		return ok && valid && url != ""
+	default:
+		return false
+	}
+}
+
+func rewriteResponseModel(raw []byte, publicID string) ([]byte, error) {
+	var response map[string]json.RawMessage
+	if json.Unmarshal(raw, &response) != nil || response == nil {
+		return nil, errors.New("provider returned an invalid response")
+	}
+	response["model"], _ = json.Marshal(publicID)
+	var encoded bytes.Buffer
+	encoder := json.NewEncoder(&encoded)
+	encoder.SetEscapeHTML(false)
+	if encoder.Encode(response) != nil || encoded.Len() > maxInferenceBody+1 {
+		return nil, errors.New("provider response exceeds 16 MiB")
+	}
+	return bytes.TrimSuffix(encoded.Bytes(), []byte("\n")), nil
+}
+
 func validateResponses(envelope map[string]json.RawMessage) (bool, error) {
 	stored := true
 	if raw, exists := envelope["store"]; exists && json.Unmarshal(raw, &stored) != nil {
@@ -630,8 +719,10 @@ func (handler *Handler) dispatch(response http.ResponseWriter, request *http.Req
 	}
 	defer result.Body.Close()
 	if result.StatusCode < 200 || result.StatusCode >= 300 {
-		io.Copy(io.Discard, io.LimitReader(result.Body, 1<<20))
-		handler.writeError(response, dialect, http.StatusBadGateway, "upstream_error", "Provider rejected the request")
+		raw, readErr := io.ReadAll(io.LimitReader(result.Body, (1<<20)+1))
+		if readErr != nil || len(raw) > 1<<20 || !writeNativeUpstreamError(response, dialect, result.StatusCode, raw) {
+			handler.writeError(response, dialect, http.StatusBadGateway, "upstream_error", "Provider rejected the request")
+		}
 		return result.StatusCode, nil, nil
 	}
 	contentType := result.Header.Get("Content-Type")
@@ -804,7 +895,7 @@ func modelVisibleInDialect(dialect string, model providers.PublicModel) bool {
 		return true
 	}
 	if dialect == "openai" && nativeAdapter("openai", model.Adapter) {
-		return hasCapability(model.Capabilities, "embeddings:generate")
+		return hasCapability(model.Capabilities, "embeddings:generate") || hasCapability(model.Capabilities, "moderations:classify")
 	}
 	if dialect == "gemini" && nativeAdapter("gemini", model.Adapter) {
 		return hasCapability(model.Capabilities, "embeddings:generate") || hasCapability(model.Capabilities, "tokens:count")
@@ -917,6 +1008,43 @@ func (handler *Handler) writeError(w http.ResponseWriter, dialect string, status
 		_ = json.NewEncoder(w).Encode(map[string]any{"error": map[string]any{"message": message, "type": "invalid_request_error", "code": code}})
 	}
 }
+func writeNativeUpstreamError(w http.ResponseWriter, dialect string, status int, raw []byte) bool {
+	openAI := dialect == "openai" || dialect == "responses" || dialect == "responses_compact"
+	clientStatus := status == http.StatusBadRequest || status == http.StatusConflict || status == http.StatusUnprocessableEntity || status == http.StatusTooManyRequests
+	if !openAI || !clientStatus {
+		return false
+	}
+	var envelope struct {
+		Error map[string]json.RawMessage `json:"error"`
+	}
+	if json.Unmarshal(raw, &envelope) != nil {
+		return false
+	}
+	safe := map[string]any{}
+	for _, name := range []string{"message", "type", "code", "param"} {
+		value, exists := envelope.Error[name]
+		if !exists {
+			continue
+		}
+		if bytes.Equal(bytes.TrimSpace(value), []byte("null")) {
+			safe[name] = nil
+			continue
+		}
+		var text string
+		if json.Unmarshal(value, &text) != nil || len(text) > 4096 {
+			return false
+		}
+		safe[name] = text
+	}
+	if message, _ := safe["message"].(string); message == "" {
+		return false
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.Header().Set("Cache-Control", "no-store")
+	w.WriteHeader(status)
+	_ = json.NewEncoder(w).Encode(map[string]any{"error": safe})
+	return true
+}
 func writeJSON(w http.ResponseWriter, value any) {
 	w.Header().Set("Content-Type", "application/json")
 	w.Header().Set("Cache-Control", "no-store")
@@ -926,7 +1054,7 @@ func nativeAdapter(dialect, adapter string) bool {
 	return dialect == adapter || (dialect == "openai" && adapter == "openai_compatible")
 }
 func hasCapability(values []string, scope string) bool {
-	wanted := map[string]string{"chat:generate": "chat", "responses:generate": "chat", "embeddings:generate": "embeddings", "tokens:count": "count_tokens"}[scope]
+	wanted := map[string]string{"chat:generate": "chat", "responses:generate": "chat", "embeddings:generate": "embeddings", "tokens:count": "count_tokens", "moderations:classify": "moderations"}[scope]
 	for _, v := range values {
 		if v == wanted || v == strings.ReplaceAll(scope, ":", "_") {
 			return true

@@ -10,7 +10,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { GatewayAPIError, gatewayAPI, type CatalogCandidate, type CatalogModel, type CatalogState, type PublicModel, type RoutePlan, type RoutePreviewInput, type RouteStrategy, type RouteTargetInput, type UpstreamModel } from "@/lib/api-client";
 
-const capabilities = ["chat", "embeddings", "count_tokens"];
+const capabilities = ["chat", "embeddings", "moderations", "count_tokens"];
 const strategies: { value: RouteStrategy; label: string }[] = [
   { value: "fixed", label: "Fixed target" }, { value: "ordered_fallback", label: "Ordered fallback" },
   { value: "weighted", label: "Weighted" }, { value: "lowest_cost", label: "Lowest estimated cost" },
@@ -22,6 +22,7 @@ export default function ModelsPage() {
   const manager = user?.role === "owner" || user?.role === "admin";
   const [models, setModels] = useState<(CatalogModel | PublicModel)[]>([]);
   const [targets, setTargets] = useState<UpstreamModel[]>([]);
+  const [selectedTarget, setSelectedTarget] = useState("");
   const [routes, setRoutes] = useState<Record<string, RouteTargetInput[]>>({});
   const [previews, setPreviews] = useState<Record<string, { route: RoutePlan; input: RoutePreviewInput }>>({});
   const [catalog, setCatalog] = useState<CatalogCandidate[]>([]);
@@ -45,7 +46,7 @@ export default function ModelsPage() {
 
   async function create(event: FormEvent<HTMLFormElement>) {
     event.preventDefault(); const element = event.currentTarget; const form = new FormData(element); setBusy(true);
-    try { await gatewayAPI.createPublicModel({ id: String(form.get("id")), label: String(form.get("label")), description: String(form.get("description")), target_model_id: String(form.get("target_model_id")), capabilities: form.getAll("capabilities").map(String) }); element.reset(); await load(); }
+    try { await gatewayAPI.createPublicModel({ id: String(form.get("id")), label: String(form.get("label")), description: String(form.get("description")), target_model_id: String(form.get("target_model_id")), capabilities: form.getAll("capabilities").map(String) }); element.reset(); setSelectedTarget(""); await load(); }
     catch (failure) { setError(message(failure, "Model could not be published")); } finally { setBusy(false); }
   }
 
@@ -72,10 +73,11 @@ export default function ModelsPage() {
   }
   async function refreshCatalog() { setBusy(true); try { await gatewayAPI.refreshCatalog(); await load(); } catch (failure) { setError(message(failure, "Catalog refresh failed")); } finally { setBusy(false); } }
 
+  const publishCapabilities = targets.find((target) => target.id === selectedTarget)?.capabilities ?? [];
   return <AppShell active="Models"><main id="main-content" className="content management-page">
     <header className="page-header"><div><p className="context">Stable catalog</p><h1>Models</h1><p className="lede">{manager ? "Publish stable names, choose eligible targets, and preview every routing decision." : "Models available within your account grants."}</p></div></header>
     {error && <p className="form-error" role="alert">{error}</p>}
-    {manager && <Card className="panel"><h2>Publish model</h2><form onSubmit={create}><div className="inline-fields"><Field id="id" label="Public model ID" required /><Field id="label" label="Display name" required /></div><Field id="description" label="Description" /><div className="field"><Label htmlFor="target_model_id">Initial upstream target</Label><select id="target_model_id" name="target_model_id" className="select" required><option value="">Select a target</option>{targets.map((item) => <option key={item.id} value={item.id}>{item.upstream_id} · {item.connection_id}</option>)}</select></div><fieldset className="scope-grid"><legend>Published capabilities</legend>{capabilities.map((value) => <label key={value}><input name="capabilities" type="checkbox" value={value} /><span>{value.replaceAll("_", " ")}</span></label>)}</fieldset><Button disabled={busy}>Publish model</Button></form></Card>}
+    {manager && <Card className="panel"><h2>Publish model</h2><form onSubmit={create}><div className="inline-fields"><Field id="id" label="Public model ID" required /><Field id="label" label="Display name" required /></div><Field id="description" label="Description" /><div className="field"><Label htmlFor="target_model_id">Initial upstream target</Label><select id="target_model_id" name="target_model_id" className="select" value={selectedTarget} onChange={(event) => setSelectedTarget(event.target.value)} required><option value="">Select a target</option>{targets.map((item) => <option key={item.id} value={item.id}>{item.upstream_id} · {item.connection_id}</option>)}</select></div><fieldset className="scope-grid"><legend>Published capabilities</legend>{capabilities.filter((value) => publishCapabilities.includes(value)).map((value) => <label key={value}><input name="capabilities" type="checkbox" value={value} /><span>{value.replaceAll("_", " ")}</span></label>)}</fieldset><Button disabled={busy}>Publish model</Button></form></Card>}
     <section className="section-block"><h2>{models.length} available models</h2><div className="resource-list">{models.map((item) => {
       const model = item as PublicModel; const configured = routes[item.id] ?? []; const embeddingModel = item.capabilities.includes("embeddings");
       return <Card className="panel" key={item.id}><div className="resource-row-main"><div><strong>{item.label}</strong><code>{item.id}</code><small>{item.adapter} · {item.capabilities.join(", ")}{manager ? ` · ${model.routing_strategy.replaceAll("_", " ")}` : ""}</small></div></div>

@@ -87,6 +87,11 @@ describe("official SDK compatibility through the Go gateway", () => {
     expect(result).toMatchObject({ object: "response.compaction", output: [{ type: "compaction" }] });
   });
 
+  it("decodes native OpenAI moderations", async () => {
+		const result = await openAI().moderations.create({ model: "target-openai", input: "violent text" });
+		expect(result.results[0]?.flagged).toBe(true);
+	});
+
   it("manages gateway-owned OpenAI conversations", async () => {
     const client = openAI();
     const empty = await client.conversations.create();

@@ -26,7 +26,7 @@ var (
 
 var allowedScopes = map[string]bool{
 	"chat:generate": true, "responses:generate": true, "embeddings:generate": true,
-	"models:read": true, "tokens:count": true,
+	"models:read": true, "tokens:count": true, "moderations:classify": true,
 }
 
 type Service struct{ database *sql.DB }

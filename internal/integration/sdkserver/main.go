@@ -52,14 +52,18 @@ func main() {
 			must(err)
 		}
 		must(providerService.PutCredential(ctx, owner, connection.ID, "provider-secret", ""))
-		upstreamModel, err := providerService.CreateUpstreamModel(ctx, owner, connection.ID, adapter+"-upstream", []string{"chat"})
+		capabilities := []string{"chat"}
+		if adapter == "openai" {
+			capabilities = append(capabilities, "moderations")
+		}
+		upstreamModel, err := providerService.CreateUpstreamModel(ctx, owner, connection.ID, adapter+"-upstream", capabilities)
 		must(err)
-		_, err = providerService.CreatePublicModel(ctx, owner, "target-"+adapter, "Target "+adapter, "", upstreamModel.ID, []string{"chat"})
+		_, err = providerService.CreatePublicModel(ctx, owner, "target-"+adapter, "Target "+adapter, "", upstreamModel.ID, capabilities)
 		must(err)
 		connections = append(connections, connection.ID)
 	}
 	keyService := keys.New(store.SystemDB())
-	_, secret, err := keyService.Create(ctx, owner.ID, keys.Input{Label: "Official SDK matrix", Scopes: []string{"chat:generate", "responses:generate", "models:read"}, ModelPatterns: []string{"target-*"}, ConnectionIDs: connections})
+	_, secret, err := keyService.Create(ctx, owner.ID, keys.Input{Label: "Official SDK matrix", Scopes: []string{"chat:generate", "responses:generate", "moderations:classify", "models:read"}, ModelPatterns: []string{"target-*"}, ConnectionIDs: connections})
 	must(err)
 
 	mux := http.NewServeMux()
@@ -109,6 +113,10 @@ func upstreamHandler(response http.ResponseWriter, request *http.Request) {
 	}
 	switch target {
 	case "openai":
+		if strings.HasSuffix(request.URL.Path, "/moderations") {
+			io.WriteString(response, `{"id":"modr_1","model":"openai-upstream","results":[{"flagged":true,"categories":{"violence":true},"category_scores":{"violence":0.9}}]}`)
+			return
+		}
 		if strings.HasSuffix(request.URL.Path, "/responses/compact") {
 			io.WriteString(response, `{"id":"resp_compact","object":"response.compaction","created_at":1764967971,"output":[{"id":"cmp_1","type":"compaction","encrypted_content":"opaque"}],"usage":{"input_tokens":2,"output_tokens":1,"total_tokens":3}}`)
 			return

@@ -171,6 +171,9 @@ func TestCatalogValidationAndPresets(t *testing.T) {
 	if PresetSupports("fireworks", "responses") || PresetSupports("fireworks", "embeddings") || !PresetSupports("fireworks", "chat/completions") || !PresetSupports("gemini", "models/test:generateContent") || !PresetSupports("custom", "anything") {
 		t.Fatal("preset operation limits are not enforced")
 	}
+	if !PresetSupports("openai", "moderations") || PresetSupports("anthropic", "moderations") || !PresetSupportsCapabilities("openai", []string{"moderations"}) {
+		t.Fatal("moderation preset capability is incorrect")
+	}
 }
 
 func TestPresetLimitsUpstreamModelCapabilities(t *testing.T) {

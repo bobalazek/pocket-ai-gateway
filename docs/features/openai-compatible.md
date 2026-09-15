@@ -37,7 +37,7 @@ Errors preserve the OpenAI error envelope:
 
 Chat stream events contain chat.completion.chunk objects with choices/delta; function arguments may arrive as fragments. Responses has a different output-item and event lifecycle: response.created, output-item/content deltas, and terminal response status. Do not reuse Chat chunks as Responses events.
 
-Chat, embeddings, models, and Responses generation can target OpenAI-compatible, Anthropic, or Gemini providers while keeping OpenAI response and event shapes. Non-streaming Responses are stored locally for the creating API key by default and support retrieval, input-item listing, cancellation, and deletion; `store:false` disables that stored Response resource and supports streaming. A request without a Conversation retains no response content. `background:true` uses a bounded durable SQLite queue and rechecks key grants, limits, and provider configuration before dispatch. The gateway disables upstream storage. Hosted tools remain rejected.
+Chat, embeddings, models, and Responses generation can target OpenAI-compatible, Anthropic, or Gemini providers while keeping OpenAI response and event shapes. Moderations preserve the upstream OpenAI taxonomy and run only on a moderation-capable native OpenAI target. Non-streaming Responses are stored locally for the creating API key by default and support retrieval, input-item listing, cancellation, and deletion; `store:false` disables that stored Response resource and supports streaming. A request without a Conversation retains no response content. `background:true` uses a bounded durable SQLite queue and rechecks key grants, limits, and provider configuration before dispatch. The gateway disables upstream storage. Hosted tools remain rejected.
 
 `POST /responses/compact` supports inline model/input compaction on the native OpenAI preset. It is not translated or sent to custom-compatible targets, and response, conversation, item, file, and container references are rejected rather than resolved with a shared provider credential.
 
@@ -45,6 +45,6 @@ Gateway-owned Conversations support create/retrieve/update/delete plus bounded i
 
 An OpenAI-shaped client may target native OpenAI, Anthropic, Gemini, or a certified compatible endpoint. Return OpenAI-shaped output in every case. Preserve model aliases, tool correlation, usage provenance, and error class; reject unmappable semantics before dispatch.
 
-Automated coverage includes the pinned OpenAI SDK URL for Chat and Responses, stored and background lifecycle calls, all provider-family translation directions, fragmented tool arguments, stream lifecycle events, native errors, embeddings where supported, and filtered model lists.
+Automated coverage includes the pinned OpenAI SDK URL for Chat, Responses, and Moderations, stored and background lifecycle calls, all provider-family translation directions, fragmented tool arguments, stream lifecycle events, native errors, embeddings where supported, and filtered model lists.
 
 Sources: [Chat API](https://developers.openai.com/api/reference/cli/resources/chat/subresources/completions), [Responses guide](https://developers.openai.com/api/docs/guides/migrate-to-responses).
