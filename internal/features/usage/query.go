@@ -13,27 +13,35 @@ import (
 )
 
 type UsagePoint struct {
-	Date            string `json:"date"`
-	Requests        int64  `json:"requests"`
-	InputTokens     int64  `json:"input_tokens"`
-	OutputTokens    int64  `json:"output_tokens"`
-	KnownCostUSD    string `json:"known_cost_usd"`
-	UnknownAttempts int64  `json:"unknown_attempts"`
+	Date                     string `json:"date"`
+	Requests                 int64  `json:"requests"`
+	InputTokens              int64  `json:"input_tokens"`
+	OutputTokens             int64  `json:"output_tokens"`
+	CacheCreationInputTokens int64  `json:"cache_creation_input_tokens"`
+	CacheReadInputTokens     int64  `json:"cache_read_input_tokens"`
+	CacheCreation5mTokens    int64  `json:"cache_creation_5m_input_tokens"`
+	CacheCreation1hTokens    int64  `json:"cache_creation_1h_input_tokens"`
+	KnownCostUSD             string `json:"known_cost_usd"`
+	UnknownAttempts          int64  `json:"unknown_attempts"`
 }
 
 type UsageSummary struct {
-	From                string       `json:"from"`
-	To                  string       `json:"to"`
-	Requests            int64        `json:"requests"`
-	Attempts            int64        `json:"attempts"`
-	InputTokens         int64        `json:"input_tokens"`
-	OutputTokens        int64        `json:"output_tokens"`
-	KnownCostUSD        string       `json:"known_cost_usd"`
-	EstimatedCostUSD    string       `json:"estimated_cost_usd"`
-	AsRecordedCostUSD   string       `json:"as_recorded_cost_usd"`
-	RestatementDeltaUSD string       `json:"restatement_delta_usd"`
-	UnknownAttempts     int64        `json:"unknown_attempts"`
-	Points              []UsagePoint `json:"points"`
+	From                     string       `json:"from"`
+	To                       string       `json:"to"`
+	Requests                 int64        `json:"requests"`
+	Attempts                 int64        `json:"attempts"`
+	InputTokens              int64        `json:"input_tokens"`
+	OutputTokens             int64        `json:"output_tokens"`
+	CacheCreationInputTokens int64        `json:"cache_creation_input_tokens"`
+	CacheReadInputTokens     int64        `json:"cache_read_input_tokens"`
+	CacheCreation5mTokens    int64        `json:"cache_creation_5m_input_tokens"`
+	CacheCreation1hTokens    int64        `json:"cache_creation_1h_input_tokens"`
+	KnownCostUSD             string       `json:"known_cost_usd"`
+	EstimatedCostUSD         string       `json:"estimated_cost_usd"`
+	AsRecordedCostUSD        string       `json:"as_recorded_cost_usd"`
+	RestatementDeltaUSD      string       `json:"restatement_delta_usd"`
+	UnknownAttempts          int64        `json:"unknown_attempts"`
+	Points                   []UsagePoint `json:"points"`
 }
 
 type UnresolvedAttempt struct {
@@ -54,25 +62,29 @@ type UsageQuery struct {
 }
 
 type RequestAttempt struct {
-	ID                 string              `json:"id"`
-	Ordinal            int64               `json:"ordinal"`
-	ConnectionID       string              `json:"connection_id"`
-	ModelID            string              `json:"model_id"`
-	UpstreamID         string              `json:"upstream_model_id"`
-	TargetDialect      string              `json:"target_dialect"`
-	TargetOperation    string              `json:"target_operation"`
-	TranslationApplied bool                `json:"translation_applied"`
-	RequestToolCount   int64               `json:"request_tool_count"`
-	ResponseToolCalls  int64               `json:"response_tool_call_count"`
-	ToolCallStatus     string              `json:"tool_call_status"`
-	SelectionReason    string              `json:"selection_reason"`
-	RejectedCandidates []map[string]string `json:"rejected_candidates"`
-	State              string              `json:"state"`
-	UsageStatus        string              `json:"usage_status"`
-	InputTokens        int64               `json:"input_tokens"`
-	OutputTokens       int64               `json:"output_tokens"`
-	CostUSD            *string             `json:"cost_usd"`
-	StartedAt          string              `json:"started_at"`
+	ID                       string              `json:"id"`
+	Ordinal                  int64               `json:"ordinal"`
+	ConnectionID             string              `json:"connection_id"`
+	ModelID                  string              `json:"model_id"`
+	UpstreamID               string              `json:"upstream_model_id"`
+	TargetDialect            string              `json:"target_dialect"`
+	TargetOperation          string              `json:"target_operation"`
+	TranslationApplied       bool                `json:"translation_applied"`
+	RequestToolCount         int64               `json:"request_tool_count"`
+	ResponseToolCalls        int64               `json:"response_tool_call_count"`
+	ToolCallStatus           string              `json:"tool_call_status"`
+	SelectionReason          string              `json:"selection_reason"`
+	RejectedCandidates       []map[string]string `json:"rejected_candidates"`
+	State                    string              `json:"state"`
+	UsageStatus              string              `json:"usage_status"`
+	InputTokens              int64               `json:"input_tokens"`
+	OutputTokens             int64               `json:"output_tokens"`
+	CacheCreationInputTokens int64               `json:"cache_creation_input_tokens"`
+	CacheReadInputTokens     int64               `json:"cache_read_input_tokens"`
+	CacheCreation5mTokens    int64               `json:"cache_creation_5m_input_tokens"`
+	CacheCreation1hTokens    int64               `json:"cache_creation_1h_input_tokens"`
+	CostUSD                  *string             `json:"cost_usd"`
+	StartedAt                string              `json:"started_at"`
 }
 
 type RequestRecord struct {
@@ -149,7 +161,7 @@ func (service *Service) ListRequests(ctx context.Context, actor auth.User, query
 		next = encodeCursor(started.UnixMilli(), items[len(items)-1].ID)
 	}
 	for index := range items {
-		attemptRows, err := service.database.QueryContext(ctx, `SELECT id,ordinal,connection_id,model_id,upstream_model_id,target_dialect,target_operation,translation_applied,request_tool_count,response_tool_call_count,tool_call_status,selection_reason,rejected_candidates_json,state,usage_status,COALESCE(input_tokens,0),COALESCE(output_tokens,0),COALESCE(restated_cost_nanos,as_recorded_cost_nanos),started_at FROM attempts WHERE request_id=? ORDER BY ordinal`, items[index].ID)
+		attemptRows, err := service.database.QueryContext(ctx, `SELECT id,ordinal,connection_id,model_id,upstream_model_id,target_dialect,target_operation,translation_applied,request_tool_count,response_tool_call_count,tool_call_status,selection_reason,rejected_candidates_json,state,usage_status,COALESCE(input_tokens,0),COALESCE(output_tokens,0),COALESCE(cache_creation_input_tokens,0),COALESCE(cache_read_input_tokens,0),COALESCE(cache_creation_5m_input_tokens,0),COALESCE(cache_creation_1h_input_tokens,0),COALESCE(restated_cost_nanos,as_recorded_cost_nanos),started_at FROM attempts WHERE request_id=? ORDER BY ordinal`, items[index].ID)
 		if err != nil {
 			return nil, "", err
 		}
@@ -158,7 +170,7 @@ func (service *Service) ListRequests(ctx context.Context, actor auth.User, query
 			var cost sql.NullInt64
 			var started int64
 			var rejected string
-			if err := attemptRows.Scan(&attempt.ID, &attempt.Ordinal, &attempt.ConnectionID, &attempt.ModelID, &attempt.UpstreamID, &attempt.TargetDialect, &attempt.TargetOperation, &attempt.TranslationApplied, &attempt.RequestToolCount, &attempt.ResponseToolCalls, &attempt.ToolCallStatus, &attempt.SelectionReason, &rejected, &attempt.State, &attempt.UsageStatus, &attempt.InputTokens, &attempt.OutputTokens, &cost, &started); err != nil {
+			if err := attemptRows.Scan(&attempt.ID, &attempt.Ordinal, &attempt.ConnectionID, &attempt.ModelID, &attempt.UpstreamID, &attempt.TargetDialect, &attempt.TargetOperation, &attempt.TranslationApplied, &attempt.RequestToolCount, &attempt.ResponseToolCalls, &attempt.ToolCallStatus, &attempt.SelectionReason, &rejected, &attempt.State, &attempt.UsageStatus, &attempt.InputTokens, &attempt.OutputTokens, &attempt.CacheCreationInputTokens, &attempt.CacheReadInputTokens, &attempt.CacheCreation5mTokens, &attempt.CacheCreation1hTokens, &cost, &started); err != nil {
 				attemptRows.Close()
 				return nil, "", err
 			}
@@ -199,11 +211,11 @@ func (service *Service) Summary(ctx context.Context, actor auth.User, query Usag
 	filter, args := usageFilter(userID, from, to, query)
 	var summary UsageSummary
 	var estimatedCost, recordedCost, currentCost int64
-	err = tx.QueryRowContext(ctx, `SELECT COUNT(attempts.id), COALESCE(SUM(attempts.input_tokens), 0), COALESCE(SUM(attempts.output_tokens), 0),
+	err = tx.QueryRowContext(ctx, `SELECT COUNT(attempts.id), COALESCE(SUM(attempts.input_tokens), 0), COALESCE(SUM(attempts.output_tokens), 0), COALESCE(SUM(attempts.cache_creation_input_tokens), 0), COALESCE(SUM(attempts.cache_read_input_tokens), 0), COALESCE(SUM(attempts.cache_creation_5m_input_tokens), 0), COALESCE(SUM(attempts.cache_creation_1h_input_tokens), 0),
 		COALESCE(SUM(attempts.estimated_cost_nanos), 0), COALESCE(SUM(attempts.as_recorded_cost_nanos), 0),
 		COALESCE(SUM(COALESCE(attempts.restated_cost_nanos, attempts.as_recorded_cost_nanos, 0)), 0),
 		COALESCE(SUM(CASE WHEN attempts.state != 'cancelled_before_dispatch' AND (attempts.usage_status = 'unknown' OR COALESCE(attempts.restated_cost_nanos, attempts.as_recorded_cost_nanos) IS NULL) THEN 1 ELSE 0 END), 0)
-		FROM attempts JOIN requests ON requests.id = attempts.request_id WHERE `+filter, args...).Scan(&summary.Attempts, &summary.InputTokens, &summary.OutputTokens, &estimatedCost, &recordedCost, &currentCost, &summary.UnknownAttempts)
+		FROM attempts JOIN requests ON requests.id = attempts.request_id WHERE `+filter, args...).Scan(&summary.Attempts, &summary.InputTokens, &summary.OutputTokens, &summary.CacheCreationInputTokens, &summary.CacheReadInputTokens, &summary.CacheCreation5mTokens, &summary.CacheCreation1hTokens, &estimatedCost, &recordedCost, &currentCost, &summary.UnknownAttempts)
 	if err != nil {
 		return UsageSummary{}, err
 	}
@@ -211,7 +223,7 @@ func (service *Service) Summary(ctx context.Context, actor auth.User, query Usag
 	if err := tx.QueryRowContext(ctx, "SELECT COUNT(*) FROM requests WHERE "+requestWhere, requestArgs...).Scan(&summary.Requests); err != nil {
 		return UsageSummary{}, err
 	}
-	rows, err := tx.QueryContext(ctx, `SELECT strftime('%Y-%m-%d', attempts.started_at / 1000, 'unixepoch'), COUNT(DISTINCT requests.id), COALESCE(SUM(attempts.input_tokens), 0), COALESCE(SUM(attempts.output_tokens), 0),
+	rows, err := tx.QueryContext(ctx, `SELECT strftime('%Y-%m-%d', attempts.started_at / 1000, 'unixepoch'), COUNT(DISTINCT requests.id), COALESCE(SUM(attempts.input_tokens), 0), COALESCE(SUM(attempts.output_tokens), 0), COALESCE(SUM(attempts.cache_creation_input_tokens), 0), COALESCE(SUM(attempts.cache_read_input_tokens), 0), COALESCE(SUM(attempts.cache_creation_5m_input_tokens), 0), COALESCE(SUM(attempts.cache_creation_1h_input_tokens), 0),
 		COALESCE(SUM(COALESCE(attempts.restated_cost_nanos, attempts.as_recorded_cost_nanos, 0)), 0), COALESCE(SUM(CASE WHEN attempts.state != 'cancelled_before_dispatch' AND (attempts.usage_status = 'unknown' OR COALESCE(attempts.restated_cost_nanos, attempts.as_recorded_cost_nanos) IS NULL) THEN 1 ELSE 0 END), 0)
 		FROM attempts JOIN requests ON requests.id = attempts.request_id WHERE `+filter+` GROUP BY 1 ORDER BY 1`, args...)
 	if err != nil {
@@ -222,7 +234,7 @@ func (service *Service) Summary(ctx context.Context, actor auth.User, query Usag
 		var point UsagePoint
 		var pointCost int64
 		var ignoredAttemptRequests int64
-		if err := rows.Scan(&point.Date, &ignoredAttemptRequests, &point.InputTokens, &point.OutputTokens, &pointCost, &point.UnknownAttempts); err != nil {
+		if err := rows.Scan(&point.Date, &ignoredAttemptRequests, &point.InputTokens, &point.OutputTokens, &point.CacheCreationInputTokens, &point.CacheReadInputTokens, &point.CacheCreation5mTokens, &point.CacheCreation1hTokens, &pointCost, &point.UnknownAttempts); err != nil {
 			rows.Close()
 			return UsageSummary{}, err
 		}
@@ -261,12 +273,12 @@ func (service *Service) Summary(ctx context.Context, actor auth.User, query Usag
 	summary.Points = make([]UsagePoint, 0, len(dates))
 	for _, date := range dates {
 		point := points[date]
-		if point.Requests > maxSafeInteger || point.InputTokens > maxSafeInteger || point.OutputTokens > maxSafeInteger || point.UnknownAttempts > maxSafeInteger {
+		if point.Requests > maxSafeInteger || point.InputTokens > maxSafeInteger || point.OutputTokens > maxSafeInteger || point.CacheCreationInputTokens > maxSafeInteger || point.CacheReadInputTokens > maxSafeInteger || point.CacheCreation5mTokens > maxSafeInteger || point.CacheCreation1hTokens > maxSafeInteger || point.UnknownAttempts > maxSafeInteger {
 			return UsageSummary{}, errors.New("usage totals exceed the dashboard-safe integer range")
 		}
 		summary.Points = append(summary.Points, point)
 	}
-	if summary.Requests > maxSafeInteger || summary.Attempts > maxSafeInteger || summary.InputTokens > maxSafeInteger || summary.OutputTokens > maxSafeInteger || summary.UnknownAttempts > maxSafeInteger {
+	if summary.Requests > maxSafeInteger || summary.Attempts > maxSafeInteger || summary.InputTokens > maxSafeInteger || summary.OutputTokens > maxSafeInteger || summary.CacheCreationInputTokens > maxSafeInteger || summary.CacheReadInputTokens > maxSafeInteger || summary.CacheCreation5mTokens > maxSafeInteger || summary.CacheCreation1hTokens > maxSafeInteger || summary.UnknownAttempts > maxSafeInteger {
 		return UsageSummary{}, errors.New("usage totals exceed the dashboard-safe integer range")
 	}
 	delta, ok := checkedAdd(currentCost, -recordedCost)

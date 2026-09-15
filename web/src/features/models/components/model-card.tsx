@@ -13,7 +13,15 @@ export function ModelCard({ item, dashboard }: { item: CatalogModel | PublicMode
   const configured = dashboard.routes[item.id] ?? [];
   const embeddingModel = item.capabilities.includes("embeddings");
   const opaqueMediaModel = ["images", "image_edit", "image_variation", "audio_speech", "audio_transcription", "audio_translation"].some((capability) => item.capabilities.includes(capability));
+  const promptCacheModel = item.capabilities.includes("prompt_cache");
   const preview = dashboard.previews[item.id];
+  const routingHelp = embeddingModel
+    ? "Embedding models keep one fixed target so their vector space cannot change."
+    : opaqueMediaModel
+      ? "Image and audio requests select one target without post-dispatch fallback. Active token, output-token, spend, free-only, and lowest-cost policies block these operations."
+      : promptCacheModel
+        ? "Ordinary requests use the configured routing strategy. Prompt-cache requests reject lowest-cost and free-only routes and do not fall back after dispatch because cache pricing is not yet represented."
+        : "Eligibility and grants are checked before scoring. Priority is also the fallback order.";
 
   return (
     <Card className="panel">
@@ -41,7 +49,7 @@ export function ModelCard({ item, dashboard }: { item: CatalogModel | PublicMode
                 return <div className="route-target" key={target.id}><label className="checkbox-row"><input name={`target:${target.id}`} type="checkbox" defaultChecked={Boolean(current)} disabled={embeddingModel && !current} /> {target.upstream_id}</label><Input aria-label={`${target.upstream_id} priority`} name={`priority:${target.id}`} type="number" min="1" max="1000" defaultValue={String(current?.priority ?? index + 1)} /><Input aria-label={`${target.upstream_id} weight`} name={`weight:${target.id}`} type="number" min="1" max="10000" defaultValue={String(current?.weight ?? 1)} /></div>;
               })}
             </div>
-            <p className="help-text">{embeddingModel ? "Embedding models keep one fixed target so their vector space cannot change." : opaqueMediaModel ? "Image and audio requests select one target without post-dispatch fallback. Active token, output-token, spend, free-only, and lowest-cost policies block these operations." : "Eligibility and grants are checked before scoring. Priority is also the fallback order."} Free-only prices must have manager-recorded zero rates verified within 24 hours.</p>
+            <p className="help-text">{routingHelp} Free-only prices must have manager-recorded zero rates verified within 24 hours.</p>
             <Button disabled={dashboard.busy}>Save route</Button>
           </form>
         </details>

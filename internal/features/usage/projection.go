@@ -257,15 +257,19 @@ func projectCostAdjustment(ctx context.Context, tx *sql.Tx, payload string) erro
 
 func projectSettlement(ctx context.Context, tx *sql.Tx, payload string, requestIncrement int64) error {
 	var item struct {
-		OwnerUserID  string `json:"owner_user_id"`
-		KeyID        string `json:"key_id"`
-		ModelID      string `json:"model_id"`
-		ConnectionID string `json:"connection_id"`
-		StartedAt    int64  `json:"started_at"`
-		UsageStatus  string `json:"usage_status"`
-		InputTokens  *int64 `json:"input_tokens"`
-		OutputTokens *int64 `json:"output_tokens"`
-		CostNanos    *int64 `json:"cost_nanos"`
+		OwnerUserID              string `json:"owner_user_id"`
+		KeyID                    string `json:"key_id"`
+		ModelID                  string `json:"model_id"`
+		ConnectionID             string `json:"connection_id"`
+		StartedAt                int64  `json:"started_at"`
+		UsageStatus              string `json:"usage_status"`
+		InputTokens              *int64 `json:"input_tokens"`
+		OutputTokens             *int64 `json:"output_tokens"`
+		CacheCreationInputTokens *int64 `json:"cache_creation_input_tokens"`
+		CacheReadInputTokens     *int64 `json:"cache_read_input_tokens"`
+		CacheCreation5mTokens    *int64 `json:"cache_creation_5m_input_tokens"`
+		CacheCreation1hTokens    *int64 `json:"cache_creation_1h_input_tokens"`
+		CostNanos                *int64 `json:"cost_nanos"`
 	}
 	if err := json.Unmarshal([]byte(payload), &item); err != nil {
 		return err
@@ -273,12 +277,24 @@ func projectSettlement(ctx context.Context, tx *sql.Tx, payload string, requestI
 	if item.OwnerUserID == "" || item.KeyID == "" || item.ModelID == "" || item.ConnectionID == "" || item.StartedAt == 0 {
 		return errors.New("invalid settlement projection")
 	}
-	input, output, cost, unknown := int64(0), int64(0), int64(0), int64(0)
+	input, output, cacheCreation, cacheRead, cache5m, cache1h, cost, unknown := int64(0), int64(0), int64(0), int64(0), int64(0), int64(0), int64(0), int64(0)
 	if item.InputTokens != nil {
 		input = *item.InputTokens
 	}
 	if item.OutputTokens != nil {
 		output = *item.OutputTokens
+	}
+	if item.CacheCreationInputTokens != nil {
+		cacheCreation = *item.CacheCreationInputTokens
+	}
+	if item.CacheReadInputTokens != nil {
+		cacheRead = *item.CacheReadInputTokens
+	}
+	if item.CacheCreation5mTokens != nil {
+		cache5m = *item.CacheCreation5mTokens
+	}
+	if item.CacheCreation1hTokens != nil {
+		cache1h = *item.CacheCreation1hTokens
 	}
 	if item.CostNanos != nil {
 		cost = *item.CostNanos
@@ -287,13 +303,13 @@ func projectSettlement(ctx context.Context, tx *sql.Tx, payload string, requestI
 		unknown = 1
 	}
 	date := time.UnixMilli(item.StartedAt).UTC().Format("2006-01-02")
-	var currentRequests, currentInput, currentOutput, currentCost, currentUnknown int64
-	err := tx.QueryRowContext(ctx, `SELECT requests, input_tokens, output_tokens, known_cost_nanos, unknown_attempts FROM usage_daily
+	var currentRequests, currentInput, currentOutput, currentCacheCreation, currentCacheRead, currentCache5m, currentCache1h, currentCost, currentUnknown int64
+	err := tx.QueryRowContext(ctx, `SELECT requests, input_tokens, output_tokens, cache_creation_input_tokens, cache_read_input_tokens, cache_creation_5m_input_tokens, cache_creation_1h_input_tokens, known_cost_nanos, unknown_attempts FROM usage_daily
 		WHERE date = ? AND owner_user_id = ? AND key_id = ? AND model_id = ? AND connection_id = ?`, date, item.OwnerUserID, item.KeyID, item.ModelID, item.ConnectionID).
-		Scan(&currentRequests, &currentInput, &currentOutput, &currentCost, &currentUnknown)
+		Scan(&currentRequests, &currentInput, &currentOutput, &currentCacheCreation, &currentCacheRead, &currentCache5m, &currentCache1h, &currentCost, &currentUnknown)
 	if errors.Is(err, sql.ErrNoRows) {
-		_, err = tx.ExecContext(ctx, `INSERT INTO usage_daily (date, owner_user_id, key_id, model_id, connection_id, requests, input_tokens, output_tokens, known_cost_nanos, unknown_attempts)
-			VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`, date, item.OwnerUserID, item.KeyID, item.ModelID, item.ConnectionID, requestIncrement, input, output, cost, unknown)
+		_, err = tx.ExecContext(ctx, `INSERT INTO usage_daily (date, owner_user_id, key_id, model_id, connection_id, requests, input_tokens, output_tokens, cache_creation_input_tokens, cache_read_input_tokens, cache_creation_5m_input_tokens, cache_creation_1h_input_tokens, known_cost_nanos, unknown_attempts)
+			VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`, date, item.OwnerUserID, item.KeyID, item.ModelID, item.ConnectionID, requestIncrement, input, output, cacheCreation, cacheRead, cache5m, cache1h, cost, unknown)
 		return err
 	}
 	if err != nil {
@@ -302,13 +318,17 @@ func projectSettlement(ctx context.Context, tx *sql.Tx, payload string, requestI
 	nextRequests, okRequests := checkedAdd(currentRequests, requestIncrement)
 	nextInput, okInput := checkedAdd(currentInput, input)
 	nextOutput, okOutput := checkedAdd(currentOutput, output)
+	nextCacheCreation, okCacheCreation := checkedAdd(currentCacheCreation, cacheCreation)
+	nextCacheRead, okCacheRead := checkedAdd(currentCacheRead, cacheRead)
+	nextCache5m, okCache5m := checkedAdd(currentCache5m, cache5m)
+	nextCache1h, okCache1h := checkedAdd(currentCache1h, cache1h)
 	nextCost, okCost := checkedAdd(currentCost, cost)
 	nextUnknown, okUnknown := checkedAdd(currentUnknown, unknown)
-	if !okRequests || !okInput || !okOutput || !okCost || !okUnknown {
+	if !okRequests || !okInput || !okOutput || !okCacheCreation || !okCacheRead || !okCache5m || !okCache1h || !okCost || !okUnknown {
 		return errors.New("usage projection overflow")
 	}
-	_, err = tx.ExecContext(ctx, `UPDATE usage_daily SET requests = ?, input_tokens = ?, output_tokens = ?, known_cost_nanos = ?, unknown_attempts = ?
+	_, err = tx.ExecContext(ctx, `UPDATE usage_daily SET requests = ?, input_tokens = ?, output_tokens = ?, cache_creation_input_tokens = ?, cache_read_input_tokens = ?, cache_creation_5m_input_tokens = ?, cache_creation_1h_input_tokens = ?, known_cost_nanos = ?, unknown_attempts = ?
 		WHERE date = ? AND owner_user_id = ? AND key_id = ? AND model_id = ? AND connection_id = ?`,
-		nextRequests, nextInput, nextOutput, nextCost, nextUnknown, date, item.OwnerUserID, item.KeyID, item.ModelID, item.ConnectionID)
+		nextRequests, nextInput, nextOutput, nextCacheCreation, nextCacheRead, nextCache5m, nextCache1h, nextCost, nextUnknown, date, item.OwnerUserID, item.KeyID, item.ModelID, item.ConnectionID)
 	return err
 }

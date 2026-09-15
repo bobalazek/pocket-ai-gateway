@@ -11,6 +11,20 @@ import (
 	"github.com/bobalazek/pocket-ai-gateway/internal/storage"
 )
 
+func TestPromptCacheCapabilityRequiresAnthropicPreset(t *testing.T) {
+	if !PresetSupportsCapabilities("anthropic", []string{"chat", "prompt_cache"}) {
+		t.Fatal("Anthropic preset rejected prompt_cache")
+	}
+	for _, preset := range []string{"custom", "openai", "gemini"} {
+		if PresetSupportsCapabilities(preset, []string{"prompt_cache"}) {
+			t.Fatalf("%s preset accepted prompt_cache", preset)
+		}
+	}
+	if validCapabilities([]string{"prompt_cache"}) {
+		t.Fatal("prompt_cache accepted without chat")
+	}
+}
+
 func TestMasterKeyAndStoredCredentialRoundTrip(t *testing.T) {
 	directory := t.TempDir()
 	first, err := LoadOrCreateMasterKey(directory)

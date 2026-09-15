@@ -28,15 +28,19 @@ function RequestCard({ item }: { item: GatewayRequest }) {
         </div>
         <span className="status-badge">{item.attempts.length} attempt{item.attempts.length === 1 ? "" : "s"}</span>
       </div>
-      {item.attempts.map((attempt) => (
-        <div className="resource-row section-block" key={attempt.id}>
-          <div>
-            <small>#{attempt.ordinal} · {attempt.connection_id} · {attempt.upstream_model_id} · {attempt.translation_applied ? `${item.dialect} → ${attempt.target_dialect}` : attempt.target_dialect} · {attempt.target_operation}</small>
-            <small>{attempt.state} · {attempt.usage_status} · {attempt.input_tokens + attempt.output_tokens} tokens · {attempt.cost_usd === null ? "cost N/A" : `$${attempt.cost_usd}`} · {attempt.request_tool_count} tools offered · {attempt.response_tool_call_count === 0 ? "no tool calls" : `${attempt.response_tool_call_count} tool calls ${attempt.tool_call_status}`}</small>
-            <small>Selected by {attempt.selection_reason}{attempt.rejected_candidates.length ? ` · ${attempt.rejected_candidates.length} candidates rejected` : ""}</small>
+      {item.attempts.map((attempt) => {
+        const hasCacheUsage = attempt.cache_creation_input_tokens > 0 || attempt.cache_read_input_tokens > 0 || attempt.cache_creation_5m_input_tokens > 0 || attempt.cache_creation_1h_input_tokens > 0;
+        return (
+          <div className="resource-row section-block" key={attempt.id}>
+            <div>
+              <small>#{attempt.ordinal} · {attempt.connection_id} · {attempt.upstream_model_id} · {attempt.translation_applied ? `${item.dialect} → ${attempt.target_dialect}` : attempt.target_dialect} · {attempt.target_operation}</small>
+              <small>{attempt.state} · {attempt.usage_status} · {attempt.input_tokens + attempt.output_tokens} tokens · {attempt.cost_usd === null ? "cost N/A" : `$${attempt.cost_usd}`} · {attempt.request_tool_count} tools offered · {attempt.response_tool_call_count === 0 ? "no tool calls" : `${attempt.response_tool_call_count} tool calls ${attempt.tool_call_status}`}</small>
+              {hasCacheUsage && <small>Cache: {attempt.cache_creation_input_tokens} written ({attempt.cache_creation_5m_input_tokens} at 5m, {attempt.cache_creation_1h_input_tokens} at 1h) · {attempt.cache_read_input_tokens} read</small>}
+              <small>Selected by {attempt.selection_reason}{attempt.rejected_candidates.length ? ` · ${attempt.rejected_candidates.length} candidates rejected` : ""}</small>
+            </div>
           </div>
-        </div>
-      ))}
+        );
+      })}
     </Card>
   );
 }

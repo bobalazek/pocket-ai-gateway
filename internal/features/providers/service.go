@@ -26,7 +26,7 @@ var (
 
 var adapters = map[string][]string{
 	"openai":            {"chat", "embeddings", "moderations", "count_tokens", "images", "image_edit", "image_variation", "audio_speech", "audio_transcription", "audio_translation"},
-	"anthropic":         {"messages", "count_tokens"},
+	"anthropic":         {"messages", "count_tokens", "prompt_cache"},
 	"gemini":            {"generate_content", "count_tokens", "embeddings"},
 	"openai_compatible": {"chat", "embeddings", "moderations", "count_tokens", "images", "image_edit", "image_variation", "audio_speech", "audio_transcription", "audio_translation"},
 }
@@ -630,12 +630,15 @@ func normalizeCapabilities(values []string) []string {
 	return out
 }
 func validCapabilities(values []string) bool {
+	hasChat, hasPromptCache := false, false
 	for _, value := range values {
-		if value != "chat" && value != "embeddings" && value != "count_tokens" && value != "moderations" && value != "images" && value != "image_edit" && value != "image_variation" && value != "audio_speech" && value != "audio_transcription" && value != "audio_translation" {
+		if value != "chat" && value != "embeddings" && value != "count_tokens" && value != "moderations" && value != "images" && value != "image_edit" && value != "image_variation" && value != "audio_speech" && value != "audio_transcription" && value != "audio_translation" && value != "prompt_cache" {
 			return false
 		}
+		hasChat = hasChat || value == "chat"
+		hasPromptCache = hasPromptCache || value == "prompt_cache"
 	}
-	return true
+	return !hasPromptCache || hasChat
 }
 func validPublicID(value string) bool {
 	if value == "" || len(value) > 200 {
