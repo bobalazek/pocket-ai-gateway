@@ -11,10 +11,43 @@ paths:
       parameters: [{ name: id, in: path, required: true, schema: { type: string } }]
       responses: { "200": { description: Authorized public model }, "404": { description: Model unavailable }, default: { description: OpenAI-compatible error } }
   /chat/completions:
+    get:
+      operationId: listChatCompletions
+      description: Lists unexpired gateway-stored Chat Completions owned by the creating API key using bounded keyset pages.
+      parameters:
+        - { name: after, in: query, schema: { type: string } }
+        - { name: limit, in: query, schema: { type: integer, minimum: 1, maximum: 100, default: 20 } }
+        - { name: order, in: query, schema: { type: string, enum: [asc, desc], default: asc } }
+        - { name: model, in: query, schema: { type: string } }
+        - { name: metadata, in: query, style: deepObject, explode: true, schema: { type: object, maxProperties: 16, propertyNames: { maxLength: 64 }, additionalProperties: { type: string, maxLength: 512 } } }
+      responses: { "200": { description: Cursor page of stored Chat Completions }, default: { description: OpenAI-compatible error } }
     post:
       operationId: createChatCompletion
-      requestBody: { required: true, content: { application/json: { schema: { type: object, required: [model, messages], additionalProperties: true } } } }
-      responses: { "200": { description: Native or translated JSON or text/event-stream response }, default: { description: OpenAI-compatible error } }
+      description: Native or translated generation. store:true creates a gateway-owned 30-day resource for the creating key, keeps upstream storage disabled, requires a non-streaming request, and limits array message content to text/image_url parts so the stored message-list schema remains valid. Omitted, null, or false store remains stateless.
+      requestBody: { required: true, content: { application/json: { schema: { type: object, required: [model, messages], properties: { model: { type: string }, messages: { type: array, minItems: 1, items: { type: object, required: [role], properties: { role: { type: string, minLength: 1 }, content: { oneOf: [{ type: string }, { type: "null" }, { type: array, minItems: 1, items: { oneOf: [{ type: object, required: [type, text], properties: { type: { const: text }, text: { type: string } }, additionalProperties: true }, { type: object, required: [type, image_url], properties: { type: { const: image_url }, image_url: { type: object, required: [url], properties: { url: { type: string, minLength: 1 } }, additionalProperties: true } }, additionalProperties: true }] } }] } }, additionalProperties: true } }, store: { oneOf: [{ type: boolean }, { type: "null" }], default: false }, stream: { oneOf: [{ type: boolean }, { type: "null" }], default: false }, metadata: { oneOf: [{ type: object, maxProperties: 16, propertyNames: { maxLength: 64 }, additionalProperties: { type: string, maxLength: 512 } }, { type: "null" }] } }, additionalProperties: true } } } }
+      responses: { "200": { description: Native or translated JSON, text/event-stream, or gateway-stored Chat Completion }, default: { description: OpenAI-compatible error } }
+  /chat/completions/{completion_id}:
+    parameters: [{ name: completion_id, in: path, required: true, schema: { type: string } }]
+    get:
+      operationId: getChatCompletion
+      responses: { "200": { description: Stored Chat Completion }, "404": { description: Missing, expired, or foreign-key resource }, default: { description: OpenAI-compatible error } }
+    post:
+      operationId: updateChatCompletion
+      requestBody: { required: true, content: { application/json: { schema: { type: object, required: [metadata], properties: { metadata: { oneOf: [{ type: object, maxProperties: 16, propertyNames: { maxLength: 64 }, additionalProperties: { type: string, maxLength: 512 } }, { type: "null" }] } }, additionalProperties: false } } } }
+      responses: { "200": { description: Updated stored Chat Completion }, "404": { description: Missing, expired, or foreign-key resource }, default: { description: OpenAI-compatible error } }
+    delete:
+      operationId: deleteChatCompletion
+      responses: { "200": { description: Chat Completion deletion object }, "404": { description: Missing, expired, or foreign-key resource }, default: { description: OpenAI-compatible error } }
+  /chat/completions/{completion_id}/messages:
+    get:
+      operationId: listChatCompletionMessages
+      description: Lists the original input messages in stable request order for a stored Chat Completion.
+      parameters:
+        - { name: completion_id, in: path, required: true, schema: { type: string } }
+        - { name: after, in: query, schema: { type: string } }
+        - { name: limit, in: query, schema: { type: integer, minimum: 1, maximum: 100, default: 20 } }
+        - { name: order, in: query, schema: { type: string, enum: [asc, desc], default: asc } }
+      responses: { "200": { description: Cursor page of stored input messages }, "404": { description: Missing, expired, or foreign-key resource }, default: { description: OpenAI-compatible error } }
   /responses:
     post:
       operationId: createResponse

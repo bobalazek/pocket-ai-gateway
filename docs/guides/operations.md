@@ -56,7 +56,7 @@ Import is an owner-only, two-step preview and transactional apply. Existing matc
 
 ## Retention
 
-Retention removes old audit records and projected event payloads. It preserves authoritative requests, attempts, ledgers, assessments, interrupted work, active reservations, quota periods, token-bucket state, pricing jobs, and daily projections, so cleanup cannot erase repricing facts or restore spend and rate-limit capacity. The owner runs it manually from **Settings** after changing the periods.
+Retention removes expired gateway-owned Responses and stored Chat Completions, old audit records, and projected event payloads. It preserves authoritative requests, attempts, ledgers, assessments, interrupted work, active reservations, quota periods, token-bucket state, pricing jobs, and daily projections, so cleanup cannot erase repricing facts or restore spend and rate-limit capacity. The owner runs it manually from **Settings** after changing the periods.
 
 ## Upgrades and rollback
 

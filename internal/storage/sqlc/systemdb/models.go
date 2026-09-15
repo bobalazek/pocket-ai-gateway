@@ -357,6 +357,24 @@ type SetupToken struct {
 	ClaimedUserID sql.NullString `json:"claimed_user_id"`
 }
 
+type StoredChatCompletion struct {
+	ID           string `json:"id"`
+	OwnerUserID  string `json:"owner_user_id"`
+	KeyID        string `json:"key_id"`
+	ModelID      string `json:"model_id"`
+	BodyJson     []byte `json:"body_json"`
+	RequestJson  []byte `json:"request_json"`
+	MetadataJson []byte `json:"metadata_json"`
+	CreatedAt    int64  `json:"created_at"`
+	ExpiresAt    int64  `json:"expires_at"`
+}
+
+type StoredChatCompletionMetadatum struct {
+	CompletionID  string `json:"completion_id"`
+	MetadataKey   string `json:"metadata_key"`
+	MetadataValue string `json:"metadata_value"`
+}
+
 type StoredResponse struct {
 	ID                    string         `json:"id"`
 	OwnerUserID           string         `json:"owner_user_id"`
@@ -374,6 +392,7 @@ type StoredResponse struct {
 	ConversationID        sql.NullString `json:"conversation_id"`
 	ConversationRevision  sql.NullInt64  `json:"conversation_revision"`
 	ConversationItemsJson []byte         `json:"conversation_items_json"`
+	RequestID             sql.NullString `json:"request_id"`
 }
 
 type UpstreamModel struct {

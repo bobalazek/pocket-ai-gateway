@@ -57,6 +57,7 @@ func (handler *Handler) forwardAuthorized(response http.ResponseWriter, request 
 		return
 	}
 	storeResponse := false
+	storedChat, _ := request.Context().Value(storedChatContextKey{}).(*storedChatRequest)
 	var attached *conversationAttachment
 	switch attachment := request.Context().Value(conversationAttachmentContextKey{}).(type) {
 	case conversationAttachment:
@@ -137,6 +138,10 @@ func (handler *Handler) forwardAuthorized(response http.ResponseWriter, request 
 	translationBody := body
 	if dialect == "responses" && storeResponse {
 		envelope["store"] = []byte("false")
+		translationBody, _ = json.Marshal(envelope)
+	} else if storedChat != nil {
+		envelope["store"] = []byte("false")
+		delete(envelope, "metadata")
 		translationBody, _ = json.Marshal(envelope)
 	}
 	if dialect == "gemini" && stream {
@@ -219,6 +224,9 @@ func (handler *Handler) forwardAuthorized(response http.ResponseWriter, request 
 			targetEnvelope["model"], _ = json.Marshal(target.UpstreamID)
 			if dialect == "responses" && storeResponse {
 				targetEnvelope["store"] = []byte("false")
+			} else if storedChat != nil {
+				targetEnvelope["store"] = []byte("false")
+				delete(targetEnvelope, "metadata")
 			}
 			targetBody, err = json.Marshal(targetEnvelope)
 		} else {
@@ -335,6 +343,14 @@ func (handler *Handler) forwardAuthorized(response http.ResponseWriter, request 
 				attemptWriter.Reset()
 			}
 		}
+		var storedChatCompletion preparedChatCompletion
+		if success && storedChat != nil {
+			storedChatCompletion, copyErr = prepareStoredChatCompletion(publicID, attemptWriter.body.Bytes(), storedChat.metadata)
+			if copyErr != nil {
+				success = false
+				attemptWriter.Reset()
+			}
+		}
 		if request.Context().Err() == nil && (success || copyErr != nil || retryableResult(result, nil)) {
 			_ = handler.providers.RecordRouteOutcome(context.WithoutCancel(request.Context()), target, clientOperation, stream, success, attemptWriter.FirstByte(started), time.Since(started))
 		}
@@ -366,28 +382,17 @@ func (handler *Handler) forwardAuthorized(response http.ResponseWriter, request 
 		}
 		var storageErr error
 		deferredAttachment := attached != nil && attached.deferStore
-		if success && (storeResponse || attached != nil) && !deferredAttachment {
+		if success && attached != nil && !storeResponse && !deferredAttachment {
 			storageContext, cancelStorage := context.WithTimeout(context.WithoutCancel(request.Context()), 2*time.Second)
-			if storeResponse {
-				requestBody := body
-				if attached != nil {
-					requestBody = attached.requestBody
-				}
-				storageErr = handler.storeResponse(storageContext, principal.OwnerUserID, principal.KeyID, publicID, requestBody, storedResponse, attached)
-			} else {
-				storageErr = handler.storeConversationTurn(storageContext, *attached)
-			}
+			storageErr = handler.storeConversationTurn(storageContext, *attached)
 			cancelStorage()
-			if storageErr == nil && storeResponse {
-				attemptWriter.body.Reset()
-				_, _ = attemptWriter.body.Write(storedResponse.body)
-			}
 		}
 		if errors.Is(request.Context().Err(), context.Canceled) {
 			state, status = "interrupted_unknown", "unknown"
 			retry = false
 		}
-		settlement := usage.SettlementInput{IdempotencyKey: "dispatch:" + admission.AttemptID, State: state, UsageStatus: status, InputTokens: inputTokens, OutputTokens: outputTokens, CostNanos: cost, ResponseToolCallCount: toolCalls, ToolCallStatus: toolStatus, FinalRequest: !retry && storageErr == nil && !(deferredAttachment && success && request.Context().Err() == nil)}
+		publishAfterSettlement := success && state == "succeeded" && !deferredAttachment && (storeResponse || storedChat != nil)
+		settlement := usage.SettlementInput{IdempotencyKey: "dispatch:" + admission.AttemptID, State: state, UsageStatus: status, InputTokens: inputTokens, OutputTokens: outputTokens, CostNanos: cost, ResponseToolCallCount: toolCalls, ToolCallStatus: toolStatus, FinalRequest: !retry && storageErr == nil && !publishAfterSettlement && !(deferredAttachment && success && request.Context().Err() == nil)}
 		settlementErr := handler.settle(admission.AttemptID, settlement)
 		if observer, ok := response.(interface {
 			observeSettlement(string, string, usage.SettlementInput, error)
@@ -397,13 +402,42 @@ func (handler *Handler) forwardAuthorized(response http.ResponseWriter, request 
 			}
 			observer.observeSettlement(requestID, admission.AttemptID, settlement, settlementErr)
 		}
+		if publishAfterSettlement && settlementErr != nil {
+			attemptWriter.Reset()
+			handler.writeError(attemptWriter, dialect, http.StatusServiceUnavailable, "gateway_unavailable", "Provider usage could not be settled")
+			attemptWriter.Commit()
+			return
+		}
+		if publishAfterSettlement {
+			storageContext, cancelStorage := context.WithTimeout(context.WithoutCancel(request.Context()), 2*time.Second)
+			if storedChat != nil {
+				storageErr = handler.storeChatCompletion(storageContext, requestID, principal, publicID, *storedChat, storedChatCompletion)
+			} else {
+				requestBody := body
+				if attached != nil {
+					requestBody = attached.requestBody
+				}
+				storageErr = handler.storeResponse(storageContext, requestID, principal.OwnerUserID, principal.KeyID, publicID, requestBody, storedResponse, attached)
+			}
+			cancelStorage()
+			if storageErr == nil {
+				attemptWriter.body.Reset()
+				if storedChat != nil {
+					_, _ = attemptWriter.body.Write(storedChatCompletion.body)
+				} else {
+					_, _ = attemptWriter.body.Write(storedResponse.body)
+				}
+			}
+		}
 		if storageErr != nil {
 			finalizeContext, cancelFinalize := context.WithTimeout(context.Background(), 2*time.Second)
-			_ = handler.usage.FinalizeRequest(finalizeContext, requestID, "failed")
+			if finalizeErr := handler.usage.FinalizeFailedRequest(finalizeContext, requestID); finalizeErr != nil {
+				storageErr = errors.Join(storageErr, finalizeErr)
+			}
 			cancelFinalize()
 			attemptWriter.Reset()
 			if errors.Is(storageErr, errStoredResponseLimit) {
-				handler.writeError(attemptWriter, dialect, http.StatusTooManyRequests, "rate_limit_exceeded", "Stored Response retention limit reached")
+				handler.writeError(attemptWriter, dialect, http.StatusTooManyRequests, "rate_limit_exceeded", "Stored inference result retention limit reached")
 			} else if errors.Is(storageErr, errConversationLimit) || errors.Is(storageErr, errConversationItemLimit) {
 				handler.writeError(attemptWriter, dialect, http.StatusTooManyRequests, "rate_limit_exceeded", "Conversation retention limit reached")
 			} else if errors.Is(storageErr, errConversationChanged) {

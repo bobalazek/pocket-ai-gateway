@@ -110,7 +110,7 @@ func (handler *Handler) enqueueResponse(response http.ResponseWriter, request *h
 			err = errors.New("queue full")
 		}
 		if err == nil {
-			err = checkRetainedResponseCapacity(request.Context(), tx, principal.OwnerUserID, principal.KeyID, incoming+maxInferenceBody)
+			err = checkRetainedResponseCapacity(request.Context(), tx, principal.OwnerUserID, principal.KeyID, 1, incoming+maxInferenceBody)
 			queueLimited = errors.Is(err, errStoredResponseLimit)
 		}
 		if err == nil {
@@ -300,6 +300,12 @@ func (handler *Handler) runBackground(parent context.Context, job backgroundJob)
 		handler.failBackground(parent, job, "accounting_failed", "The provider result could not be reconciled with gateway accounting.")
 		return
 	}
+	if job.attachment != nil {
+		if recorder.requestID == "" || !handler.transitionBackground(parent, `UPDATE stored_responses SET request_id=? WHERE id=? AND state='running' AND lease_epoch=? AND (request_id IS NULL OR request_id=?)`, recorder.requestID, job.id, handler.epoch, recorder.requestID) {
+			handler.failBackground(parent, job, "accounting_failed", "The provider result could not be linked to gateway accounting.")
+			return
+		}
+	}
 	if recorder.status >= 200 && recorder.status < 300 {
 		if job.attachment != nil && recorder.settlement.FinalRequest {
 			handler.failBackground(parent, job, "background_interrupted", "The provider request was interrupted before conversation completion.")
@@ -318,6 +324,10 @@ func (handler *Handler) runBackground(parent context.Context, job backgroundJob)
 					if errors.Is(err, errBackgroundStateChanged) && !recorder.settlement.FinalRequest {
 						handler.finalizeBackgroundRequest(parent, recorder.requestID, "failed")
 					}
+					return
+				}
+				if errors.Is(err, usage.ErrConflict) {
+					handler.failBackground(parent, job, "accounting_failed", "The background request was finalized before conversation completion.")
 					return
 				}
 				if errors.Is(err, errConversationChanged) {

@@ -195,7 +195,7 @@ func TestBackgroundQueueIsBoundedPerKey(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	if err := checkRetainedResponseCapacity(ctx, store.SystemDB(), owner.ID, principal.KeyID, 1); !errors.Is(err, errStoredResponseLimit) {
+	if err := checkRetainedResponseCapacity(ctx, store.SystemDB(), owner.ID, principal.KeyID, 1, 1); !errors.Is(err, errStoredResponseLimit) {
 		t.Fatalf("retained limit error = %v", err)
 	}
 }
@@ -244,6 +244,40 @@ func TestBackgroundCompletionWaitsForDurableSettlement(t *testing.T) {
 	waitResponseState(t, store.SystemDB(), id, "completed")
 	stop()
 	<-done
+}
+
+func TestSynchronousStoredResponseStorageFailurePreservesProviderUsage(t *testing.T) {
+	upstream := httptest.NewServer(http.HandlerFunc(func(response http.ResponseWriter, _ *http.Request) {
+		_, _ = io.WriteString(response, `{"id":"upstream","object":"response","status":"completed","model":"upstream","output":[],"usage":{"input_tokens":4,"output_tokens":2,"total_tokens":6}}`)
+	}))
+	defer upstream.Close()
+	ctx, store, owner, keyService, providerService, usageService := gatewayFixture(t)
+	defer store.Close()
+	connection, model := publishModel(t, ctx, providerService, owner, "openai", upstream.URL+"/v1", "upstream", []string{"chat"})
+	_, secret, err := keyService.Create(ctx, owner.ID, keys.Input{Label: "Stored failure", Scopes: []string{"responses:generate"}, ModelPatterns: []string{model.ID}, ConnectionIDs: []string{connection.ID}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err = store.SystemDB().Exec(`CREATE TRIGGER block_sync_response_store BEFORE INSERT ON stored_responses BEGIN SELECT RAISE(ABORT,'blocked'); END`); err != nil {
+		t.Fatal(err)
+	}
+	mux := http.NewServeMux()
+	New(store.SystemDB(), keyService, providerService, usageService).Register(mux)
+	response := performResponseRequest(t, mux, secret, http.MethodPost, "/api/openai/v1/responses", `{"model":"`+model.ID+`","input":"Hi"}`)
+	if response.Code != http.StatusServiceUnavailable {
+		t.Fatalf("status=%d body=%s", response.Code, response.Body.String())
+	}
+	var attemptState, requestState string
+	var input, output, stored int64
+	if err := store.SystemDB().QueryRow(`SELECT state,input_tokens,output_tokens FROM attempts ORDER BY started_at DESC LIMIT 1`).Scan(&attemptState, &input, &output); err != nil || attemptState != "succeeded" || input != 4 || output != 2 {
+		t.Fatalf("attempt=%s %d/%d err=%v", attemptState, input, output, err)
+	}
+	if err := store.SystemDB().QueryRow(`SELECT state FROM requests ORDER BY started_at DESC LIMIT 1`).Scan(&requestState); err != nil || requestState != "failed" {
+		t.Fatalf("request=%s err=%v", requestState, err)
+	}
+	if err := store.SystemDB().QueryRow(`SELECT COUNT(*) FROM stored_responses`).Scan(&stored); err != nil || stored != 0 {
+		t.Fatalf("stored=%d err=%v", stored, err)
+	}
 }
 
 func TestResponseCompactionUsesOnlyNativeCapableTargets(t *testing.T) {

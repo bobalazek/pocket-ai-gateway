@@ -41,6 +41,26 @@ describe("official SDK compatibility through the Go gateway", () => {
     expect(result.choices[0]?.message.content).toBe("Hello");
   });
 
+  it("manages gateway-stored Chat Completions", async () => {
+    const client = openAI();
+    const created = await client.chat.completions.create({
+      model: "target-anthropic",
+      messages: [{ role: "user", content: "Store this" }],
+      store: true,
+      metadata: { suite: "sdk" },
+    });
+    expect(created).toMatchObject({ object: "chat.completion", model: "target-anthropic", metadata: { suite: "sdk" } });
+    expect(created.id).toMatch(/^chatcmpl_/);
+    expect((await client.chat.completions.retrieve(created.id)).id).toBe(created.id);
+    expect(await client.chat.completions.update(created.id, { metadata: { suite: "updated" } })).toMatchObject({ metadata: { suite: "updated" } });
+    const listed = await client.chat.completions.list({ model: "target-anthropic", metadata: { suite: "updated" } });
+    expect(listed.data.map((item) => item.id)).toContain(created.id);
+    const messages = await client.chat.completions.messages.list(created.id);
+    expect(messages.data[0]).toMatchObject({ role: "user", content: "Store this", content_parts: null });
+    expect(await client.chat.completions.delete(created.id)).toMatchObject({ id: created.id, object: "chat.completion.deleted", deleted: true });
+    await expect(client.chat.completions.retrieve(created.id)).rejects.toMatchObject({ status: 404 });
+  });
+
   it.each(models)("decodes Anthropic Messages through %s", async (model) => {
     const result = await anthropic().messages.create({ model, max_tokens: 8, messages: [{ role: "user", content: "Hi" }] });
     expect(result.content[0]).toMatchObject({ type: "text", text: "Hello" });
