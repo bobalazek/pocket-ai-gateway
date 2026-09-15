@@ -5,6 +5,7 @@ import (
 	"bytes"
 	"context"
 	"crypto/sha256"
+	"database/sql"
 	"encoding/json"
 	"errors"
 	"io"
@@ -23,13 +24,14 @@ import (
 const maxInferenceBody = 16 << 20
 
 type Handler struct {
+	database  *sql.DB
 	keys      *keys.Service
 	providers *providers.Service
 	usage     *usage.Service
 }
 
-func New(keyService *keys.Service, providerService *providers.Service, usageService *usage.Service) *Handler {
-	return &Handler{keys: keyService, providers: providerService, usage: usageService}
+func New(database *sql.DB, keyService *keys.Service, providerService *providers.Service, usageService *usage.Service) *Handler {
+	return &Handler{database: database, keys: keyService, providers: providerService, usage: usageService}
 }
 
 func (handler *Handler) Register(mux *http.ServeMux) {
@@ -41,6 +43,8 @@ func (handler *Handler) Register(mux *http.ServeMux) {
 	mux.HandleFunc("POST /api/openai/v1/responses", func(w http.ResponseWriter, r *http.Request) {
 		handler.forward(w, r, "responses", "responses:generate", "responses", "", nil)
 	})
+	mux.HandleFunc("GET /api/openai/v1/responses/{response_id}", handler.getResponse)
+	mux.HandleFunc("DELETE /api/openai/v1/responses/{response_id}", handler.deleteResponse)
 	mux.HandleFunc("POST /api/openai/v1/embeddings", func(w http.ResponseWriter, r *http.Request) {
 		handler.forward(w, r, "openai", "embeddings:generate", "embeddings", "", nil)
 	})
@@ -85,8 +89,9 @@ func (handler *Handler) forward(response http.ResponseWriter, request *http.Requ
 		handler.writeError(response, dialect, http.StatusBadRequest, "invalid_request", "model is required")
 		return
 	}
+	storeResponse := false
 	if dialect == "responses" {
-		if err := validateStatelessResponses(envelope); err != nil {
+		if storeResponse, err = validateResponses(envelope); err != nil {
 			handler.writeError(response, dialect, http.StatusBadRequest, "unsupported_feature", err.Error())
 			return
 		}
@@ -117,6 +122,10 @@ func (handler *Handler) forward(response http.ResponseWriter, request *http.Requ
 		outputEstimate = 4096
 	}
 	translationBody := body
+	if dialect == "responses" && storeResponse {
+		envelope["store"] = []byte("false")
+		translationBody, _ = json.Marshal(envelope)
+	}
 	if dialect == "gemini" && stream {
 		envelope["stream"] = []byte("true")
 		translationBody, _ = json.Marshal(envelope)
@@ -184,6 +193,9 @@ func (handler *Handler) forward(response http.ResponseWriter, request *http.Requ
 			}
 		} else if native {
 			targetEnvelope["model"], _ = json.Marshal(target.UpstreamID)
+			if dialect == "responses" && storeResponse {
+				targetEnvelope["store"] = []byte("false")
+			}
 			targetBody, err = json.Marshal(targetEnvelope)
 		} else {
 			targetPath, targetBody, err = translateRequest(dialect, target.Adapter, translationBody, target.UpstreamID)
@@ -227,7 +239,15 @@ func (handler *Handler) forward(response http.ResponseWriter, request *http.Requ
 			result, raw, copyErr = handler.dispatchTranslated(attemptWriter, request, target, targetPath, targetBody, dialect, publicID, stream, releaseDispatch)
 		}
 		success := copyErr == nil && result >= 200 && result < 300
-		if request.Context().Err() == nil && (success || result == 0 || retryableResult(result, nil)) {
+		var storedResponse preparedResponse
+		if success && storeResponse {
+			storedResponse, copyErr = prepareStoredResponse(publicID, attemptWriter.body.Bytes())
+			if copyErr != nil {
+				success = false
+				attemptWriter.Reset()
+			}
+		}
+		if request.Context().Err() == nil && (success || copyErr != nil || retryableResult(result, nil)) {
 			_ = handler.providers.RecordRouteOutcome(context.WithoutCancel(request.Context()), target, clientOperation, stream, success, attemptWriter.FirstByte(started), time.Since(started))
 		}
 		retry := index+1 < len(plan.Targets) && retryableResult(result, copyErr) && !attemptWriter.Committed()
@@ -259,11 +279,30 @@ func (handler *Handler) forward(response http.ResponseWriter, request *http.Requ
 		if copyErr != nil && toolCalls > 0 {
 			toolStatus = "incomplete"
 		}
+		var storageErr error
+		if success && storeResponse {
+			storageContext, cancelStorage := context.WithTimeout(context.WithoutCancel(request.Context()), 2*time.Second)
+			storageErr = handler.storeResponse(storageContext, principal.OwnerUserID, principal.KeyID, publicID, storedResponse)
+			cancelStorage()
+			if storageErr == nil {
+				attemptWriter.body.Reset()
+				_, _ = attemptWriter.body.Write(storedResponse.body)
+			}
+		}
 		if errors.Is(request.Context().Err(), context.Canceled) {
 			state, status = "interrupted_unknown", "unknown"
 			retry = false
 		}
-		handler.settle(admission.AttemptID, usage.SettlementInput{IdempotencyKey: "dispatch:" + admission.AttemptID, State: state, UsageStatus: status, InputTokens: inputTokens, OutputTokens: outputTokens, CostNanos: cost, ResponseToolCallCount: toolCalls, ToolCallStatus: toolStatus, FinalRequest: !retry})
+		handler.settle(admission.AttemptID, usage.SettlementInput{IdempotencyKey: "dispatch:" + admission.AttemptID, State: state, UsageStatus: status, InputTokens: inputTokens, OutputTokens: outputTokens, CostNanos: cost, ResponseToolCallCount: toolCalls, ToolCallStatus: toolStatus, FinalRequest: !retry && storageErr == nil})
+		if storageErr != nil {
+			finalizeContext, cancelFinalize := context.WithTimeout(context.Background(), 2*time.Second)
+			_ = handler.usage.FinalizeRequest(finalizeContext, requestID, "failed")
+			cancelFinalize()
+			attemptWriter.Reset()
+			handler.writeError(attemptWriter, dialect, http.StatusServiceUnavailable, "gateway_unavailable", "Response could not be stored")
+			attemptWriter.Commit()
+			return
+		}
 		if retry {
 			if !waitRetry(request.Context(), index) {
 				_ = handler.usage.CloseFailedRequest(context.WithoutCancel(request.Context()), requestID)
@@ -283,6 +322,9 @@ func nativeTarget(dialect, adapter string) bool {
 	return nativeAdapter(dialect, adapter) || dialect == "responses" && (adapter == "openai" || adapter == "openai_compatible")
 }
 func retryableResult(status int, err error) bool {
+	if status >= 200 && status < 300 {
+		return false
+	}
 	return err != nil || status == 0 || status == http.StatusRequestTimeout || status == http.StatusTooEarly || status == http.StatusTooManyRequests || status >= 500
 }
 func waitRetry(ctx context.Context, index int) bool {
@@ -366,29 +408,42 @@ func (writer *attemptWriter) commitHeader() {
 }
 func (writer *attemptWriter) Commit() { writer.commitHeader() }
 
-func validateStatelessResponses(envelope map[string]json.RawMessage) error {
-	var stored bool
-	if raw, exists := envelope["store"]; !exists || json.Unmarshal(raw, &stored) != nil || stored {
-		return errors.New("store:false is required")
+func (writer *attemptWriter) Reset() {
+	writer.header = make(http.Header)
+	writer.status = 0
+	writer.body.Reset()
+}
+
+func validateResponses(envelope map[string]json.RawMessage) (bool, error) {
+	stored := true
+	if raw, exists := envelope["store"]; exists && json.Unmarshal(raw, &stored) != nil {
+		return false, errors.New("store must be a boolean")
+	}
+	var stream bool
+	if raw, exists := envelope["stream"]; exists && json.Unmarshal(raw, &stream) != nil {
+		return false, errors.New("stream must be a boolean")
+	}
+	if stored && stream {
+		return false, errors.New("stored streaming Responses are not supported")
 	}
 	for _, field := range []string{"background", "conversation", "previous_response_id"} {
 		raw := bytes.TrimSpace(envelope[field])
 		if len(raw) > 0 && !bytes.Equal(raw, []byte("null")) && !bytes.Equal(raw, []byte("false")) && !bytes.Equal(raw, []byte(`""`)) {
-			return errors.New(field + " is not supported by stateless Responses")
+			return false, errors.New(field + " is not supported by Responses")
 		}
 	}
 	if raw := envelope["tools"]; len(raw) > 0 {
 		var tools []map[string]any
 		if json.Unmarshal(raw, &tools) != nil {
-			return errors.New("tools must be an array")
+			return false, errors.New("tools must be an array")
 		}
 		for _, tool := range tools {
 			if kind, _ := tool["type"].(string); kind != "function" {
-				return errors.New("only function tools are supported by stateless Responses")
+				return false, errors.New("only function tools are supported by Responses")
 			}
 		}
 	}
-	return nil
+	return stored, nil
 }
 
 func (handler *Handler) geminiAction(response http.ResponseWriter, request *http.Request) {

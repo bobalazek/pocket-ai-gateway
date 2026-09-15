@@ -339,6 +339,16 @@ type SetupToken struct {
 	ClaimedUserID sql.NullString `json:"claimed_user_id"`
 }
 
+type StoredResponse struct {
+	ID          string `json:"id"`
+	OwnerUserID string `json:"owner_user_id"`
+	KeyID       string `json:"key_id"`
+	ModelID     string `json:"model_id"`
+	BodyJson    []byte `json:"body_json"`
+	CreatedAt   int64  `json:"created_at"`
+	ExpiresAt   int64  `json:"expires_at"`
+}
+
 type UpstreamModel struct {
 	ID               string `json:"id"`
 	ConnectionID     string `json:"connection_id"`

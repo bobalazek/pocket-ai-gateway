@@ -56,7 +56,7 @@ func TestNativeOpenAIForwardingUsesProviderCredentialAndAccounts(t *testing.T) {
 		t.Fatal(err)
 	}
 	mux := http.NewServeMux()
-	New(keyService, providerService, usageService).Register(mux)
+	New(store.SystemDB(), keyService, providerService, usageService).Register(mux)
 	server := httptest.NewServer(mux)
 	defer server.Close()
 	request, _ := http.NewRequest(http.MethodPost, server.URL+"/api/openai/v1/chat/completions", strings.NewReader(`{"model":"assistant","messages":[{"role":"user","content":"Hi"}]}`))
@@ -95,7 +95,7 @@ func TestNativeModelListsKeepTheirOwnShapes(t *testing.T) {
 		t.Fatal(err)
 	}
 	mux := http.NewServeMux()
-	New(keyService, providerService, usageService).Register(mux)
+	New(store.SystemDB(), keyService, providerService, usageService).Register(mux)
 	server := httptest.NewServer(mux)
 	defer server.Close()
 	tests := []struct{ path, header, prefix, want string }{{"/api/openai/v1/models", "Authorization", "Bearer ", `"object":"list"`}, {"/api/anthropic/v1/models", "x-api-key", "", `"type":"model"`}, {"/api/gemini/v1beta/models", "x-goog-api-key", "", `"models/`}}
@@ -139,7 +139,7 @@ func TestAnthropicAndGeminiUseNativePathsAndHeaders(t *testing.T) {
 		t.Fatal(err)
 	}
 	mux := http.NewServeMux()
-	New(keyService, providerService, usageService).Register(mux)
+	New(store.SystemDB(), keyService, providerService, usageService).Register(mux)
 	server := httptest.NewServer(mux)
 	defer server.Close()
 	anthropicRequest, _ := http.NewRequest(http.MethodPost, server.URL+"/api/anthropic/v1/messages", strings.NewReader(`{"model":"anthropic-model","max_tokens":8,"messages":[{"role":"user","content":"Hi"}]}`))
@@ -196,7 +196,7 @@ func TestEmbeddingAdmissionUsesRawBodyAndBatchCardinality(t *testing.T) {
 		t.Fatal(err)
 	}
 	mux := http.NewServeMux()
-	New(keyService, providerService, usageService).Register(mux)
+	New(store.SystemDB(), keyService, providerService, usageService).Register(mux)
 	server := httptest.NewServer(mux)
 	defer server.Close()
 	for _, body := range []string{`{                                                                                                    "model":"assistant","input":"a"}`, `{"model":"assistant","input":["a","b"]}`} {
@@ -248,7 +248,7 @@ func TestNativeStreamFlushesBeforeCompletion(t *testing.T) {
 		t.Fatal(err)
 	}
 	mux := http.NewServeMux()
-	New(keyService, providerService, usageService).Register(mux)
+	New(store.SystemDB(), keyService, providerService, usageService).Register(mux)
 	server := httptest.NewServer(mux)
 	defer server.Close()
 	request, _ := http.NewRequest(http.MethodPost, server.URL+"/api/openai/v1/chat/completions", strings.NewReader(`{"model":"assistant","stream":true,"max_tokens":8,"messages":[{"role":"user","content":"Hi"}]}`))
@@ -305,7 +305,7 @@ func TestCrossProtocolHandlerMatrixUsesNativeClientShapes(t *testing.T) {
 				t.Fatal(err)
 			}
 			mux := http.NewServeMux()
-			New(keyService, providerService, usageService).Register(mux)
+			New(store.SystemDB(), keyService, providerService, usageService).Register(mux)
 			server := httptest.NewServer(mux)
 			defer server.Close()
 			request := crossProtocolRequest(t, server.URL, test.client, model.ID, secret)
@@ -354,7 +354,7 @@ func TestResponsesEndpointSupportsEveryTargetFamilyAndRejectsState(t *testing.T)
 				t.Fatal(err)
 			}
 			mux := http.NewServeMux()
-			New(keyService, providerService, usageService).Register(mux)
+			New(store.SystemDB(), keyService, providerService, usageService).Register(mux)
 			server := httptest.NewServer(mux)
 			defer server.Close()
 			call := func(body string) (int, string) {
@@ -372,9 +372,195 @@ func TestResponsesEndpointSupportsEveryTargetFamilyAndRejectsState(t *testing.T)
 			if status != 200 || !strings.Contains(body, `"object":"response"`) || calls != 1 {
 				t.Fatalf("status=%d path=%s body=%s calls=%d", status, path, body, calls)
 			}
+			status, body = call(`{"model":"` + model.ID + `","input":"Hi","max_output_tokens":8}`)
+			var stored map[string]any
+			storedID, hasStoredID := "", false
+			if json.Unmarshal([]byte(body), &stored) == nil {
+				storedID, hasStoredID = stored["id"].(string)
+			}
+			if status != http.StatusOK || !hasStoredID || stored["store"] != true || calls != 2 {
+				t.Fatalf("stored status=%d body=%s calls=%d", status, body, calls)
+			}
+			request, _ := http.NewRequest(http.MethodGet, server.URL+"/api/openai/v1/responses/"+storedID, nil)
+			request.Header.Set("Authorization", "Bearer "+secret)
+			retrieved, err := http.DefaultClient.Do(request)
+			if err != nil {
+				t.Fatal(err)
+			}
+			retrievedBody, _ := io.ReadAll(retrieved.Body)
+			retrieved.Body.Close()
+			if retrieved.StatusCode != http.StatusOK || !strings.Contains(string(retrievedBody), `"store":true`) {
+				t.Fatalf("retrieved status=%d body=%s", retrieved.StatusCode, retrievedBody)
+			}
 			status, body = call(`{"model":"` + model.ID + `","input":"Hi","store":false,"previous_response_id":"resp_old"}`)
-			if status != 400 || !strings.Contains(body, "previous_response_id") || calls != 1 {
+			if status != 400 || !strings.Contains(body, "previous_response_id") || calls != 2 {
 				t.Fatalf("unsupported status=%d body=%s calls=%d", status, body, calls)
+			}
+		})
+	}
+}
+
+func TestStoredResponseCanBeRetrievedAndDeletedOnlyByItsCreatingKey(t *testing.T) {
+	var upstreamStore any
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var body map[string]any
+		_ = json.NewDecoder(r.Body).Decode(&body)
+		upstreamStore = body["store"]
+		_, _ = io.WriteString(w, `{"id":"resp_upstream","object":"response","created_at":9007199254740993,"status":"completed","model":"private-upstream-model","output":[],"usage":{"input_tokens":2,"output_tokens":1,"total_tokens":3}}`)
+	}))
+	defer upstream.Close()
+	ctx, store, owner, keyService, providerService, usageService := gatewayFixture(t)
+	defer store.Close()
+	connection, model := publishModel(t, ctx, providerService, owner, "openai", upstream.URL+"/v1", "openai-upstream", []string{"chat"})
+	_, secret, err := keyService.Create(ctx, owner.ID, keys.Input{Label: "Owner", Scopes: []string{"responses:generate"}, ModelPatterns: []string{model.ID}, ConnectionIDs: []string{connection.ID}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, siblingSecret, err := keyService.Create(ctx, owner.ID, keys.Input{Label: "Sibling", Scopes: []string{"responses:generate"}, ModelPatterns: []string{model.ID}, ConnectionIDs: []string{connection.ID}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	now := time.Now().UnixMilli()
+	if _, err = store.SystemDB().ExecContext(ctx, `INSERT INTO users(id,email,display_name,password_hash,role,status,inference_unrestricted,created_at,updated_at) VALUES('usr_other','other@example.test','Other','hash','member','active',1,?,?)`, now, now); err != nil {
+		t.Fatal(err)
+	}
+	_, otherSecret, err := keyService.Create(ctx, "usr_other", keys.Input{Label: "Other", Scopes: []string{"responses:generate"}, ModelPatterns: []string{"*"}, ConnectionIDs: []string{connection.ID}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	mux := http.NewServeMux()
+	New(store.SystemDB(), keyService, providerService, usageService).Register(mux)
+	server := httptest.NewServer(mux)
+	defer server.Close()
+	call := func(method, path, token, body string) (int, []byte) {
+		request, _ := http.NewRequest(method, server.URL+path, strings.NewReader(body))
+		request.Header.Set("Authorization", "Bearer "+token)
+		response, err := http.DefaultClient.Do(request)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer response.Body.Close()
+		value, _ := io.ReadAll(response.Body)
+		return response.StatusCode, value
+	}
+	status, body := call(http.MethodPost, "/api/openai/v1/responses", secret, `{"model":"`+model.ID+`","input":"Hi","max_output_tokens":8}`)
+	var created map[string]any
+	if json.Unmarshal(body, &created) != nil || status != http.StatusOK || created["id"] == "resp_upstream" || created["model"] != model.ID || created["store"] != true || upstreamStore != false || !bytes.Contains(body, []byte(`"created_at":9007199254740993`)) {
+		t.Fatalf("created status=%d body=%s upstream store=%v", status, body, upstreamStore)
+	}
+	id, _ := created["id"].(string)
+	status, retrieved := call(http.MethodGet, "/api/openai/v1/responses/"+id, secret, "")
+	if status != http.StatusOK || !bytes.Equal(body, retrieved) {
+		t.Fatalf("retrieved status=%d body=%s", status, retrieved)
+	}
+	status, _ = call(http.MethodGet, "/api/openai/v1/responses/"+id, otherSecret, "")
+	if status != http.StatusNotFound {
+		t.Fatalf("cross-owner retrieval status=%d", status)
+	}
+	status, _ = call(http.MethodGet, "/api/openai/v1/responses/"+id, siblingSecret, "")
+	if status != http.StatusNotFound {
+		t.Fatalf("cross-key retrieval status=%d", status)
+	}
+	status, deleted := call(http.MethodDelete, "/api/openai/v1/responses/"+id, secret, "")
+	if status != http.StatusOK || !bytes.Contains(deleted, []byte(`"deleted":true`)) {
+		t.Fatalf("deleted status=%d body=%s", status, deleted)
+	}
+	status, _ = call(http.MethodGet, "/api/openai/v1/responses/"+id, secret, "")
+	if status != http.StatusNotFound {
+		t.Fatalf("retrieval after delete status=%d", status)
+	}
+	status, _ = call(http.MethodPost, "/api/openai/v1/responses", secret, `{"model":"`+model.ID+`","input":"Hi","stream":true}`)
+	if status != http.StatusBadRequest {
+		t.Fatalf("stored stream status=%d", status)
+	}
+}
+
+func TestStoredResponseFailureKeepsProviderUsageAndFailsRequest(t *testing.T) {
+	upstreamBody := `{"id":"resp_upstream","object":"response","status":"completed","output":[],"usage":{"input_tokens":2,"output_tokens":1,"total_tokens":3}}`
+	for _, test := range []struct {
+		name, body string
+		dropTable  bool
+	}{{"invalid provider object", `null`, false}, {"database failure", upstreamBody, true}} {
+		t.Run(test.name, func(t *testing.T) {
+			upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { _, _ = io.WriteString(w, test.body) }))
+			defer upstream.Close()
+			fallbackCalls := 0
+			fallback := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+				fallbackCalls++
+				_, _ = io.WriteString(w, upstreamBody)
+			}))
+			defer fallback.Close()
+			ctx, store, owner, keyService, providerService, usageService := gatewayFixture(t)
+			defer store.Close()
+			connection, model := publishModel(t, ctx, providerService, owner, "openai", upstream.URL+"/v1", "openai-upstream", []string{"chat"})
+			connections := []string{connection.ID}
+			if !test.dropTable {
+				secondConnection, err := providerService.CreateConnection(ctx, owner, providers.ConnectionInput{Name: "fallback", Adapter: "openai", BaseURL: fallback.URL + "/v1", Enabled: true, AllowPrivateNetwork: true, TimeoutMS: 5000})
+				if err != nil {
+					t.Fatal(err)
+				}
+				if err = providerService.PutCredential(ctx, owner, secondConnection.ID, "provider-secret", ""); err != nil {
+					t.Fatal(err)
+				}
+				secondModel, err := providerService.CreateUpstreamModel(ctx, owner, secondConnection.ID, "fallback", []string{"chat"})
+				if err != nil {
+					t.Fatal(err)
+				}
+				if _, err = providerService.ConfigureRoute(ctx, owner, model.ID, model.Revision, providers.RouteConfigInput{Strategy: "ordered_fallback", Targets: []providers.RouteTargetInput{{UpstreamModelID: model.TargetModelID, Priority: 1, Weight: 1, Enabled: true}, {UpstreamModelID: secondModel.ID, Priority: 2, Weight: 1, Enabled: true}}}); err != nil {
+					t.Fatal(err)
+				}
+				connections = append(connections, secondConnection.ID)
+			}
+			_, secret, err := keyService.Create(ctx, owner.ID, keys.Input{Label: "Stored", Scopes: []string{"responses:generate"}, ModelPatterns: []string{model.ID}, ConnectionIDs: connections})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if test.dropTable {
+				if _, err := store.SystemDB().ExecContext(ctx, `DROP TABLE stored_responses`); err != nil {
+					t.Fatal(err)
+				}
+			}
+			mux := http.NewServeMux()
+			New(store.SystemDB(), keyService, providerService, usageService).Register(mux)
+			server := httptest.NewServer(mux)
+			defer server.Close()
+			request, _ := http.NewRequest(http.MethodPost, server.URL+"/api/openai/v1/responses", strings.NewReader(`{"model":"`+model.ID+`","input":"Hi"}`))
+			request.Header.Set("Authorization", "Bearer "+secret)
+			response, err := http.DefaultClient.Do(request)
+			if err != nil {
+				t.Fatal(err)
+			}
+			response.Body.Close()
+			wantStatus := http.StatusBadGateway
+			if test.dropTable {
+				wantStatus = http.StatusServiceUnavailable
+			}
+			if response.StatusCode != wantStatus {
+				t.Fatalf("status=%d", response.StatusCode)
+			}
+			var requestState, attemptState, usageStatus string
+			var input, output sql.NullInt64
+			if err := store.SystemDB().QueryRowContext(ctx, `SELECT requests.state,attempts.state,attempts.usage_status,attempts.input_tokens,attempts.output_tokens FROM requests JOIN attempts ON attempts.request_id=requests.id`).Scan(&requestState, &attemptState, &usageStatus, &input, &output); err != nil {
+				t.Fatal(err)
+			}
+			wantAttempt := "failed"
+			if test.dropTable {
+				wantAttempt = "succeeded"
+			}
+			if requestState != "failed" || attemptState != wantAttempt {
+				t.Fatalf("request/attempt=%s/%s", requestState, attemptState)
+			}
+			if test.dropTable && (usageStatus != "provider_reported" || !input.Valid || input.Int64 != 2 || !output.Valid || output.Int64 != 1) {
+				t.Fatalf("usage=%s %v/%v", usageStatus, input, output)
+			}
+			if !test.dropTable {
+				var successes, failures int64
+				if err := store.SystemDB().QueryRowContext(ctx, `SELECT success_count,failure_count FROM route_observations WHERE upstream_model_id=? AND operation='responses'`, model.TargetModelID).Scan(&successes, &failures); err != nil || successes != 0 || failures != 1 {
+					t.Fatalf("route health=%d/%d error=%v", successes, failures, err)
+				}
+				if fallbackCalls != 0 {
+					t.Fatalf("fallback calls=%d after provider 2xx", fallbackCalls)
+				}
 			}
 		})
 	}
@@ -398,7 +584,7 @@ func TestPresetOperationLimitsDispatch(t *testing.T) {
 		t.Fatal(err)
 	}
 	mux := http.NewServeMux()
-	New(keyService, providerService, usageService).Register(mux)
+	New(store.SystemDB(), keyService, providerService, usageService).Register(mux)
 	server := httptest.NewServer(mux)
 	defer server.Close()
 	call := func(path, body string) int {
@@ -441,7 +627,7 @@ func TestGeminiCrossProtocolStreamingRequestsAnUpstreamStream(t *testing.T) {
 		t.Fatal(err)
 	}
 	mux := http.NewServeMux()
-	New(keyService, providerService, usageService).Register(mux)
+	New(store.SystemDB(), keyService, providerService, usageService).Register(mux)
 	server := httptest.NewServer(mux)
 	defer server.Close()
 	request, _ := http.NewRequest(http.MethodPost, server.URL+"/api/gemini/v1beta/models/"+model.ID+":streamGenerateContent", strings.NewReader(`{"contents":[{"parts":[{"text":"Hi"}]}],"generationConfig":{"maxOutputTokens":8}}`))
@@ -470,7 +656,7 @@ func TestTranslatedResponseWithoutProviderUsageRemainsUnknown(t *testing.T) {
 		t.Fatal(err)
 	}
 	mux := http.NewServeMux()
-	New(keyService, providerService, usageService).Register(mux)
+	New(store.SystemDB(), keyService, providerService, usageService).Register(mux)
 	server := httptest.NewServer(mux)
 	defer server.Close()
 	request, _ := http.NewRequest(http.MethodPost, server.URL+"/api/openai/v1/chat/completions", strings.NewReader(`{"model":"`+model.ID+`","messages":[{"role":"user","content":"Hi"}]}`))
@@ -500,7 +686,7 @@ func TestRequestHistoryRecordsSafeToolMetadata(t *testing.T) {
 		t.Fatal(err)
 	}
 	mux := http.NewServeMux()
-	New(keyService, providerService, usageService).Register(mux)
+	New(store.SystemDB(), keyService, providerService, usageService).Register(mux)
 	server := httptest.NewServer(mux)
 	defer server.Close()
 	request, _ := http.NewRequest(http.MethodPost, server.URL+"/api/openai/v1/chat/completions", strings.NewReader(`{"model":"`+model.ID+`","messages":[{"role":"user","content":"Hi"}],"tools":[{"type":"function","function":{"name":"weather","parameters":{"type":"object"}}}]}`))
@@ -533,7 +719,7 @@ func TestNativeResponsesHistoryRecordsToolMetadata(t *testing.T) {
 		t.Fatal(err)
 	}
 	mux := http.NewServeMux()
-	New(keyService, providerService, usageService).Register(mux)
+	New(store.SystemDB(), keyService, providerService, usageService).Register(mux)
 	server := httptest.NewServer(mux)
 	defer server.Close()
 	request, _ := http.NewRequest(http.MethodPost, server.URL+"/api/openai/v1/responses", strings.NewReader(`{"model":"`+model.ID+`","input":"Hi","store":false,"tools":[{"type":"function","name":"weather","parameters":{"type":"object"}}]}`))
@@ -593,7 +779,7 @@ func TestOrderedFallbackRecordsEachAttempt(t *testing.T) {
 		t.Fatal(err)
 	}
 	mux := http.NewServeMux()
-	New(keyService, providerService, usageService).Register(mux)
+	New(store.SystemDB(), keyService, providerService, usageService).Register(mux)
 	server := httptest.NewServer(mux)
 	defer server.Close()
 	request, _ := http.NewRequest(http.MethodPost, server.URL+"/api/openai/v1/chat/completions", strings.NewReader(`{"model":"`+firstModel.ID+`","max_tokens":8,"messages":[{"role":"user","content":"Hi"}]}`))

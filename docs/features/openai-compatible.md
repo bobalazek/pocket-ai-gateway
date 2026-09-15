@@ -37,7 +37,7 @@ Errors preserve the OpenAI error envelope:
 
 Chat stream events contain chat.completion.chunk objects with choices/delta; function arguments may arrive as fragments. Responses has a different output-item and event lifecycle: response.created, output-item/content deltas, and terminal response status. Do not reuse Chat chunks as Responses events.
 
-Chat, embeddings, models, and stateless Responses are implemented. Chat and Responses generation can target OpenAI-compatible, Anthropic, or Gemini providers while keeping OpenAI response and event shapes. Responses requires `store: false`; provider-owned state, background mode, and hosted tools are rejected before dispatch.
+Chat, embeddings, models, and Responses generation can target OpenAI-compatible, Anthropic, or Gemini providers while keeping OpenAI response and event shapes. Non-streaming Responses are stored locally for the creating API key by default and support retrieval and deletion; `store:false` remains stateless and supports streaming. The gateway disables upstream storage. Background mode and hosted tools are rejected before dispatch until their complete lifecycle contracts land.
 
 An OpenAI-shaped client may target native OpenAI, Anthropic, Gemini, or a certified compatible endpoint. Return OpenAI-shaped output in every case. Preserve model aliases, tool correlation, usage provenance, and error class; reject unmappable semantics before dispatch.
 

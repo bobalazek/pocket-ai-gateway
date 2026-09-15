@@ -2,10 +2,6 @@
 
 Resolved choices belong in [decisions](decisions/README.md). Implementation work belongs in [the plan](../plan/README.md).
 
-## Pending clarifications
-
-- [ ] Clarify asynchronous inference — Owner: project owner — Unblocks: whether durable background job submission/polling/cancellation is initial scope. Default plan includes ordinary responses and SSE streaming; background jobs are recorded as a separate proposed extension.
-
 ## Release prerequisites
 
 - [ ] Enable GitHub private vulnerability reporting or replace the documented private contact before the first public tag — Owner: project owner/maintainer — Unblocks: accepting confidential reports.

@@ -59,7 +59,7 @@ func main() {
 	must(err)
 
 	mux := http.NewServeMux()
-	gateway.New(keyService, providerService, usage.New(store.SystemDB())).Register(mux)
+	gateway.New(store.SystemDB(), keyService, providerService, usage.New(store.SystemDB())).Register(mux)
 	gatewayListener, err := net.Listen("tcp4", "127.0.0.1:0")
 	must(err)
 	server := &http.Server{Handler: mux}

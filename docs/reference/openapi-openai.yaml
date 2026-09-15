@@ -18,9 +18,17 @@ paths:
   /responses:
     post:
       operationId: createResponse
-      description: Stateless Responses request. store must be false; provider-owned state, background mode, and hosted tools are rejected.
-      requestBody: { required: true, content: { application/json: { schema: { type: object, required: [model, input, store], properties: { model: { type: string }, input: {}, store: { const: false }, stream: { type: boolean } }, additionalProperties: true } } } }
+      description: Creates a response. Non-streaming responses are stored by default for retrieval with the creating API key; store:false remains stateless. Streaming requires store:false. Background mode and hosted tools are rejected.
+      requestBody: { required: true, content: { application/json: { schema: { type: object, required: [model, input], properties: { model: { type: string }, input: {}, store: { type: boolean, default: true }, stream: { type: boolean } }, additionalProperties: true } } } }
       responses: { "200": { description: Native or translated Responses JSON or lifecycle event stream }, default: { description: OpenAI-compatible error } }
+  /responses/{response_id}:
+    parameters: [{ name: response_id, in: path, required: true, schema: { type: string } }]
+    get:
+      operationId: getResponse
+      responses: { "200": { description: Stored response owned by the authenticated API key }, "404": { description: Response unavailable }, default: { description: OpenAI-compatible error } }
+    delete:
+      operationId: deleteResponse
+      responses: { "200": { description: Response deletion result }, "404": { description: Response unavailable }, default: { description: OpenAI-compatible error } }
   /embeddings:
     post:
       operationId: createEmbedding

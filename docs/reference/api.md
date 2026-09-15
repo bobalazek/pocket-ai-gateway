@@ -109,7 +109,7 @@ OpenAI errors use its error object; Anthropic uses its typed error envelope; Gem
 
 Embedding translation preserves indexes, vector dimensions, encodings, task settings, and model contract. One public embedding model has one vector-space target; do not fallback to an unrelated model. Token-ID input and batch capabilities require tested target compatibility.
 
-Stateless Responses translation is v0.1 scope, including output items, tool-call/results, usage, and lifecycle events. store:false is the initial supported policy. Persisted response/conversation chains, resource retrieval/delete, background operation, hosted tools, and provider-owned files/caches need the phase 8 resource ownership/affinity design.
+Responses translation includes output items, tool-call/results, usage, and lifecycle events. Non-streaming responses are stored by default for 30 days under the creating API key and can be retrieved or deleted through the OpenAI namespace. The gateway assigns the public response ID and sends `store:false` upstream so provider storage is never implied. Stateless `store:false` requests support JSON and lifecycle SSE. Conversation chains, background operation, hosted tools, and provider-owned files/caches remain separate resource contracts.
 
 Full API fidelity is the goal, not a blanket claim at alpha. Maintain a complete official endpoint/field inventory for all three specs: mark each implemented/tested, native-only, translated, pending, or inherently unavailable for a target. Assign files, batches, cached resources, provider-hosted tools, multimodal/realtime, and remaining stateful surfaces to explicit phase 8 work. Do not call rejected or unimplemented operations fully supported.
 

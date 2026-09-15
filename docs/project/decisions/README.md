@@ -12,7 +12,7 @@ Each record states status/source, context, decision, and consequences. A recomme
 | ADR-004 | [Go database access](2026-09-14-query-layer.md) | Technical choice made under delegated authority |
 | ADR-005 | [Key policies, pricing, and usage history](2026-09-14-usage-and-pricing.md) | Configurable controls and delayed pricing accepted; enforcement semantics selected |
 | ADR-006 | [Privacy, catalog, and backups](2026-09-14-privacy-catalog-backups.md) | Accepted user decisions; opt-in network/retention behavior specified |
-| ADR-007 | [Earlier protocol proposal](2026-09-14-protocol-boundaries.md) | Protocol scope superseded by ADR-008; background clarification still pending |
+| ADR-007 | [Earlier protocol proposal](2026-09-14-protocol-boundaries.md) | Protocol scope superseded by ADR-008 and ADR-015 |
 | ADR-008 | [Three client protocols and translation](2026-09-14-three-protocol-compatibility.md) | Accepted |
 | ADR-009 | [Feature namespaces and authentication](2026-09-14-feature-api-namespaces.md) | Accepted |
 | ADR-010 | [Dashboard system, onboarding, and test layers](2026-09-14-dashboard-system-onboarding-tests.md) | Accepted |
@@ -20,6 +20,7 @@ Each record states status/source, context, decision, and consequences. A recomme
 | ADR-012 | [Concurrency and coordination](2026-09-14-concurrency-and-coordination.md) | Accepted direction |
 | ADR-013 | [Session and API-key security](2026-09-14-session-and-key-security.md) | Technical choice made under delegated authority |
 | ADR-014 | [v0.1 local SQLite authority](2026-09-15-v01-local-sqlite-authority.md) | Technical scope refining ADR-003; remote certification retained |
+| ADR-015 | [Gateway-owned Responses state](2026-09-15-response-resources.md) | Stored and asynchronous responses accepted; ownership contract selected |
 
 Historical: [initial proposal](2026-09-14-initial-proposal.md), superseded by the records above where they differ. Its A/P/D/M identifiers are historical references only; current documents use ADR IDs.
 

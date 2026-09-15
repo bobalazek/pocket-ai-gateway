@@ -336,6 +336,9 @@ func pruneLocalBackups(directory string, keep int64) error {
 }
 
 func (service *Service) RunDue(ctx context.Context) error {
+	if _, err := service.store.SystemDB().ExecContext(ctx, `DELETE FROM stored_responses WHERE expires_at < ?`, time.Now().UnixMilli()); err != nil {
+		return err
+	}
 	settings, err := service.Settings(ctx)
 	if err != nil || !settings.BackupEnabled {
 		return err
@@ -380,6 +383,11 @@ func (service *Service) RunRetention(ctx context.Context, actor string) (map[str
 		return nil, err
 	}
 	counts["request_history"] = rowsAffected(result)
+	result, err = tx.ExecContext(ctx, `DELETE FROM stored_responses WHERE expires_at < ?`, time.Now().UnixMilli())
+	if err != nil {
+		return nil, err
+	}
+	counts["stored_responses"] = rowsAffected(result)
 	result, err = tx.ExecContext(ctx, `DELETE FROM audit_events WHERE created_at < ?`, auditCutoff)
 	if err != nil {
 		return nil, err

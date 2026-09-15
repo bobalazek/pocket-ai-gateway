@@ -63,7 +63,7 @@ func newHandler(systemDatabase *sql.DB, publicOrigin string, usageService *usage
 			writeJSON(response, http.StatusOK, map[string]string{"status": "ready"})
 		})
 	}
-	gateway.New(keyService, providerService, usageService).Register(mux)
+	gateway.New(systemDatabase, keyService, providerService, usageService).Register(mux)
 	mux.HandleFunc("GET /healthz", func(response http.ResponseWriter, _ *http.Request) {
 		writeJSON(response, http.StatusOK, map[string]string{"status": "ok"})
 	})

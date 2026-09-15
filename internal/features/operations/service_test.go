@@ -114,6 +114,9 @@ func TestConfigPreviewRejectsUnsafeProviderAndRetentionPreservesEnforcement(t *t
 	if _, err := store.SystemDB().ExecContext(ctx, `INSERT INTO audit_events(id,actor_user_id,action,resource_type,resource_id,created_at) VALUES('aud_old','usr_owner','test.old','test','old',0)`); err != nil {
 		t.Fatal(err)
 	}
+	if _, err := store.SystemDB().ExecContext(ctx, `INSERT INTO stored_responses(id,owner_user_id,key_id,model_id,body_json,created_at,expires_at) VALUES('resp_old','usr_owner','key_old','public-model','{}',0,0)`); err != nil {
+		t.Fatal(err)
+	}
 	if _, err := store.DataDB().ExecContext(ctx, `INSERT INTO usage_events(event_id,event_type,payload_json,created_at) VALUES('evt_old','test','{"secret":true}',0)`); err != nil {
 		t.Fatal(err)
 	}
@@ -136,6 +139,10 @@ func TestConfigPreviewRejectsUnsafeProviderAndRetentionPreservesEnforcement(t *t
 	var operation, upstream string
 	if err := store.SystemDB().QueryRowContext(ctx, `SELECT requests.retained_at,requests.operation,attempts.upstream_model_id FROM requests JOIN attempts ON attempts.request_id=requests.id WHERE requests.id='req_old'`).Scan(&retained, &operation, &upstream); err != nil || retained == 0 || operation != "" || upstream != "" {
 		t.Fatalf("retained request = %d/%q/%q, error = %v", retained, operation, upstream, err)
+	}
+	var storedResponses int
+	if err := store.SystemDB().QueryRowContext(ctx, `SELECT COUNT(*) FROM stored_responses`).Scan(&storedResponses); err != nil || storedResponses != 0 {
+		t.Fatalf("expired stored responses = %d, error = %v", storedResponses, err)
 	}
 	if _, err := store.SystemDB().ExecContext(ctx, `INSERT INTO event_outbox(id,event_type,payload_json,created_at) VALUES('evt_pending_old','test','{"secret":true}',0)`); err != nil {
 		t.Fatal(err)
@@ -161,6 +168,15 @@ func TestConfigPreviewRejectsUnsafeProviderAndRetentionPreservesEnforcement(t *t
 	}
 	if err := store.DataDB().QueryRowContext(ctx, `SELECT payload_json FROM usage_events WHERE event_id='evt_late_after_change'`).Scan(&payload); err != nil || payload != "{}" {
 		t.Fatalf("late payload after retention increase = %q, error = %v", payload, err)
+	}
+	if _, err := store.SystemDB().ExecContext(ctx, `INSERT INTO stored_responses(id,owner_user_id,key_id,model_id,body_json,created_at,expires_at) VALUES('resp_due','usr_owner','key_old','public-model','{}',0,0)`); err != nil {
+		t.Fatal(err)
+	}
+	if err := service.RunDue(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.SystemDB().QueryRowContext(ctx, `SELECT COUNT(*) FROM stored_responses`).Scan(&storedResponses); err != nil || storedResponses != 0 {
+		t.Fatalf("scheduled expired responses = %d, error = %v", storedResponses, err)
 	}
 	items, _, err := usage.New(store.SystemDB()).ListRequests(ctx, auth.User{ID: "usr_owner", Role: "owner"}, usage.UsageQuery{})
 	if err != nil || len(items) != 0 {

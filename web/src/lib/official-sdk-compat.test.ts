@@ -56,6 +56,15 @@ describe("official SDK compatibility through the Go gateway", () => {
     expect(result.output_text).toBe("Hello");
   });
 
+  it("creates, retrieves, and deletes a gateway-stored Response", async () => {
+    const client = openAI();
+    const created = await client.responses.create({ model: "target-anthropic", input: "Hi" });
+    expect(created).toMatchObject({ object: "response", store: true, background: false });
+    expect((await client.responses.retrieve(created.id)).id).toBe(created.id);
+    expect(await client.responses.delete(created.id)).toMatchObject({ id: created.id, deleted: true });
+    await expect(client.responses.retrieve(created.id)).rejects.toMatchObject({ status: 404 });
+  });
+
   it("decodes each client streaming shape", async () => {
     let text = "";
     for await (const event of await openAI().chat.completions.create({ model: "target-anthropic", messages: [{ role: "user", content: "Hi" }], stream: true })) text += event.choices[0]?.delta.content || "";
@@ -69,6 +78,12 @@ describe("official SDK compatibility through the Go gateway", () => {
 
     text = "";
     for await (const event of await gemini().models.generateContentStream({ model: "target-openai", contents: "Hi" })) text += event.text || "";
+    expect(text).toBe("Hello");
+
+    text = "";
+    for await (const event of await openAI().responses.create({ model: "target-anthropic", input: "Hi", store: false, stream: true })) {
+      if (event.type === "response.output_text.delta") text += event.delta;
+    }
     expect(text).toBe("Hello");
   });
 
