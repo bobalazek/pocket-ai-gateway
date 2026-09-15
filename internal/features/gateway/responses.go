@@ -75,6 +75,89 @@ func (handler *Handler) responses(response http.ResponseWriter, request *http.Re
 	handler.enqueueResponse(response, request, principal, envelope, body)
 }
 
+func (handler *Handler) compactResponse(response http.ResponseWriter, request *http.Request) {
+	principal, ok := handler.authenticate(response, request, "responses_compact")
+	if !ok {
+		return
+	}
+	body, err := io.ReadAll(http.MaxBytesReader(response, request.Body, maxInferenceBody))
+	if err != nil {
+		handler.writeError(response, "responses_compact", http.StatusRequestEntityTooLarge, "request_too_large", "Request body exceeds 16 MiB")
+		return
+	}
+	var envelope map[string]json.RawMessage
+	if json.Unmarshal(body, &envelope) != nil || envelope == nil {
+		handler.writeError(response, "responses_compact", http.StatusBadRequest, "invalid_request", "Request body must be a JSON object")
+		return
+	}
+	var model string
+	_ = json.Unmarshal(envelope["model"], &model)
+	if model == "" || len(envelope["input"]) == 0 {
+		handler.writeError(response, "responses_compact", http.StatusBadRequest, "invalid_request", "model and input are required")
+		return
+	}
+	if err := validateCompactInput(envelope["input"]); err != nil {
+		handler.writeError(response, "responses_compact", http.StatusBadRequest, "unsupported_feature", err.Error())
+		return
+	}
+	if _, exists := envelope["stream"]; exists {
+		handler.writeError(response, "responses_compact", http.StatusBadRequest, "unsupported_feature", "stream is not supported by compact")
+		return
+	}
+	for _, field := range []string{"conversation", "previous_response_id"} {
+		raw := bytes.TrimSpace(envelope[field])
+		if len(raw) > 0 && !bytes.Equal(raw, []byte("null")) && !bytes.Equal(raw, []byte(`""`)) {
+			handler.writeError(response, "responses_compact", http.StatusBadRequest, "unsupported_feature", field+" is not supported by compact")
+			return
+		}
+	}
+	handler.forwardAuthorized(response, request, "responses_compact", "responses:generate", "responses/compact", "", nil, principal, body)
+}
+
+func validateCompactInput(raw json.RawMessage) error {
+	var input any
+	if json.Unmarshal(raw, &input) != nil {
+		return errors.New("input must be a string or input-item array")
+	}
+	if _, ok := input.(string); ok {
+		return nil
+	}
+	items, ok := input.([]any)
+	if !ok {
+		return errors.New("input must be a string or input-item array")
+	}
+	for _, item := range items {
+		if _, ok := item.(map[string]any); !ok {
+			return errors.New("input array must contain only input-item objects")
+		}
+	}
+	return rejectCompactReferences(items)
+}
+
+func rejectCompactReferences(value any) error {
+	switch value := value.(type) {
+	case []any:
+		for _, item := range value {
+			if err := rejectCompactReferences(item); err != nil {
+				return err
+			}
+		}
+	case map[string]any:
+		if value["type"] == "item_reference" {
+			return errors.New("provider item references are not supported by compact")
+		}
+		for key, item := range value {
+			if (key == "file_id" || key == "container_id" || key == "item_id") && item != nil && item != "" {
+				return errors.New("provider resource references are not supported by compact")
+			}
+			if err := rejectCompactReferences(item); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
+}
+
 func (handler *Handler) enqueueResponse(response http.ResponseWriter, request *http.Request, principal keys.Principal, envelope map[string]json.RawMessage, body []byte) {
 	if !principalHasScope(principal.Scopes, "responses:generate") {
 		handler.writeError(response, "responses", http.StatusForbidden, "permission_denied", "Responses access is not permitted")

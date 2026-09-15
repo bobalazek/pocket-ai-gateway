@@ -53,6 +53,7 @@ func (handler *Handler) Register(mux *http.ServeMux) {
 		handler.forward(w, r, "openai", "chat:generate", "chat/completions", "", nil)
 	})
 	mux.HandleFunc("POST /api/openai/v1/responses", handler.responses)
+	mux.HandleFunc("POST /api/openai/v1/responses/compact", handler.compactResponse)
 	mux.HandleFunc("GET /api/openai/v1/responses/{response_id}", handler.getResponse)
 	mux.HandleFunc("POST /api/openai/v1/responses/{response_id}/cancel", handler.cancelResponse)
 	mux.HandleFunc("GET /api/openai/v1/responses/{response_id}/input_items", handler.responseInputItems)
@@ -88,6 +89,10 @@ func (handler *Handler) forward(response http.ResponseWriter, request *http.Requ
 
 func (handler *Handler) forwardAuthorized(response http.ResponseWriter, request *http.Request, dialect, scope, upstreamPath, publicIDOverride string, streamOverride *bool, principal keys.Principal, body []byte) {
 	clientOperation := upstreamPath
+	recordDialect := dialect
+	if recordDialect == "responses_compact" {
+		recordDialect = "responses"
+	}
 	var err error
 	originalBodyBytes := int64(len(body))
 	requestToolCount := countRequestTools(dialect, body)
@@ -134,6 +139,9 @@ func (handler *Handler) forwardAuthorized(response http.ResponseWriter, request 
 		}
 	}
 	outputBounded := outputEstimate > 0
+	if dialect == "responses_compact" {
+		outputEstimate, outputBounded = inputEstimate, true
+	}
 	generation := scope == "chat:generate" || scope == "responses:generate"
 	if generation && outputEstimate == 0 {
 		outputEstimate = 4096
@@ -177,6 +185,9 @@ func (handler *Handler) forwardAuthorized(response http.ResponseWriter, request 
 			targetOperation = clientOperation
 		} else if !native {
 			targetOperation = translationOperation[target.Adapter]
+		}
+		if dialect == "responses_compact" && target.Preset != "openai" {
+			return false, "preset_operation_unsupported"
 		}
 		if !providers.PresetSupports(target.Preset, targetOperation) {
 			return false, "preset_operation_unsupported"
@@ -224,7 +235,7 @@ func (handler *Handler) forwardAuthorized(response http.ResponseWriter, request 
 			handler.writeError(response, dialect, http.StatusBadRequest, "unsupported_feature", err.Error())
 			return
 		}
-		admission, admitErr := handler.usage.Admit(request.Context(), usage.AdmissionInput{RequestID: requestID, KeyID: principal.KeyID, ConnectionID: target.TargetConnectionID, ModelID: publicID, UpstreamModelRecordID: target.TargetModelID, UpstreamModelID: target.UpstreamID, ConnectionRevision: target.ConnectionRevision, ModelRevision: target.Revision, Operation: clientOperation, TargetOperation: targetPath, Scope: scope, Dialect: dialect, TargetDialect: target.Adapter, TranslationApplied: !native, RequestToolCount: requestToolCount, SelectionReason: plan.SelectionReason, RejectedCandidatesJSON: string(rejected), RequiredPriceVersionID: routeTarget.PriceVersionID(), RequireFreePrice: plan.FreeOnly, BodyBytes: originalBodyBytes, BatchItems: batchItems, EstimatedInputTokens: inputEstimate, EstimatedOutputTokens: outputEstimate, EnforceOutputBound: generation, OutputBounded: !generation || outputBounded})
+		admission, admitErr := handler.usage.Admit(request.Context(), usage.AdmissionInput{RequestID: requestID, KeyID: principal.KeyID, ConnectionID: target.TargetConnectionID, ModelID: publicID, UpstreamModelRecordID: target.TargetModelID, UpstreamModelID: target.UpstreamID, ConnectionRevision: target.ConnectionRevision, ModelRevision: target.Revision, Operation: clientOperation, TargetOperation: targetPath, Scope: scope, Dialect: recordDialect, TargetDialect: target.Adapter, TranslationApplied: !native, RequestToolCount: requestToolCount, SelectionReason: plan.SelectionReason, RejectedCandidatesJSON: string(rejected), RequiredPriceVersionID: routeTarget.PriceVersionID(), RequireFreePrice: plan.FreeOnly, BodyBytes: originalBodyBytes, BatchItems: batchItems, EstimatedInputTokens: inputEstimate, EstimatedOutputTokens: outputEstimate, EnforceOutputBound: generation, OutputBounded: !generation || outputBounded})
 		if admitErr != nil {
 			if requestID != "" {
 				_ = handler.usage.CloseFailedRequest(context.WithoutCancel(request.Context()), requestID)
@@ -269,7 +280,7 @@ func (handler *Handler) forwardAuthorized(response http.ResponseWriter, request 
 		}
 		retry := index+1 < len(plan.Targets) && retryableResult(result, copyErr) && !attemptWriter.Committed()
 		state, status := "succeeded", "provider_reported"
-		accountDialect := dialect
+		accountDialect := recordDialect
 		if !native {
 			accountDialect = target.Adapter
 			if accountDialect == "openai_compatible" {
@@ -349,7 +360,7 @@ func (handler *Handler) forwardAuthorized(response http.ResponseWriter, request 
 }
 
 func nativeTarget(dialect, adapter string) bool {
-	return nativeAdapter(dialect, adapter) || dialect == "responses" && (adapter == "openai" || adapter == "openai_compatible")
+	return nativeAdapter(dialect, adapter) || (dialect == "responses" || dialect == "responses_compact") && (adapter == "openai" || adapter == "openai_compatible")
 }
 func retryableResult(status int, err error) bool {
 	if status >= 200 && status < 300 {
@@ -648,7 +659,7 @@ func (writer flushWriter) Write(value []byte) (int, error) {
 func (handler *Handler) authenticate(response http.ResponseWriter, request *http.Request, dialect string) (keys.Principal, bool) {
 	var token string
 	switch dialect {
-	case "openai", "responses":
+	case "openai", "responses", "responses_compact":
 		if len(request.Header.Values("Authorization")) != 1 {
 			handler.writeError(response, dialect, http.StatusUnauthorized, "authentication_error", "Provide one API key")
 			return keys.Principal{}, false

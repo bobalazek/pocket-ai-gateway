@@ -2,7 +2,7 @@
 
 Pocket AI Gateway runs as one process and one writer per data directory. The dashboard, database migrations, and static assets are inside the executable.
 
-## Build a standalone executable
+## Build once, deploy one executable
 
 Build on the target operating system and architecture:
 
@@ -13,7 +13,7 @@ cd pocket-ai-gateway
 ./scripts/verify.sh
 ```
 
-Copy `dist/pocket-ai-gateway` to the server. Node.js, pnpm, the repository, and the dashboard source are not needed after the build. Build separately for each target platform; do not copy a macOS binary to Linux or an Arm binary to an amd64 host.
+`dist/pocket-ai-gateway` contains the server, dashboard, and migrations. Copy it to the server; Node.js, pnpm, the repository, and the dashboard source are not needed after the build. Build separately for each target platform, or use `./scripts/package.sh VERSION` to create the supported platform archives. Do not copy a macOS binary to Linux or an Arm binary to an amd64 host.
 
 Create a private, persistent data directory owned by the service account:
 

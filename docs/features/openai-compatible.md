@@ -39,6 +39,8 @@ Chat stream events contain chat.completion.chunk objects with choices/delta; fun
 
 Chat, embeddings, models, and Responses generation can target OpenAI-compatible, Anthropic, or Gemini providers while keeping OpenAI response and event shapes. Non-streaming Responses are stored locally for the creating API key by default and support retrieval, input-item listing, cancellation, and deletion; `store:false` remains stateless and supports streaming. `background:true` uses a bounded durable SQLite queue and rechecks key grants, limits, and provider configuration before dispatch. The gateway disables upstream storage. Hosted tools remain rejected.
 
+`POST /responses/compact` supports inline model/input compaction on the native OpenAI preset. It is not translated or sent to custom-compatible targets, and response, conversation, item, file, and container references are rejected rather than resolved with a shared provider credential.
+
 An OpenAI-shaped client may target native OpenAI, Anthropic, Gemini, or a certified compatible endpoint. Return OpenAI-shaped output in every case. Preserve model aliases, tool correlation, usage provenance, and error class; reject unmappable semantics before dispatch.
 
 Automated coverage includes the pinned OpenAI SDK URL for Chat and Responses, stored and background lifecycle calls, all provider-family translation directions, fragmented tool arguments, stream lifecycle events, native errors, embeddings where supported, and filtered model lists.

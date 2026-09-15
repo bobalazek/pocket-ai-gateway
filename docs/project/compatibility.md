@@ -5,7 +5,7 @@
 | Client surface | Implemented operations | Evidence |
 | --- | --- | --- |
 | OpenAI Chat Completions | JSON and SSE generation, tools, image input, JSON schema output, embeddings, models | Go fixtures and OpenAI SDK 7.15.0 integration |
-| OpenAI Responses | Stored JSON, durable background lifecycle, and stateless JSON/SSE with `store: false` | Go fixtures and OpenAI SDK 7.15.0 integration |
+| OpenAI Responses | Stored JSON, durable background lifecycle, stateless JSON/SSE, and native response compaction | Go fixtures and OpenAI SDK 7.15.0 integration |
 | Anthropic Messages | JSON and native SSE generation, tools, image input, token counting, models | Go fixtures and Anthropic SDK 0.125.0 integration |
 | Gemini v1beta | JSON and SSE generation, tools, image input, embeddings, token counting, models | Go fixtures and Google Gen AI 2.22.0 integration |
 

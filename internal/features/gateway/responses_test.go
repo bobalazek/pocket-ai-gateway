@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"github.com/bobalazek/pocket-ai-gateway/internal/features/keys"
+	"github.com/bobalazek/pocket-ai-gateway/internal/features/usage"
 )
 
 func TestBackgroundResponsesLifecycle(t *testing.T) {
@@ -243,6 +244,70 @@ func TestBackgroundCompletionWaitsForDurableSettlement(t *testing.T) {
 	waitResponseState(t, store.SystemDB(), id, "completed")
 	stop()
 	<-done
+}
+
+func TestResponseCompactionUsesOnlyNativeCapableTargets(t *testing.T) {
+	var path, model string
+	upstream := httptest.NewServer(http.HandlerFunc(func(response http.ResponseWriter, request *http.Request) {
+		path = request.URL.Path
+		var body map[string]any
+		_ = json.NewDecoder(request.Body).Decode(&body)
+		model, _ = body["model"].(string)
+		_, _ = io.WriteString(response, `{"id":"resp_compact","object":"response.compaction","created_at":1,"output":[],"usage":{"input_tokens":1,"output_tokens":1,"total_tokens":2}}`)
+	}))
+	defer upstream.Close()
+	ctx, store, owner, keyService, providerService, usageService := gatewayFixture(t)
+	defer store.Close()
+	openAIConnection, _ := publishModel(t, ctx, providerService, owner, "openai", upstream.URL+"/v1", "private-openai", []string{"chat"})
+	if _, err := store.SystemDB().ExecContext(ctx, "UPDATE provider_connections SET preset='openai' WHERE id=?", openAIConnection.ID); err != nil {
+		t.Fatal(err)
+	}
+	anthropicConnection, anthropicModel := publishModel(t, ctx, providerService, owner, "anthropic", upstream.URL+"/v1", "private-anthropic", []string{"chat"})
+	_, secret, err := keyService.Create(ctx, owner.ID, keys.Input{Label: "Compact", Scopes: []string{"responses:generate"}, ModelPatterns: []string{"*"}, ConnectionIDs: []string{openAIConnection.ID, anthropicConnection.ID}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	handler := New(store.SystemDB(), keyService, providerService, usageService)
+	mux := http.NewServeMux()
+	handler.Register(mux)
+	compacted := performResponseRequest(t, mux, secret, http.MethodPost, "/api/openai/v1/responses/compact", `{"model":"assistant","input":"Long conversation"}`)
+	if compacted.Code != http.StatusOK || !strings.Contains(compacted.Body.String(), `"object":"response.compaction"`) || path != "/v1/responses/compact" || model != "private-openai" {
+		t.Fatalf("compact = %d %s path=%s model=%s", compacted.Code, compacted.Body.String(), path, model)
+	}
+	var dialect string
+	if err := store.SystemDB().QueryRow("SELECT dialect FROM requests ORDER BY started_at DESC LIMIT 1").Scan(&dialect); err != nil || dialect != "responses" {
+		t.Fatalf("stored dialect = %q, %v", dialect, err)
+	}
+	if _, err := usageService.CreatePolicy(ctx, owner, usage.PolicyInput{ScopeKind: "instance", Metric: "output_tokens", Algorithm: "ceiling", LimitUnits: 1024}); err != nil {
+		t.Fatal(err)
+	}
+	bounded := performResponseRequest(t, mux, secret, http.MethodPost, "/api/openai/v1/responses/compact", `{"model":"assistant","input":"Bound this compaction"}`)
+	if bounded.Code != http.StatusOK {
+		t.Fatalf("bounded compact = %d %s", bounded.Code, bounded.Body.String())
+	}
+	for _, body := range []string{`{"model":"assistant","input":null}`, `{"model":"assistant","input":[null]}`, `{"model":"assistant","input":[{"type":"item_reference","id":"item_1"}]}`, `{"model":"assistant","input":[{"type":"input_file","file_id":"file_1"}]}`, `{"model":"assistant","input":"Long conversation","stream":true}`, `{"model":"assistant","input":"Long conversation","stream":null}`, `{"model":"assistant","input":"Long conversation","stream":""}`} {
+		path = ""
+		invalid := performResponseRequest(t, mux, secret, http.MethodPost, "/api/openai/v1/responses/compact", body)
+		if invalid.Code != http.StatusBadRequest || path != "" {
+			t.Fatalf("invalid compact = %d %s path=%s", invalid.Code, invalid.Body.String(), path)
+		}
+	}
+	if _, err := store.SystemDB().ExecContext(ctx, "UPDATE provider_connections SET preset='custom' WHERE id=?", openAIConnection.ID); err != nil {
+		t.Fatal(err)
+	}
+	path = ""
+	custom := performResponseRequest(t, mux, secret, http.MethodPost, "/api/openai/v1/responses/compact", `{"model":"assistant","input":"Long conversation"}`)
+	if custom.Code != http.StatusNotFound || path != "" {
+		t.Fatalf("custom compact = %d %s path=%s", custom.Code, custom.Body.String(), path)
+	}
+	if _, err := store.SystemDB().ExecContext(ctx, "UPDATE provider_connections SET preset='openai' WHERE id=?", openAIConnection.ID); err != nil {
+		t.Fatal(err)
+	}
+	path = ""
+	unsupported := performResponseRequest(t, mux, secret, http.MethodPost, "/api/openai/v1/responses/compact", `{"model":"`+anthropicModel.ID+`","input":"Long conversation"}`)
+	if unsupported.Code != http.StatusNotFound || path != "" {
+		t.Fatalf("translated compact = %d %s path=%s", unsupported.Code, unsupported.Body.String(), path)
+	}
 }
 
 func createBackground(t *testing.T, handler http.Handler, secret, input string) string {

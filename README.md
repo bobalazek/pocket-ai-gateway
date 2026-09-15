@@ -2,28 +2,34 @@
 
 **A self-hosted AI gateway and control panel in one executable.**
 
-Pocket AI Gateway gives applications stable OpenAI, Anthropic, and Gemini API surfaces while routing requests to the providers and models you control. It keeps users, keys, limits, routing, usage, and audit history on your own server in local SQLite databases.
+Pocket AI Gateway gives applications stable OpenAI, Anthropic, and Gemini APIs while you control the providers behind them. It keeps provider credentials, users, API keys, limits, routing, usage, and audit history on your own server.
 
-The dashboard and database migrations are embedded in the Go binary. Build it once, copy one file, and run it without Node.js or a separate database service.
+The Go server contains the dashboard and database migrations. Build it once, copy the executable and its data directory, and run it without Node.js, a separate database server, Redis, or a hosted control plane.
 
-## What it provides
+## Why Pocket AI Gateway
 
-| Area | Included |
-| --- | --- |
-| Client APIs | Separate OpenAI, Anthropic, and Gemini namespaces with native request, response, error, and streaming shapes |
-| Providers | OpenAI, Anthropic, Gemini, OpenRouter, Ollama, Mistral, Groq, DeepSeek, xAI, Together, Fireworks, Cohere, Perplexity, Azure OpenAI, Bedrock, Vertex AI, and custom compatible endpoints |
-| Routing | Fixed, ordered fallback, weighted, lowest estimated cost, and observed latency strategies |
-| Access | Multiple administrators and members, browser sessions, scoped application keys, rotation, expiration, and revocation |
-| Control | Per-instance, user, key, and connection request, token, concurrency, quota, and spend limits |
-| Visibility | Dashboard, request history, token and cost accounting, routing decisions, status, and audit log |
-| Operations | Encrypted credentials, portable configuration, scheduled local or S3-compatible backups, verified restore, and owner recovery |
-| Privacy | Local storage, no hosted account, no public telemetry, and no prompt capture in ordinary request history; stored Responses retain their requested content |
-
-Public model names decouple applications from upstream providers. An application can keep using its OpenAI client while an administrator moves the model to Anthropic, Gemini, or another compatible provider, provided the requested features can be translated safely.
+- **Keep existing SDKs.** Give each client its native base URL and keep its request, response, error, and streaming format.
+- **Change providers without changing applications.** Publish stable model names and route them to one or more upstream models.
+- **Control access and cost.** Issue scoped keys and apply request, token, concurrency, quota, payload, and spend limits.
+- **Operate it locally.** Store state in two SQLite databases, keep telemetry private, and back up the complete instance as one encrypted archive.
+- **Manage it in the browser.** Onboard the first owner, add users and providers, publish models, inspect requests, and recover the instance from the embedded dashboard.
 
 ## Quick start
 
-You need Go 1.27.1, Node.js 22 or newer, pnpm 10.30.3, and `curl` to build from source.
+### Docker
+
+```sh
+git clone https://github.com/bobalazek/pocket-ai-gateway.git
+cd pocket-ai-gateway
+docker compose up --build -d
+docker compose logs gateway
+```
+
+Open [http://localhost:8080/_/](http://localhost:8080/_/). The data and backup directories live in persistent Docker volumes.
+
+### Standalone executable
+
+Building from source requires Go 1.27.1, Node.js 22 or newer, pnpm 10.30.3, and `curl`:
 
 ```sh
 git clone https://github.com/bobalazek/pocket-ai-gateway.git
@@ -32,34 +38,20 @@ cd pocket-ai-gateway
 ./dist/pocket-ai-gateway serve
 ```
 
-Open [http://127.0.0.1:8080/_/](http://127.0.0.1:8080/_/). On a new installation, the dashboard opens onboarding and the server prints the location of a one-time setup code. Use it to create the first owner account; the gateway never creates a default password.
+The build creates `dist/pocket-ai-gateway` with the production dashboard embedded. Copy that single file to a machine with the same operating system and architecture; build tools and source files are not needed at runtime.
 
-The build produces a standalone executable at `dist/pocket-ai-gateway`. Copy that file to a machine with the same operating system and architecture and run it there. The source tree, Node.js, and pnpm are build-time requirements only.
+On a new data directory, the dashboard opens onboarding and the server prints a one-time setup URL. Use it to create the first owner account. Pocket AI Gateway never creates a default password.
 
-Runtime state is stored in `./pocket_gateway_data` unless `--data-dir` is set:
+## From provider to first request
 
-```text
-pocket_gateway_data/
-  system.db
-  data.db
-  master.key
-  instance.lock
-```
-
-Keep this directory private and persistent. The databases hold identity, configuration, limits, accounting, and projections; `master.key` protects provider credentials.
-
-## Connect a provider
-
-After onboarding:
-
-1. Add a provider connection in **Providers** and save its credential.
-2. Add an upstream model and publish a stable name in **Models**.
-3. Choose a routing strategy and add any fallback targets.
+1. Add a connection and provider credential in **Providers**.
+2. Add its upstream models and publish a stable name in **Models**.
+3. Select a routing strategy and optional fallback targets.
 4. Create a scoped application key in **API keys**.
-5. Test the route in **Playground** or use one of the client endpoints below.
+5. Test the model in **Playground** or point an existing SDK at the matching base URL.
 
 ```sh
-export POCKET_GATEWAY_KEY="your-gateway-key"
+export POCKET_GATEWAY_KEY="paste-the-key-shown-once"
 
 curl http://127.0.0.1:8080/api/openai/v1/chat/completions \
   -H "Authorization: Bearer $POCKET_GATEWAY_KEY" \
@@ -71,100 +63,97 @@ curl http://127.0.0.1:8080/api/openai/v1/chat/completions \
   }'
 ```
 
-## Client API surfaces
+## Native client APIs
 
-The base URL selects the client protocol; protocol families are never mixed at one path.
+Each protocol has its own namespace. The gateway does not combine unrelated API families at one path.
 
-| Client | Base URL | Gateway authentication |
+| Client | Base URL | Authentication |
 | --- | --- | --- |
 | OpenAI SDK | `http://127.0.0.1:8080/api/openai/v1` | `Authorization: Bearer <key>` |
 | Anthropic SDK | `http://127.0.0.1:8080/api/anthropic` | `x-api-key: <key>` |
-| Google Gen AI SDK | `http://127.0.0.1:8080/api/gemini` with API version `v1beta` | `x-goog-api-key: <key>` |
+| Google Gen AI SDK | `http://127.0.0.1:8080/api/gemini`, API version `v1beta` | `x-goog-api-key: <key>` |
 | Management API | `http://127.0.0.1:8080/api/v1` | Browser session |
 
-Supported cross-protocol generation includes text, image input, JSON schema output, function tools and results, stop sequences, token usage, and compatible incremental streams. OpenAI Responses also supports gateway-owned storage, background execution, polling, cancellation, input-item listing, and deletion. Embeddings and token counting stay on targets that natively support them so the gateway does not invent vector spaces or tokenizer results.
+The official OpenAI, Anthropic, and Google Gen AI TypeScript SDKs run in the integration suite. Supported cross-provider generation includes text, image input, JSON schema output, function tools and results, stop sequences, token usage, and compatible incremental streams.
 
-See the detailed [compatibility matrix](docs/project/compatibility.md) and API guides for [OpenAI](docs/features/openai-compatible.md), [Anthropic](docs/features/anthropic-compatible.md), and [Gemini](docs/features/gemini-compatible.md).
+OpenAI Responses supports stateless streaming, local storage, durable background execution, polling, cancellation, input-item listing, deletion, and native response compaction on the OpenAI preset. Embeddings and token counting use native capable targets so the gateway never invents vector spaces or tokenizer results.
 
-## Dashboard
+See the exact [compatibility matrix](docs/project/compatibility.md) and the [OpenAI](docs/features/openai-compatible.md), [Anthropic](docs/features/anthropic-compatible.md), and [Gemini](docs/features/gemini-compatible.md) API guides.
 
-The embedded dashboard covers:
+## Features
 
-- system status and diagnostics;
-- usage, cost, latency, and request history;
-- users, roles, sessions, recovery, and account settings;
-- application keys and their grants, limits, and spend controls;
-- provider connections, credentials, upstream models, and public models;
-- routing strategies, route previews, fallback outcomes, and pricing;
-- audit events, data retention, configuration export/import, and backups.
+| Area | Capabilities |
+| --- | --- |
+| Providers | OpenAI, Anthropic, Gemini, OpenRouter, Ollama, Mistral, Groq, DeepSeek, xAI, Together, Fireworks, Cohere, Perplexity, Azure OpenAI, Bedrock, Vertex AI, and custom compatible endpoints |
+| Routing | Fixed target, ordered fallback, weighted, lowest estimated cost, and observed latency |
+| Identity | One recovery owner, multiple administrators and members, browser sessions, owner recovery, and account settings |
+| API keys | One-time secret display, scoped operations, model and connection grants, expiration, rotation, and revocation |
+| Limits | Instance, user, key, and connection policies for requests, tokens, spend, concurrency, payload size, output tokens, and batch size |
+| Accounting | Request and attempt history, token usage, price versions, unknown-cost review, and safe repricing |
+| Operations | Status and diagnostics, typed configuration export/import, encrypted local or S3-compatible backups, verified restore, and audit events |
+| Privacy | Local state, encrypted provider credentials, no public telemetry, and no ordinary prompt capture |
 
-All browser calls go through the typed management API client. The dashboard does not connect to the databases or providers directly.
+Provider presets describe the operations that are allowed to route to each service. A preset is not a claim that every upstream model supports every feature. Live provider certification is recorded separately from deterministic protocol tests.
 
-## Docker
+## How it fits together
 
-Build and start the included local deployment:
-
-```sh
-docker compose up --build -d
-docker compose logs gateway
+```mermaid
+flowchart LR
+  Apps[Applications and SDKs] --> APIs[OpenAI / Anthropic / Gemini APIs]
+  Admin[Embedded dashboard] --> Control[Management API]
+  APIs --> Guard[Keys, grants, and limits]
+  Guard --> Router[Model routing]
+  Router --> Providers[AI providers and local models]
+  Control --> Store[(system.db + data.db)]
+  Guard --> Store
+  Router --> Store
 ```
 
-Open [http://localhost:8080/_/](http://localhost:8080/_/). Named volumes preserve the data and backup directories. The container runs as a non-root user with a read-only root filesystem.
+Runtime state defaults to `./pocket_gateway_data`:
 
-For HTTPS, systemd, Caddy, data-directory permissions, multi-platform images, upgrades, backups, and restore, use the [deployment guide](docs/guides/deployment.md).
-
-## Back up and restore
-
-Set a separately stored archive key, stop the gateway, and create an encrypted backup:
-
-```sh
-export POCKET_AI_GATEWAY_BACKUP_KEY="$(openssl rand -base64 32)"
-
-./dist/pocket-ai-gateway backup \
-  --data-dir ./pocket_gateway_data \
-  --output ./gateway.pagbak
+```text
+pocket_gateway_data/
+  system.db
+  data.db
+  master.key
+  instance.lock
 ```
 
-Restore into a directory that does not exist yet:
+Keep the whole directory private and persistent. `master.key` protects provider credentials and must stay with the databases for recovery.
+
+## Deploy and operate
+
+The [deployment guide](docs/guides/deployment.md) covers the standalone executable, Docker Compose, systemd, Caddy/TLS, persistent storage, multi-platform images, configuration, backups, restore, and upgrades. The [operations guide](docs/guides/operations.md) covers recovery keys, scheduled local and S3-compatible backups, retention, health checks, maintenance, and incident recovery.
+
+For a source deployment, the complete release check is:
 
 ```sh
-./dist/pocket-ai-gateway restore-backup \
-  --archive ./gateway.pagbak \
-  --data-dir ./restored_gateway_data
-```
-
-The archive contains both databases and the credential master key. Restore authenticates the archive, validates file hashes, and checks database integrity before replacing service data. Scheduled local and S3-compatible backups are available in **Settings**.
-
-## Build and verify
-
-```sh
-./scripts/build.sh
 ./scripts/verify.sh
 ```
 
-`build.sh` exports and embeds the dashboard, then builds the executable. `verify.sh` checks formatting, generated code and notices, API contracts, frontend boundaries, unit and integration tests, race detection, the production dashboard build, the embedded runtime, and the packaged smoke path.
-
-Create release archives for supported platforms with:
+Create checksummed platform archives with:
 
 ```sh
 ./scripts/package.sh v0.1.0
 ```
 
+The release workflow produces Linux, macOS, and Windows archives for amd64 and arm64, plus checksums, an SBOM, attestations, and Linux amd64/arm64 container images.
+
 ## Documentation
 
+- [Getting around the documentation](docs/README.md)
 - [Deployment](docs/guides/deployment.md)
 - [Operations and recovery](docs/guides/operations.md)
 - [API reference](docs/reference/api.md)
 - [Provider adapters](docs/guides/adapters.md)
-- [Provider compatibility and certification](docs/project/provider-certification.md)
 - [Architecture](docs/architecture/README.md)
 - [Security policy](SECURITY.md)
 - [Contributing](CONTRIBUTING.md)
 - [Agent-readable help](llms.txt)
 
-## Project status
+## Status
 
-Pocket AI Gateway is under active development. The compatibility matrix records the exact surfaces covered by deterministic tests and calls out known boundaries. Live provider certification requires provider credentials and available models and is reported separately from local protocol conformance.
+Pocket AI Gateway is under active development. The compatibility matrix records the behavior covered by deterministic tests and the boundaries that remain. No paid-provider certification is claimed until it is run and recorded against a release artifact.
 
 ## License
 

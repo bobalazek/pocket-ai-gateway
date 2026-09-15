@@ -82,6 +82,11 @@ describe("official SDK compatibility through the Go gateway", () => {
     expect(await client.responses.cancel(pending.id)).toMatchObject({ id: pending.id, status: "cancelled" });
   });
 
+  it("decodes native OpenAI response compaction", async () => {
+    const result = await openAI().responses.compact({ model: "target-openai", input: "Compact this" });
+    expect(result).toMatchObject({ object: "response.compaction", output: [{ type: "compaction" }] });
+  });
+
   it("decodes each client streaming shape", async () => {
     let text = "";
     for await (const event of await openAI().chat.completions.create({ model: "target-anthropic", messages: [{ role: "user", content: "Hi" }], stream: true })) text += event.choices[0]?.delta.content || "";

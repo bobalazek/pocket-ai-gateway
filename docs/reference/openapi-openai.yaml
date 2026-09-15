@@ -21,6 +21,12 @@ paths:
       description: Creates a response. Non-streaming responses are stored by default for the creating API key. background:true queues durable gateway execution and requires storage. store:false remains stateless and is required for streaming.
       requestBody: { required: true, content: { application/json: { schema: { type: object, required: [model, input], properties: { model: { type: string }, input: {}, store: { type: boolean, default: true }, stream: { type: boolean }, background: { type: boolean, default: false } }, additionalProperties: true } } } }
       responses: { "200": { description: Native or translated Responses JSON or lifecycle event stream }, default: { description: OpenAI-compatible error } }
+  /responses/compact:
+    post:
+      operationId: compactResponse
+      description: Compacts inline input through the native OpenAI preset. Gateway response, conversation, item, file, and container references are rejected.
+      requestBody: { required: true, content: { application/json: { schema: { type: object, required: [model, input], not: { required: [stream] }, properties: { model: { type: string }, input: { oneOf: [{ type: string }, { type: array, items: { type: object } }] } }, additionalProperties: true } } } }
+      responses: { "200": { description: Native response.compaction object }, "404": { description: No capable native target }, default: { description: OpenAI-compatible error } }
   /responses/{response_id}:
     parameters: [{ name: response_id, in: path, required: true, schema: { type: string } }]
     get:

@@ -47,6 +47,10 @@ func main() {
 	for _, adapter := range []string{"openai", "anthropic", "gemini"} {
 		connection, err := providerService.CreateConnection(ctx, owner, providers.ConnectionInput{Name: adapter, Adapter: adapter, BaseURL: base + "/" + adapter + map[string]string{"openai": "/v1", "anthropic": "/v1", "gemini": "/v1beta"}[adapter], Enabled: true, AllowPrivateNetwork: true, TimeoutMS: 5000})
 		must(err)
+		if adapter == "openai" {
+			_, err = store.SystemDB().ExecContext(ctx, "UPDATE provider_connections SET preset='openai' WHERE id=?", connection.ID)
+			must(err)
+		}
 		must(providerService.PutCredential(ctx, owner, connection.ID, "provider-secret", ""))
 		upstreamModel, err := providerService.CreateUpstreamModel(ctx, owner, connection.ID, adapter+"-upstream", []string{"chat"})
 		must(err)
@@ -97,6 +101,10 @@ func upstreamHandler(response http.ResponseWriter, request *http.Request) {
 	}
 	switch target {
 	case "openai":
+		if strings.HasSuffix(request.URL.Path, "/responses/compact") {
+			io.WriteString(response, `{"id":"resp_compact","object":"response.compaction","created_at":1764967971,"output":[{"id":"cmp_1","type":"compaction","encrypted_content":"opaque"}],"usage":{"input_tokens":2,"output_tokens":1,"total_tokens":3}}`)
+			return
+		}
 		if strings.HasSuffix(request.URL.Path, "/responses") {
 			io.WriteString(response, `{"id":"resp_1","object":"response","status":"completed","model":"openai-upstream","output":[{"id":"msg_1","type":"message","role":"assistant","status":"completed","content":[{"type":"output_text","text":"Hello","annotations":[]}]}],"usage":{"input_tokens":2,"output_tokens":1,"total_tokens":3}}`)
 			return
