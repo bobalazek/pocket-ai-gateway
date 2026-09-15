@@ -68,7 +68,7 @@ Enforce the actor matrix on the server for every resource and field. Role change
 
 Create, label, expire, disable, revoke, and rotate high-entropy keys; show plaintext once and store only a verifier plus non-secret prefix. Every key belongs to a user. Rotation preserves logical key identity, counters, and grants, with explicit overlap/expiry if supported.
 
-Scopes: chat:generate, responses:generate, embeddings:generate, moderations:classify, images:generate, audio:speech, audio:transcribe, models:read, tokens:count. Effective access intersects user grants, key grants, public-model publication, allowed connections, capability support, and all limits. Empty grants deny; unrestricted access requires an explicit administrator-controlled mode.
+Scopes: chat:generate, responses:generate, embeddings:generate, moderations:classify, images:generate, audio:speech, audio:transcribe, audio:translate, models:read, tokens:count. Effective access intersects user grants, key grants, public-model publication, allowed connections, capability support, and all limits. Empty grants deny; unrestricted access requires an explicit administrator-controlled mode.
 
 Members may create narrower keys, never raise their own ceiling. New keys share the user's aggregate quota. Public model IDs are stable; deleting and recreating a public name does not inherit grants.
 

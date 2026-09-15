@@ -25,10 +25,10 @@ var (
 )
 
 var adapters = map[string][]string{
-	"openai":            {"chat", "embeddings", "moderations", "count_tokens", "images", "audio_speech", "audio_transcription"},
+	"openai":            {"chat", "embeddings", "moderations", "count_tokens", "images", "audio_speech", "audio_transcription", "audio_translation"},
 	"anthropic":         {"messages", "count_tokens"},
 	"gemini":            {"generate_content", "count_tokens", "embeddings"},
-	"openai_compatible": {"chat", "embeddings", "moderations", "count_tokens", "images", "audio_speech", "audio_transcription"},
+	"openai_compatible": {"chat", "embeddings", "moderations", "count_tokens", "images", "audio_speech", "audio_transcription", "audio_translation"},
 }
 
 type Service struct {
@@ -218,17 +218,17 @@ func (service *Service) UpdateConnection(ctx context.Context, actor auth.User, i
 	if err = requireManager(ctx, tx, &actor); err != nil {
 		return Connection{}, err
 	}
-	rows, err := tx.QueryContext(ctx, "SELECT capabilities_json FROM upstream_models WHERE connection_id=?", id)
+	rows, err := tx.QueryContext(ctx, "SELECT upstream_id,capabilities_json FROM upstream_models WHERE connection_id=?", id)
 	if err != nil {
 		return Connection{}, err
 	}
 	for rows.Next() {
-		var raw string
+		var upstreamID, raw string
 		var capabilities []string
-		if err = rows.Scan(&raw); err == nil {
+		if err = rows.Scan(&upstreamID, &raw); err == nil {
 			err = json.Unmarshal([]byte(raw), &capabilities)
 		}
-		if err != nil || !PresetSupportsCapabilities(input.Preset, capabilities) {
+		if err != nil || !PresetSupportsModelCapabilities(input.Preset, upstreamID, capabilities) {
 			rows.Close()
 			if err != nil {
 				return Connection{}, err
@@ -324,7 +324,7 @@ func (service *Service) CreateUpstreamModel(ctx context.Context, actor auth.User
 	if upstreamID == "" || len(upstreamID) > 300 || len(capabilities) == 0 || !validCapabilities(capabilities) {
 		return UpstreamModel{}, errors.New("upstream_id and capabilities are required")
 	}
-	if !PresetSupportsCapabilities(connection.Preset, capabilities) {
+	if !PresetSupportsModelCapabilities(connection.Preset, upstreamID, capabilities) {
 		return UpstreamModel{}, errors.New("capabilities exceed the selected provider preset")
 	}
 	idPart, err := credentials.RandomToken(12)
@@ -631,7 +631,7 @@ func normalizeCapabilities(values []string) []string {
 }
 func validCapabilities(values []string) bool {
 	for _, value := range values {
-		if value != "chat" && value != "embeddings" && value != "count_tokens" && value != "moderations" && value != "images" && value != "audio_speech" && value != "audio_transcription" {
+		if value != "chat" && value != "embeddings" && value != "count_tokens" && value != "moderations" && value != "images" && value != "audio_speech" && value != "audio_transcription" && value != "audio_translation" {
 			return false
 		}
 	}

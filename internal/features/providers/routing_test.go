@@ -171,7 +171,7 @@ func TestCatalogValidationAndPresets(t *testing.T) {
 	if PresetSupports("fireworks", "responses") || PresetSupports("fireworks", "embeddings") || !PresetSupports("fireworks", "chat/completions") || !PresetSupports("gemini", "models/test:generateContent") || !PresetSupports("custom", "anything") {
 		t.Fatal("preset operation limits are not enforced")
 	}
-	if !PresetSupports("openai", "moderations") || !PresetSupports("openai", "responses/input_tokens") || !PresetSupports("openai", "images/generations") || !PresetSupports("openai", "audio/speech") || !PresetSupports("openai", "audio/transcriptions") || PresetSupports("anthropic", "moderations") || !PresetSupportsCapabilities("openai", []string{"moderations", "count_tokens", "images", "audio_speech", "audio_transcription"}) {
+	if !PresetSupports("openai", "moderations") || !PresetSupports("openai", "responses/input_tokens") || !PresetSupports("openai", "images/generations") || !PresetSupports("openai", "audio/speech") || !PresetSupports("openai", "audio/transcriptions") || !PresetSupports("openai", "audio/translations") || PresetSupports("anthropic", "moderations") || !PresetSupportsCapabilities("openai", []string{"moderations", "count_tokens", "images", "audio_speech", "audio_transcription", "audio_translation"}) {
 		t.Fatal("OpenAI preset capability mapping is incorrect")
 	}
 }
@@ -199,12 +199,28 @@ func TestPresetLimitsUpstreamModelCapabilities(t *testing.T) {
 	if _, err = service.CreateUpstreamModel(ctx, owner, connection.ID, "model", []string{"chat"}); err != nil {
 		t.Fatal(err)
 	}
+	openAI, err := service.CreateConnection(ctx, owner, ConnectionInput{Name: "OpenAI", Preset: "openai", Enabled: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err = service.CreateUpstreamModel(ctx, owner, openAI.ID, "gpt-4o-transcribe", []string{"audio_translation"}); err == nil {
+		t.Fatal("OpenAI preset accepted audio translation for a model other than whisper-1")
+	}
+	if _, err = service.CreateUpstreamModel(ctx, owner, openAI.ID, "whisper-1", []string{"audio_translation"}); err != nil {
+		t.Fatal(err)
+	}
 	custom, err := service.CreateConnection(ctx, owner, ConnectionInput{Name: "Custom", Adapter: "openai_compatible", BaseURL: "http://127.0.0.1:9000/v1", AllowPrivateNetwork: true, Enabled: true})
 	if err != nil {
 		t.Fatal(err)
 	}
 	if _, err = service.CreateUpstreamModel(ctx, owner, custom.ID, "embedding-model", []string{"embeddings"}); err != nil {
 		t.Fatal(err)
+	}
+	if _, err = service.CreateUpstreamModel(ctx, owner, custom.ID, "provider-translation-model", []string{"audio_translation"}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err = service.UpdateConnection(ctx, owner, custom.ID, custom.Revision, ConnectionInput{Name: custom.Name, Preset: "openai", Enabled: true}); err == nil {
+		t.Fatal("preset update accepted a non-whisper OpenAI translation model")
 	}
 	if _, err = service.UpdateConnection(ctx, owner, custom.ID, custom.Revision, ConnectionInput{Name: custom.Name, Preset: "fireworks", Enabled: true}); err == nil {
 		t.Fatal("preset update stranded an existing embedding model")

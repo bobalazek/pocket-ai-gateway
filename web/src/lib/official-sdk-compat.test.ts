@@ -121,6 +121,11 @@ describe("official SDK compatibility through the Go gateway", () => {
     expect(text).toBe("gateway stream");
   });
 
+  it("decodes native OpenAI audio translation", async () => {
+    const result = await openAI().audio.translations.create({ model: "target-openai", file: await toFile(Buffer.from("RIFFaudio"), "recording.wav") });
+    expect(result.text).toBe("gateway translation");
+  });
+
   it("manages gateway-owned OpenAI conversations", async () => {
     const client = openAI();
     const empty = await client.conversations.create();

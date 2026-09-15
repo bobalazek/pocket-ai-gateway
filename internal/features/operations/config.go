@@ -229,7 +229,7 @@ func PreviewConfig(bundle ConfigBundle) (ConfigPreview, error) {
 	for _, item := range bundle.UpstreamModels {
 		upstream[item.ID] = item
 		capabilities, ok := providers.NormalizePortableCapabilities(item.Capabilities)
-		if !connections[item.ConnectionID] || item.UpstreamID == "" || len(item.UpstreamID) > 300 || !ok || !providers.PresetSupportsCapabilities(connectionPresets[item.ConnectionID], capabilities) {
+		if !connections[item.ConnectionID] || item.UpstreamID == "" || len(item.UpstreamID) > 300 || !ok || !providers.PresetSupportsModelCapabilities(connectionPresets[item.ConnectionID], item.UpstreamID, capabilities) {
 			return ConfigPreview{}, ErrInvalid
 		}
 	}
@@ -326,17 +326,17 @@ func (service *Service) ImportConfig(ctx context.Context, actor string, bundle C
 		}
 	}
 	for _, connection := range bundle.Connections {
-		rows, queryErr := tx.QueryContext(ctx, "SELECT capabilities_json FROM upstream_models WHERE connection_id=?", connection.ID)
+		rows, queryErr := tx.QueryContext(ctx, "SELECT upstream_id,capabilities_json FROM upstream_models WHERE connection_id=?", connection.ID)
 		if queryErr != nil {
 			return ConfigPreview{}, queryErr
 		}
 		for rows.Next() {
-			var raw string
+			var upstreamID, raw string
 			var capabilities []string
-			if queryErr = rows.Scan(&raw); queryErr == nil {
+			if queryErr = rows.Scan(&upstreamID, &raw); queryErr == nil {
 				queryErr = json.Unmarshal([]byte(raw), &capabilities)
 			}
-			if queryErr != nil || !providers.PresetSupportsCapabilities(connection.Preset, capabilities) {
+			if queryErr != nil || !providers.PresetSupportsModelCapabilities(connection.Preset, upstreamID, capabilities) {
 				rows.Close()
 				return ConfigPreview{}, ErrInvalid
 			}

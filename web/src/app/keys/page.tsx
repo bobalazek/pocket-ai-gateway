@@ -10,7 +10,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { effectiveKeyState, GatewayAPIError, gatewayAPI, type GatewayKey } from "@/lib/api-client";
 
-const scopes = ["chat:generate", "responses:generate", "embeddings:generate", "moderations:classify", "images:generate", "audio:speech", "audio:transcribe", "models:read", "tokens:count"];
+const scopes = ["chat:generate", "responses:generate", "embeddings:generate", "moderations:classify", "images:generate", "audio:speech", "audio:transcribe", "audio:translate", "models:read", "tokens:count"];
 const list = (value: FormDataEntryValue | null) => String(value ?? "").split(",").map((item) => item.trim()).filter(Boolean);
 
 export default function KeysPage() {

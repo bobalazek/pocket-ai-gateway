@@ -55,16 +55,20 @@ func main() {
 		must(providerService.PutCredential(ctx, owner, connection.ID, "provider-secret", ""))
 		capabilities := []string{"chat"}
 		if adapter == "openai" {
-			capabilities = append(capabilities, "moderations", "count_tokens", "images", "audio_speech", "audio_transcription")
+			capabilities = append(capabilities, "moderations", "count_tokens", "images", "audio_speech", "audio_transcription", "audio_translation")
 		}
-		upstreamModel, err := providerService.CreateUpstreamModel(ctx, owner, connection.ID, adapter+"-upstream", capabilities)
+		upstreamID := adapter + "-upstream"
+		if adapter == "openai" {
+			upstreamID = "whisper-1"
+		}
+		upstreamModel, err := providerService.CreateUpstreamModel(ctx, owner, connection.ID, upstreamID, capabilities)
 		must(err)
 		_, err = providerService.CreatePublicModel(ctx, owner, "target-"+adapter, "Target "+adapter, "", upstreamModel.ID, capabilities)
 		must(err)
 		connections = append(connections, connection.ID)
 	}
 	keyService := keys.New(store.SystemDB())
-	_, secret, err := keyService.Create(ctx, owner.ID, keys.Input{Label: "Official SDK matrix", Scopes: []string{"chat:generate", "responses:generate", "moderations:classify", "images:generate", "audio:speech", "audio:transcribe", "models:read", "tokens:count"}, ModelPatterns: []string{"target-*"}, ConnectionIDs: connections})
+	_, secret, err := keyService.Create(ctx, owner.ID, keys.Input{Label: "Official SDK matrix", Scopes: []string{"chat:generate", "responses:generate", "moderations:classify", "images:generate", "audio:speech", "audio:transcribe", "audio:translate", "models:read", "tokens:count"}, ModelPatterns: []string{"target-*"}, ConnectionIDs: connections})
 	must(err)
 
 	mux := http.NewServeMux()
@@ -118,6 +122,10 @@ func upstreamHandler(response http.ResponseWriter, request *http.Request) {
 	}
 	switch target {
 	case "openai":
+		if strings.HasSuffix(request.URL.Path, "/audio/translations") {
+			io.WriteString(response, `{"text":"gateway translation"}`)
+			return
+		}
 		if strings.HasSuffix(request.URL.Path, "/audio/transcriptions") {
 			io.WriteString(response, `{"text":"gateway transcript"}`)
 			return

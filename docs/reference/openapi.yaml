@@ -547,7 +547,7 @@ paths:
     post:
       operationId: createUpstreamModel
       parameters: [{ $ref: "#/components/parameters/ID" }, { $ref: "#/components/parameters/CSRF" }]
-      requestBody: { required: true, content: { application/json: { schema: { type: object, additionalProperties: false, required: [upstream_id, capabilities], properties: { upstream_id: { type: string, minLength: 1, maxLength: 300 }, capabilities: { type: array, minItems: 1, uniqueItems: true, items: { type: string, enum: [chat, embeddings, moderations, count_tokens, images, audio_speech, audio_transcription] } } } } } } }
+      requestBody: { required: true, content: { application/json: { schema: { type: object, additionalProperties: false, required: [upstream_id, capabilities], properties: { upstream_id: { type: string, minLength: 1, maxLength: 300 }, capabilities: { type: array, minItems: 1, uniqueItems: true, items: { type: string, enum: [chat, embeddings, moderations, count_tokens, images, audio_speech, audio_transcription, audio_translation] } } } } } } }
       responses:
         "201": { description: Upstream model created, content: { application/json: { schema: { type: object, required: [model], properties: { model: { $ref: "#/components/schemas/UpstreamModel" } } } } } }
         "400": { $ref: "#/components/responses/BadRequest" }
@@ -1265,7 +1265,7 @@ components:
         id: { type: string }
         connection_id: { type: string }
         upstream_id: { type: string }
-        capabilities: { type: array, minItems: 1, uniqueItems: true, items: { type: string, enum: [chat, embeddings, moderations, count_tokens, images, audio_speech, audio_transcription] } }
+        capabilities: { type: array, minItems: 1, uniqueItems: true, items: { type: string, enum: [chat, embeddings, moderations, count_tokens, images, audio_speech, audio_transcription, audio_translation] } }
         active: { type: boolean }
     VisibleModel:
       type: object
@@ -1285,7 +1285,7 @@ components:
         label: { type: string, minLength: 1, maxLength: 200 }
         description: { type: string, maxLength: 1000 }
         target_model_id: { type: string }
-        capabilities: { type: array, minItems: 1, uniqueItems: true, items: { type: string, enum: [chat, embeddings, moderations, count_tokens, images, audio_speech, audio_transcription] } }
+        capabilities: { type: array, minItems: 1, uniqueItems: true, items: { type: string, enum: [chat, embeddings, moderations, count_tokens, images, audio_speech, audio_transcription, audio_translation] } }
     PublicModel:
       allOf:
         - { $ref: "#/components/schemas/VisibleModel" }
@@ -1421,7 +1421,7 @@ components:
       required: [unrestricted, scopes, model_patterns, connection_ids]
       properties:
         unrestricted: { type: boolean, description: Read-only true for the owner; user writes are forced false }
-        scopes: { type: array, maxItems: 100, uniqueItems: true, items: { type: string, enum: [chat:generate, responses:generate, embeddings:generate, moderations:classify, images:generate, audio:speech, audio:transcribe, models:read, tokens:count] } }
+        scopes: { type: array, maxItems: 100, uniqueItems: true, items: { type: string, enum: [chat:generate, responses:generate, embeddings:generate, moderations:classify, images:generate, audio:speech, audio:transcribe, audio:translate, models:read, tokens:count] } }
         model_patterns: { type: array, maxItems: 100, uniqueItems: true, items: { type: string, minLength: 1, maxLength: 200 } }
         connection_ids: { type: array, maxItems: 100, uniqueItems: true, items: { type: string, minLength: 1, maxLength: 200 } }
     Session:
@@ -1442,7 +1442,7 @@ components:
       properties:
         label: { type: string, minLength: 1, maxLength: 100 }
         state: { type: string, enum: [active, disabled] }
-        scopes: { type: array, uniqueItems: true, items: { type: string, enum: [chat:generate, responses:generate, embeddings:generate, moderations:classify, images:generate, audio:speech, audio:transcribe, models:read, tokens:count] } }
+        scopes: { type: array, uniqueItems: true, items: { type: string, enum: [chat:generate, responses:generate, embeddings:generate, moderations:classify, images:generate, audio:speech, audio:transcribe, audio:translate, models:read, tokens:count] } }
         model_patterns: { type: array, maxItems: 100, uniqueItems: true, items: { type: string, minLength: 1, maxLength: 200 } }
         connection_ids: { type: array, maxItems: 100, uniqueItems: true, items: { type: string, minLength: 1, maxLength: 200 } }
         expires_at: { oneOf: [{ type: string, format: date-time }, { type: string, maxLength: 0 }] }

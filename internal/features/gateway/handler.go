@@ -76,6 +76,7 @@ func (handler *Handler) Register(mux *http.ServeMux) {
 		handler.forward(w, r, "openai", "audio:speech", "audio/speech", "", nil)
 	})
 	mux.HandleFunc("POST /api/openai/v1/audio/transcriptions", handler.audioTranscription)
+	mux.HandleFunc("POST /api/openai/v1/audio/translations", handler.audioTranslation)
 	mux.HandleFunc("GET /api/anthropic/v1/models", handler.anthropicModels)
 	mux.HandleFunc("GET /api/anthropic/v1/models/{model}", handler.anthropicModel)
 	mux.HandleFunc("POST /api/anthropic/v1/messages", func(w http.ResponseWriter, r *http.Request) {
@@ -176,7 +177,8 @@ func (handler *Handler) forwardAuthorized(response http.ResponseWriter, request 
 	imageGeneration := upstreamPath == "images/generations"
 	speechGeneration := upstreamPath == "audio/speech"
 	audioTranscription := upstreamPath == "audio/transcriptions"
-	opaqueMedia := imageGeneration || speechGeneration || audioTranscription
+	audioTranslation := upstreamPath == "audio/translations"
+	opaqueMedia := imageGeneration || speechGeneration || audioTranscription || audioTranslation
 	if upstreamPath == "embeddings" || upstreamPath == "moderations" {
 		batchItems = jsonCardinality(envelope["input"])
 	} else if opaqueMedia {
@@ -199,7 +201,7 @@ func (handler *Handler) forwardAuthorized(response http.ResponseWriter, request 
 	if dialect == "responses_compact" {
 		outputEstimate, outputBounded = inputEstimate, true
 	}
-	generation := scope == "chat:generate" || scope == "responses:generate" || scope == "images:generate" || scope == "audio:speech" || scope == "audio:transcribe"
+	generation := scope == "chat:generate" || scope == "responses:generate" || scope == "images:generate" || scope == "audio:speech" || scope == "audio:transcribe" || scope == "audio:translate"
 	if generation && outputEstimate == 0 && !opaqueMedia {
 		outputEstimate = 4096
 	}

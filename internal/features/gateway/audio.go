@@ -27,6 +27,14 @@ type nativeMultipartRequest struct {
 type nativeMultipartRequestKey struct{}
 
 func (handler *Handler) audioTranscription(response http.ResponseWriter, request *http.Request) {
+	handler.audioMultipart(response, request, "audio:transcribe", "audio/transcriptions", true)
+}
+
+func (handler *Handler) audioTranslation(response http.ResponseWriter, request *http.Request) {
+	handler.audioMultipart(response, request, "audio:translate", "audio/translations", false)
+}
+
+func (handler *Handler) audioMultipart(response http.ResponseWriter, request *http.Request, scope, upstreamPath string, streamAllowed bool) {
 	principal, ok := handler.authenticate(response, request, "openai")
 	if !ok {
 		return
@@ -41,9 +49,13 @@ func (handler *Handler) audioTranscription(response http.ResponseWriter, request
 		handler.writeError(response, "openai", http.StatusBadRequest, "invalid_request", err.Error())
 		return
 	}
+	if stream && !streamAllowed {
+		handler.writeError(response, "openai", http.StatusBadRequest, "invalid_request", "streaming is not supported for audio translations")
+		return
+	}
 	envelope, _ := json.Marshal(map[string]any{"model": model, "stream": stream})
 	request = request.WithContext(context.WithValue(request.Context(), nativeMultipartRequestKey{}, nativeMultipartRequest{body: body, contentType: request.Header.Get("Content-Type")}))
-	handler.forwardAuthorized(response, request, "openai", "audio:transcribe", "audio/transcriptions", model, nil, principal, envelope)
+	handler.forwardAuthorized(response, request, "openai", scope, upstreamPath, model, nil, principal, envelope)
 }
 
 func validateAudioMultipart(body []byte, contentType string) (string, bool, error) {
