@@ -11,7 +11,7 @@ pnpm --dir web install --frozen-lockfile
 ./scripts/verify.sh
 ```
 
-Keep protocol namespaces separate, route frontend requests through `web/src/lib/api-client.ts`, and add a focused test for security, accounting, translation, migration, or recovery logic. Do not add provider compatibility claims without deterministic fixtures or recorded live evidence.
+Keep protocol namespaces separate. Frontend hooks call `web/src/lib/pocket-ai-gateway-admin.client.ts`; only its feature clients call the shared transport in `web/src/lib/api-client.ts`. Add a focused test for security, accounting, translation, migration, or recovery logic. Do not add provider compatibility claims without deterministic fixtures or recorded live evidence.
 
 ## Go conventions
 

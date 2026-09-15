@@ -43,7 +43,7 @@ The diagram describes responsibilities, not independently deployed services. The
 | Dashboard | Next.js App Router + strict TypeScript | Recommended static export for the Go-only production runtime |
 | UI behavior | Accessible primitives, minimal locally owned components | Reuse proven dialog/menu behavior; do not build a component framework |
 | Styling | Tailwind with semantic tokens | Define only tokens/components used by shipped screens |
-| Browser routes/data | Prebuilt Next.js screen routes, query-string record IDs, one typed API client | Centralize same-origin credentials, CSRF, cancellation, safe errors, and retry policy; add query caching only when needed |
+| Browser routes/data | Prebuilt Next.js screen routes, query-string record IDs, one `pocketAIGatewayAdmin` facade over feature-local clients | Centralize same-origin credentials, CSRF, cancellation, safe errors, and retry policy; add query caching only when needed |
 | API schema | OpenAPI for /api/v1/ | Generate a typed client once the first management slice is stable |
 | Testing | Go testing/httptest; focused browser tests | Native harness for transport, persistence, and concurrency |
 
@@ -90,7 +90,7 @@ Each compatibility feature owns its HTTP handlers, request/response/error types,
 
 Gateway-owned resource APIs live under /api/v1/: /models, /providers, /connections, /keys, /requests, /usage, and /me; privileged instance management lives under /api/v1/admin/. Compatibility APIs live only under /api/openai/v1/, /api/anthropic/v1/, and /api/gemini/v1beta/. Paths determine wire format; routing selects the provider independently.
 
-Feature-local SQL queries and generated methods stay near the feature; storage owns driver setup, per-store migration execution, and transaction primitives. Dashboard source is likewise organized by feature under web/src/features, with thin Next.js page entries.
+Feature-local SQL queries and generated methods stay near the feature; storage owns driver setup, per-store migration execution, and transaction primitives. Dashboard source is likewise organized by feature under `web/src/features`, with thin Next.js page entries. Feature hooks call the namespaced `pocketAIGatewayAdmin` facade, which is the only module allowed to compose feature clients.
 
 | Owner | Owns | Depends on / must not own |
 | --- | --- | --- |
