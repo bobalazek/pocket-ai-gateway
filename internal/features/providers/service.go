@@ -25,10 +25,10 @@ var (
 )
 
 var adapters = map[string][]string{
-	"openai":            {"chat", "embeddings", "moderations", "count_tokens", "images", "audio_speech", "audio_transcription", "audio_translation"},
+	"openai":            {"chat", "embeddings", "moderations", "count_tokens", "images", "image_edit", "image_variation", "audio_speech", "audio_transcription", "audio_translation"},
 	"anthropic":         {"messages", "count_tokens"},
 	"gemini":            {"generate_content", "count_tokens", "embeddings"},
-	"openai_compatible": {"chat", "embeddings", "moderations", "count_tokens", "images", "audio_speech", "audio_transcription", "audio_translation"},
+	"openai_compatible": {"chat", "embeddings", "moderations", "count_tokens", "images", "image_edit", "image_variation", "audio_speech", "audio_transcription", "audio_translation"},
 }
 
 type Service struct {
@@ -631,7 +631,7 @@ func normalizeCapabilities(values []string) []string {
 }
 func validCapabilities(values []string) bool {
 	for _, value := range values {
-		if value != "chat" && value != "embeddings" && value != "count_tokens" && value != "moderations" && value != "images" && value != "audio_speech" && value != "audio_transcription" && value != "audio_translation" {
+		if value != "chat" && value != "embeddings" && value != "count_tokens" && value != "moderations" && value != "images" && value != "image_edit" && value != "image_variation" && value != "audio_speech" && value != "audio_transcription" && value != "audio_translation" {
 			return false
 		}
 	}

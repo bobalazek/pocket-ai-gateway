@@ -39,6 +39,14 @@ func (handler *Handler) audioMultipart(response http.ResponseWriter, request *ht
 	if !ok {
 		return
 	}
+	if !principal.AllowsScope(scope) {
+		handler.writeError(response, "openai", http.StatusNotFound, "model_not_found", "Model is unavailable")
+		return
+	}
+	if !handler.acquireMultipart(response, "openai") {
+		return
+	}
+	defer handler.releaseMultipart()
 	body, err := io.ReadAll(http.MaxBytesReader(response, request.Body, maxAudioUploadBody))
 	if err != nil {
 		handler.writeError(response, "openai", http.StatusRequestEntityTooLarge, "request_too_large", "Multipart request exceeds 26 MiB")
@@ -57,6 +65,19 @@ func (handler *Handler) audioMultipart(response http.ResponseWriter, request *ht
 	request = request.WithContext(context.WithValue(request.Context(), nativeMultipartRequestKey{}, nativeMultipartRequest{body: body, contentType: request.Header.Get("Content-Type")}))
 	handler.forwardAuthorized(response, request, "openai", scope, upstreamPath, model, nil, principal, envelope)
 }
+
+func (handler *Handler) acquireMultipart(response http.ResponseWriter, dialect string) bool {
+	// ponytail: one in-memory multipart pipeline bounds RAM; spool to disk before raising concurrency.
+	select {
+	case handler.uploads <- struct{}{}:
+		return true
+	default:
+		handler.writeError(response, dialect, http.StatusTooManyRequests, "rate_limit_exceeded", "Another multipart request is already in progress")
+		return false
+	}
+}
+
+func (handler *Handler) releaseMultipart() { <-handler.uploads }
 
 func validateAudioMultipart(body []byte, contentType string) (string, bool, error) {
 	mediaType, parameters, err := mime.ParseMediaType(contentType)

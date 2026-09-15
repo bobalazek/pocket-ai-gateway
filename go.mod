@@ -5,6 +5,7 @@ go 1.27.1
 require (
 	github.com/gofrs/flock v0.13.0
 	golang.org/x/crypto v0.57.0
+	golang.org/x/image v0.46.0
 	gopkg.in/yaml.v3 v3.0.1
 	modernc.org/sqlite v1.58.0
 )

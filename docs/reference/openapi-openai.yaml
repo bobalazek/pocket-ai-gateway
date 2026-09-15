@@ -36,8 +36,48 @@ paths:
   /images/generations:
     post:
       operationId: generateImage
-      description: Generates images through a native image-capable OpenAI target. Streaming, partial images, edits, variations, automatic post-dispatch fallback, lowest-cost/free-only routing, and operation under active token/output/spend policies are not supported. Request and response bodies are limited to 16 MiB.
+      description: Generates images through a native image-capable OpenAI target. Streaming, partial images, automatic post-dispatch fallback, lowest-cost/free-only routing, and operation under active token/output/spend policies are not supported. Request and response bodies are limited to 16 MiB.
       requestBody: { required: true, content: { application/json: { schema: { type: object, required: [model, prompt], properties: { model: { type: string }, prompt: { type: string, minLength: 1, maxLength: 32000 }, n: { oneOf: [{ type: integer, minimum: 1, maximum: 10 }, { type: "null" }] }, output_compression: { oneOf: [{ type: integer, minimum: 0, maximum: 100 }, { type: "null" }] }, stream: { oneOf: [{ const: false }, { type: "null" }] } }, additionalProperties: true } } } }
+      responses: { "200": { description: Native OpenAI images response }, "404": { description: No capable native target }, default: { description: OpenAI-compatible error } }
+  /images/edits:
+    post:
+      operationId: editImage
+      description: Edits 1-16 valid PNG, JPEG, or WebP uploads through a native GPT Image target. Each image must be under 50 MB, an optional same-size PNG mask under 4 MB, the aggregate multipart body is limited to 64 MiB, and the response to 16 MiB. An explicit public model, prompt, and images:edit scope are required. Provider fields pass through and only the model is rewritten. DALL-E 2's separate edit contract, streaming, post-dispatch fallback, lowest-cost/free-only routing, and operation under active token/output/spend policies are not supported.
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              required: [image, model, prompt]
+              properties:
+                image: { oneOf: [{ type: string, format: binary }, { type: array, minItems: 1, maxItems: 16, items: { type: string, format: binary } }] }
+                mask: { type: string, format: binary }
+                model: { type: string }
+                prompt: { type: string, minLength: 1, maxLength: 32000 }
+                n: { oneOf: [{ type: integer, minimum: 1, maximum: 10 }, { type: "null" }] }
+                output_compression: { oneOf: [{ type: integer, minimum: 0, maximum: 100 }, { type: "null" }] }
+                stream: { oneOf: [{ const: false }, { type: "null" }] }
+              additionalProperties: true
+      responses: { "200": { description: Native OpenAI images response }, "404": { description: No capable native target }, default: { description: OpenAI-compatible error } }
+  /images/variations:
+    post:
+      operationId: createImageVariation
+      description: Creates variations from one valid square PNG under 4 MB through a native image-variation-capable target. An explicit public model and images:variation scope are required. The OpenAI preset accepts only upstream dall-e-2; custom OpenAI-compatible endpoints remain operator-declared. Multipart bodies and responses are bounded to 64 MiB and 16 MiB. Post-dispatch fallback, lowest-cost/free-only routing, and operation under active token/output/spend policies are not supported.
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              required: [image, model]
+              properties:
+                image: { type: string, format: binary }
+                model: { type: string }
+                n: { oneOf: [{ type: integer, minimum: 1, maximum: 10 }, { type: "null" }] }
+                response_format: { oneOf: [{ type: string, enum: [url, b64_json] }, { type: "null" }] }
+                size: { oneOf: [{ type: string, enum: [256x256, 512x512, 1024x1024] }, { type: "null" }] }
+              additionalProperties: true
       responses: { "200": { description: Native OpenAI images response }, "404": { description: No capable native target }, default: { description: OpenAI-compatible error } }
   /audio/speech:
     post:

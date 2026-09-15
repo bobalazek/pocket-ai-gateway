@@ -171,7 +171,7 @@ func TestCatalogValidationAndPresets(t *testing.T) {
 	if PresetSupports("fireworks", "responses") || PresetSupports("fireworks", "embeddings") || !PresetSupports("fireworks", "chat/completions") || !PresetSupports("gemini", "models/test:generateContent") || !PresetSupports("custom", "anything") {
 		t.Fatal("preset operation limits are not enforced")
 	}
-	if !PresetSupports("openai", "moderations") || !PresetSupports("openai", "responses/input_tokens") || !PresetSupports("openai", "images/generations") || !PresetSupports("openai", "audio/speech") || !PresetSupports("openai", "audio/transcriptions") || !PresetSupports("openai", "audio/translations") || PresetSupports("anthropic", "moderations") || !PresetSupportsCapabilities("openai", []string{"moderations", "count_tokens", "images", "audio_speech", "audio_transcription", "audio_translation"}) {
+	if !PresetSupports("openai", "moderations") || !PresetSupports("openai", "responses/input_tokens") || !PresetSupports("openai", "images/generations") || !PresetSupports("openai", "images/edits") || !PresetSupports("openai", "images/variations") || !PresetSupports("openai", "audio/speech") || !PresetSupports("openai", "audio/transcriptions") || !PresetSupports("openai", "audio/translations") || PresetSupports("anthropic", "moderations") || !PresetSupportsCapabilities("openai", []string{"moderations", "count_tokens", "images", "image_edit", "image_variation", "audio_speech", "audio_transcription", "audio_translation"}) {
 		t.Fatal("OpenAI preset capability mapping is incorrect")
 	}
 }
@@ -209,6 +209,18 @@ func TestPresetLimitsUpstreamModelCapabilities(t *testing.T) {
 	if _, err = service.CreateUpstreamModel(ctx, owner, openAI.ID, "whisper-1", []string{"audio_translation"}); err != nil {
 		t.Fatal(err)
 	}
+	if _, err = service.CreateUpstreamModel(ctx, owner, openAI.ID, "gpt-image-1", []string{"image_variation"}); err == nil {
+		t.Fatal("OpenAI preset accepted image variation for a model other than dall-e-2")
+	}
+	if _, err = service.CreateUpstreamModel(ctx, owner, openAI.ID, "dall-e-2", []string{"image_edit"}); err == nil {
+		t.Fatal("OpenAI preset accepted the unsupported DALL-E 2 edit contract")
+	}
+	if _, err = service.CreateUpstreamModel(ctx, owner, openAI.ID, "gpt-image-1", []string{"image_edit"}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err = service.CreateUpstreamModel(ctx, owner, openAI.ID, "dall-e-2", []string{"image_variation"}); err != nil {
+		t.Fatal(err)
+	}
 	custom, err := service.CreateConnection(ctx, owner, ConnectionInput{Name: "Custom", Adapter: "openai_compatible", BaseURL: "http://127.0.0.1:9000/v1", AllowPrivateNetwork: true, Enabled: true})
 	if err != nil {
 		t.Fatal(err)
@@ -217,6 +229,9 @@ func TestPresetLimitsUpstreamModelCapabilities(t *testing.T) {
 		t.Fatal(err)
 	}
 	if _, err = service.CreateUpstreamModel(ctx, owner, custom.ID, "provider-translation-model", []string{"audio_translation"}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err = service.CreateUpstreamModel(ctx, owner, custom.ID, "provider-variation-model", []string{"image_variation"}); err != nil {
 		t.Fatal(err)
 	}
 	if _, err = service.UpdateConnection(ctx, owner, custom.ID, custom.Revision, ConnectionInput{Name: custom.Name, Preset: "openai", Enabled: true}); err == nil {

@@ -219,6 +219,7 @@ func serve(ctx context.Context, version string, cfg Config, logOutput io.Writer)
 	httpServer := &http.Server{
 		Handler:           server.NewRuntime(stores.SystemDB(), publicOrigin, usageService, providerService, operationService, gatewayHandler),
 		ReadHeaderTimeout: 5 * time.Second,
+		ReadTimeout:       5 * time.Minute,
 		IdleTimeout:       60 * time.Second,
 	}
 	serveErr := make(chan error, 1)
