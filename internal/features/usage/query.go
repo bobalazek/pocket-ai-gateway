@@ -3,7 +3,6 @@ package usage
 import (
 	"context"
 	"database/sql"
-	"encoding/json"
 	"errors"
 	"sort"
 	"strings"
@@ -60,146 +59,15 @@ type UnresolvedAttempt struct {
 }
 
 type UsageQuery struct {
-	UserID, From, To, KeyID, ModelID, ConnectionID, Dialect, Cursor string
-}
-
-type RequestAttempt struct {
-	ID                       string              `json:"id"`
-	Ordinal                  int64               `json:"ordinal"`
-	ConnectionID             string              `json:"connection_id"`
-	ModelID                  string              `json:"model_id"`
-	UpstreamID               string              `json:"upstream_model_id"`
-	TargetDialect            string              `json:"target_dialect"`
-	TargetOperation          string              `json:"target_operation"`
-	TranslationApplied       bool                `json:"translation_applied"`
-	RequestToolCount         int64               `json:"request_tool_count"`
-	WebSearchMaxCalls        *int64              `json:"web_search_max_calls"`
-	WebSearchCallCount       *int64              `json:"web_search_call_count"`
-	ResponseToolCalls        int64               `json:"response_tool_call_count"`
-	ToolCallStatus           string              `json:"tool_call_status"`
-	SelectionReason          string              `json:"selection_reason"`
-	RejectedCandidates       []map[string]string `json:"rejected_candidates"`
-	State                    string              `json:"state"`
-	UsageStatus              string              `json:"usage_status"`
-	InputTokens              int64               `json:"input_tokens"`
-	OutputTokens             int64               `json:"output_tokens"`
-	CacheCreationInputTokens int64               `json:"cache_creation_input_tokens"`
-	CacheReadInputTokens     int64               `json:"cache_read_input_tokens"`
-	CacheCreation5mTokens    int64               `json:"cache_creation_5m_input_tokens"`
-	CacheCreation1hTokens    int64               `json:"cache_creation_1h_input_tokens"`
-	CostUSD                  *string             `json:"cost_usd"`
-	StartedAt                string              `json:"started_at"`
-}
-
-type RequestRecord struct {
-	ID          string           `json:"id"`
-	OwnerUserID string           `json:"owner_user_id"`
-	KeyID       string           `json:"key_id"`
-	Operation   string           `json:"operation"`
-	Dialect     string           `json:"dialect"`
-	ModelID     string           `json:"model_id"`
-	State       string           `json:"state"`
-	StartedAt   string           `json:"started_at"`
-	FinishedAt  *string          `json:"finished_at"`
-	Attempts    []RequestAttempt `json:"attempts"`
-}
-
-func (service *Service) ListRequests(ctx context.Context, actor auth.User, query UsageQuery) ([]RequestRecord, string, error) {
-	var err error
-	actor, err = refreshUsageActor(ctx, service.database, actor)
-	if err != nil {
-		return nil, "", err
-	}
-	userID, err := service.visibleUser(ctx, actor, query.UserID)
-	if err != nil {
-		return nil, "", err
-	}
-	where, args := "retained_at IS NULL", []any{}
-	if userID != "" {
-		where += " AND owner_user_id=?"
-		args = append(args, userID)
-	}
-	for _, filter := range []struct{ column, value string }{{"key_id", query.KeyID}, {"model_id", query.ModelID}, {"dialect", query.Dialect}} {
-		if filter.value != "" {
-			where += " AND " + filter.column + "=?"
-			args = append(args, filter.value)
-		}
-	}
-	before, beforeID, err := decodeCursor(query.Cursor)
-	if err != nil {
-		return nil, "", err
-	}
-	if query.Cursor != "" {
-		where += " AND (started_at<? OR (started_at=? AND id<?))"
-		args = append(args, before, before, beforeID)
-	}
-	args = append(args, 51)
-	rows, err := service.database.QueryContext(ctx, `SELECT id,owner_user_id,key_id,operation,dialect,model_id,state,started_at,finished_at FROM requests WHERE `+where+` ORDER BY started_at DESC,id DESC LIMIT ?`, args...)
-	if err != nil {
-		return nil, "", err
-	}
-	items := make([]RequestRecord, 0)
-	for rows.Next() {
-		var item RequestRecord
-		var started int64
-		var finished sql.NullInt64
-		if err := rows.Scan(&item.ID, &item.OwnerUserID, &item.KeyID, &item.Operation, &item.Dialect, &item.ModelID, &item.State, &started, &finished); err != nil {
-			rows.Close()
-			return nil, "", err
-		}
-		item.StartedAt = timeString(started)
-		item.Attempts = []RequestAttempt{}
-		if finished.Valid {
-			value := timeString(finished.Int64)
-			item.FinishedAt = &value
-		}
-		items = append(items, item)
-	}
-	if err := rows.Close(); err != nil {
-		return nil, "", err
-	}
-	next := ""
-	if len(items) > 50 {
-		items = items[:50]
-		started, _ := time.Parse(time.RFC3339Nano, items[len(items)-1].StartedAt)
-		next = encodeCursor(started.UnixMilli(), items[len(items)-1].ID)
-	}
-	for index := range items {
-		attemptRows, err := service.database.QueryContext(ctx, `SELECT id,ordinal,connection_id,model_id,upstream_model_id,target_dialect,target_operation,translation_applied,request_tool_count,web_search_max_calls,web_search_call_count,response_tool_call_count,tool_call_status,selection_reason,rejected_candidates_json,state,usage_status,COALESCE(input_tokens,0),COALESCE(output_tokens,0),COALESCE(cache_creation_input_tokens,0),COALESCE(cache_read_input_tokens,0),COALESCE(cache_creation_5m_input_tokens,0),COALESCE(cache_creation_1h_input_tokens,0),COALESCE(restated_cost_nanos,as_recorded_cost_nanos),started_at FROM attempts WHERE request_id=? ORDER BY ordinal`, items[index].ID)
-		if err != nil {
-			return nil, "", err
-		}
-		for attemptRows.Next() {
-			var attempt RequestAttempt
-			var cost sql.NullInt64
-			var started int64
-			var rejected string
-			var webSearchMax, webSearchCount sql.NullInt64
-			if err := attemptRows.Scan(&attempt.ID, &attempt.Ordinal, &attempt.ConnectionID, &attempt.ModelID, &attempt.UpstreamID, &attempt.TargetDialect, &attempt.TargetOperation, &attempt.TranslationApplied, &attempt.RequestToolCount, &webSearchMax, &webSearchCount, &attempt.ResponseToolCalls, &attempt.ToolCallStatus, &attempt.SelectionReason, &rejected, &attempt.State, &attempt.UsageStatus, &attempt.InputTokens, &attempt.OutputTokens, &attempt.CacheCreationInputTokens, &attempt.CacheReadInputTokens, &attempt.CacheCreation5mTokens, &attempt.CacheCreation1hTokens, &cost, &started); err != nil {
-				attemptRows.Close()
-				return nil, "", err
-			}
-			_ = json.Unmarshal([]byte(rejected), &attempt.RejectedCandidates)
-			if webSearchMax.Valid {
-				value := webSearchMax.Int64
-				attempt.WebSearchMaxCalls = &value
-			}
-			if webSearchCount.Valid {
-				value := webSearchCount.Int64
-				attempt.WebSearchCallCount = &value
-			}
-			if cost.Valid {
-				value := FormatUSD(cost.Int64)
-				attempt.CostUSD = &value
-			}
-			attempt.StartedAt = timeString(started)
-			items[index].Attempts = append(items[index].Attempts, attempt)
-		}
-		if err := attemptRows.Close(); err != nil {
-			return nil, "", err
-		}
-	}
-	return items, next, nil
+	UserID       string
+	From         string
+	To           string
+	KeyID        string
+	ModelID      string
+	ConnectionID string
+	Dialect      string
+	Cursor       string
+	RequestID    string
 }
 
 func (service *Service) Summary(ctx context.Context, actor auth.User, query UsageQuery) (UsageSummary, error) {

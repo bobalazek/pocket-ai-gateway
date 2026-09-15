@@ -3,17 +3,8 @@
 import { useEffect, useRef, useState, type FormEvent } from "react";
 
 import type { GatewayRequest, RequestFilters } from "@/features/requests/types/requests.types";
+import { readRequestFilters, requestListFilters, requestSearch } from "@/features/requests/utils/requests.utils";
 import { GatewayAPIError, pocketAIGatewayAdmin } from "@/lib/pocket-ai-gateway-admin.client";
-
-function readFilters(): RequestFilters {
-  const query = new URLSearchParams(window.location.search);
-  const result: RequestFilters = {};
-  for (const key of ["user_id", "key_id", "model_id", "dialect", "cursor"] as const) {
-    const value = query.get(key);
-    if (value) result[key] = value;
-  }
-  return result;
-}
 
 export function useRequests() {
   const active = useRef<AbortController | null>(null);
@@ -21,11 +12,13 @@ export function useRequests() {
   const [filters, setFilters] = useState<RequestFilters>({});
   const [next, setNext] = useState("");
   const [error, setError] = useState("");
+  const [loading, setLoading] = useState(true);
 
   async function load(value: RequestFilters) {
     active.current?.abort();
     const controller = new AbortController();
     active.current = controller;
+    setLoading(true);
     try {
       const page = await pocketAIGatewayAdmin.requests.list(value, controller.signal);
       if (controller.signal.aborted) return;
@@ -33,13 +26,18 @@ export function useRequests() {
       setNext(page.next_cursor);
       setError("");
     } catch (failure) {
-      if (!controller.signal.aborted) setError(failure instanceof GatewayAPIError ? failure.message : "Requests are unavailable");
+      if (controller.signal.aborted) return;
+      setItems([]);
+      setNext("");
+      setError(failure instanceof GatewayAPIError ? failure.message : "Requests are unavailable");
+    } finally {
+      if (!controller.signal.aborted) setLoading(false);
     }
   }
 
   useEffect(() => {
     const sync = () => {
-      const value = readFilters();
+      const value = readRequestFilters(window.location.search);
       setFilters(value);
       void load(value);
     };
@@ -52,8 +50,8 @@ export function useRequests() {
   }, []);
 
   function navigate(value: RequestFilters) {
-    const query = new URLSearchParams(value as Record<string, string>);
-    window.history.pushState({}, "", query.size ? `?${query}` : window.location.pathname);
+    const query = requestSearch(value);
+    window.history.pushState({}, "", query ? `?${query}` : window.location.pathname);
     setFilters(value);
     void load(value);
   }
@@ -69,5 +67,25 @@ export function useRequests() {
     navigate(value);
   }
 
-  return { items, filters, next, error, apply, navigate };
+  function openDetail(id: string) {
+    const value = { ...requestListFilters(filters), request_id: id };
+    const query = requestSearch(value);
+    window.history.pushState({ requestDetail: true }, "", `?${query}`);
+    setFilters(value);
+    void load(value);
+  }
+
+  function closeDetail() {
+    if (window.history.state?.requestDetail === true) {
+      window.history.back();
+      return;
+    }
+    const value = requestListFilters(filters);
+    const query = requestSearch(value);
+    window.history.replaceState({}, "", query ? `?${query}` : window.location.pathname);
+    setFilters(value);
+    void load(value);
+  }
+
+  return { items, filters, next, error, loading, apply, navigate, openDetail, closeDetail };
 }

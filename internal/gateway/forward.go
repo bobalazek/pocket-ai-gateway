@@ -320,6 +320,7 @@ func (handler *Handler) forwardAuthorized(response http.ResponseWriter, request 
 			return
 		}
 		requestID = admission.RequestID
+		response.Header().Set(pocketAIRequestIDHeader, requestID)
 		releaseDispatch, current := handler.providers.BeginDispatch(request.Context(), target)
 		if !current {
 			_ = handler.usage.CancelBeforeDispatch(context.WithoutCancel(request.Context()), admission.AttemptID)

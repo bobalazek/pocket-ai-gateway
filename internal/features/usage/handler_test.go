@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/bobalazek/pocket-ai-gateway/internal/features/auth"
 	"github.com/bobalazek/pocket-ai-gateway/internal/storage"
@@ -69,6 +70,48 @@ func TestPolicyHTTPFlowRequiresSessionCSRFAndRevision(t *testing.T) {
 	mux.ServeHTTP(missingRevision, request)
 	if missingRevision.Code != http.StatusPreconditionRequired {
 		t.Fatalf("missing revision = %d", missingRevision.Code)
+	}
+}
+
+func TestRequestsHTTPFiltersByExactGatewayRequestID(t *testing.T) {
+	ctx := context.Background()
+	store, err := storage.Open(ctx, filepath.Join(t.TempDir(), "data"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+	authService := auth.New(store.SystemDB())
+	mux := http.NewServeMux()
+	authHandler := auth.NewHandler(authService)
+	authHandler.Register(mux)
+	NewHandler(New(store.SystemDB()), authHandler).Register(mux)
+
+	claim := httptest.NewRequest(http.MethodPost, "http://gateway.test/api/v1/auth/setup/claim", strings.NewReader(`{"email":"owner@example.test","display_name":"Owner","password":"correct-horse-battery"}`))
+	claim.Header.Set("Content-Type", "application/json")
+	claim.Header.Set("Origin", "http://gateway.test")
+	claimed := httptest.NewRecorder()
+	mux.ServeHTTP(claimed, claim)
+	if claimed.Code != http.StatusCreated {
+		t.Fatalf("claim = %d: %s", claimed.Code, claimed.Body.String())
+	}
+	var ownerID string
+	if err := store.SystemDB().QueryRowContext(ctx, "SELECT id FROM users WHERE role='owner'").Scan(&ownerID); err != nil {
+		t.Fatal(err)
+	}
+	now := time.Now().UnixMilli()
+	if _, err := store.SystemDB().ExecContext(ctx, `INSERT INTO api_keys (id,owner_user_id,label,state,scopes_json,model_patterns_json,connection_ids_json,created_at,updated_at) VALUES ('key_requests',?,'Requests','active','[]','[]','[]',?,?)`, ownerID, now, now); err != nil {
+		t.Fatal(err)
+	}
+	for _, id := range []string{"req_visible", "req_other"} {
+		if _, err := store.SystemDB().ExecContext(ctx, `INSERT INTO requests (id,owner_user_id,key_id,operation,dialect,model_id,state,started_at) VALUES (?,?,'key_requests','chat','openai','model_test','succeeded',?)`, id, ownerID, now); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	response := httptest.NewRecorder()
+	mux.ServeHTTP(response, authenticatedRequest(http.MethodGet, "http://gateway.test/api/v1/requests?request_id=req_visible", "", claimed.Result().Cookies(), false))
+	if response.Code != http.StatusOK || !strings.Contains(response.Body.String(), `"id":"req_visible"`) || strings.Contains(response.Body.String(), `"id":"req_other"`) {
+		t.Fatalf("requests = %d: %s", response.Code, response.Body.String())
 	}
 }
 

@@ -8,6 +8,8 @@ import (
 	"time"
 )
 
+const pocketAIRequestIDHeader = "X-Pocket-AI-Request-ID"
+
 type attemptWriter struct {
 	destination          http.ResponseWriter
 	header               http.Header
@@ -65,8 +67,12 @@ func (writer *attemptWriter) commitHeader() {
 	if writer.committed {
 		return
 	}
+	requestID := writer.destination.Header().Get(pocketAIRequestIDHeader)
 	for name, values := range writer.header {
 		writer.destination.Header()[name] = append([]string(nil), values...)
+	}
+	if requestID != "" {
+		writer.destination.Header().Set(pocketAIRequestIDHeader, requestID)
 	}
 	status := writer.status
 	if status == 0 {
