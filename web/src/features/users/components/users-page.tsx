@@ -6,6 +6,7 @@ import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { WebSearchScopeHelp } from "@/features/auth/components/web-search-scope-help";
 import { UserRow } from "@/features/users/components/user-row";
 import { useUsers } from "@/features/users/hooks/use-users";
 
@@ -24,6 +25,7 @@ export default function UsersPage() {
           <div className="field"><Label htmlFor="email">Email</Label><Input id="email" name="email" type="email" required /></div>
           <div className="field"><Label htmlFor="role">Role</Label><select id="role" name="role" className="select" defaultValue="member"><option value="member">Member</option>{current?.role === "owner" && <option value="admin">Administrator</option>}</select></div></div>
 			<fieldset className="scope-grid"><legend>Maximum operation scopes</legend>{permittedScopes.map((scope) => <label key={scope}><input type="checkbox" name="scopes" value={scope} /> <span>{scope}</span></label>)}</fieldset>
+			<WebSearchScopeHelp />
 			<small>You can assign only scopes from your own ceiling. Allowed models: {current?.grants.unrestricted ? "any" : current?.grants.model_patterns.join(", ") || "none"}. Allowed connections: {current?.grants.unrestricted ? "any" : current?.grants.connection_ids.join(", ") || "none"}.</small>
           <div className="inline-fields"><div className="field"><Label htmlFor="models">Model patterns</Label><Input id="models" name="models" placeholder="gpt-*" /></div><div className="field"><Label htmlFor="connections">Connection IDs</Label><Input id="connections" name="connections" placeholder="conn_primary" /></div></div>
 			<Button type="submit" disabled={issuing}>{issuing ? "Working…" : "Create user"}</Button>

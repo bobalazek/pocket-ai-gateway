@@ -18,23 +18,39 @@ const connection = (preset: string, adapter: ProviderConnection["adapter"] = "op
   updated_at: "2026-09-15T00:00:00Z",
 });
 
-const presets: ProviderPreset[] = [{
-  id: "openai",
-  label: "OpenAI",
-  adapter: "openai",
-  base_url: "https://api.openai.com/v1",
-  base_url_required: false,
-  credential_required: true,
-  private_network: false,
-  operations: ["responses"],
-  documentation_url: "https://developers.openai.com/api/reference/overview",
-  reviewed_at: "2026-09-15",
-}];
+const presets: ProviderPreset[] = [
+  {
+    id: "openai",
+    label: "OpenAI",
+    adapter: "openai",
+    base_url: "https://api.openai.com/v1",
+    base_url_required: false,
+    credential_required: true,
+    private_network: false,
+    operations: ["responses"],
+    documentation_url: "https://developers.openai.com/api/reference/overview",
+    reviewed_at: "2026-09-15",
+  },
+  {
+    id: "anthropic",
+    label: "Anthropic",
+    adapter: "anthropic",
+    base_url: "https://api.anthropic.com/v1",
+    base_url_required: false,
+    credential_required: true,
+    private_network: false,
+    operations: ["messages"],
+    documentation_url: "https://platform.claude.com/docs/en/api/overview",
+    reviewed_at: "2026-09-15",
+  },
+];
 
 describe("provider capability choices", () => {
-  it("offers hosted web search only for the built-in OpenAI preset", () => {
+  it("offers hosted web search only for the matching built-in presets", () => {
     expect(availableCapabilities(connection("openai"), presets)).toContain("web_search");
+    expect(availableCapabilities(connection("anthropic", "anthropic"), presets)).toContain("web_search");
     expect(availableCapabilities(connection("custom"), presets)).not.toContain("web_search");
     expect(availableCapabilities(connection("custom", "openai_compatible"), presets)).not.toContain("web_search");
+    expect(availableCapabilities(connection("custom", "anthropic"), presets)).not.toContain("web_search");
   });
 });

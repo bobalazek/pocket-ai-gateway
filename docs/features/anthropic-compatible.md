@@ -41,10 +41,18 @@ Translate ordinary JSON requests to/from OpenAI and Gemini while preserving mult
 
 Automated coverage pins the Anthropic SDK and verifies that its `/v1/messages` path is appended exactly once, then exercises OpenAI, Anthropic, and Gemini upstream families, native headers/errors, translated tool cycles, and stream shapes.
 
+## Native basic web search
+
+Non-streaming JSON Messages may contain one direct `{ "type": "web_search_20250305", "name": "web_search" }` tool alongside ordinary application tools. `max_uses` is required and must be an integer from 1 through 4. `allowed_callers` may be omitted, which uses the basic tool's direct default, or be exactly `["direct"]`. Requests may provide up to 100 `allowed_domains` or `blocked_domains`, never both, and an approximate `user_location` with at least one location field. Prompt caching and web search cannot be combined in the same request.
+
+The public and upstream model must both publish `chat` and `web_search`; the selected target must use the Anthropic adapter and built-in `anthropic` preset. The key needs `chat:generate` and `messages:web_search`. Eligible ordered, weighted, and latency strategies may choose a target before dispatch. The request rejects translation, streaming, dynamic-filtering web-search versions, post-dispatch fallback, lowest-cost or free-only routing, and spend policies before contacting a provider.
+
+The gateway preserves native `server_tool_use` and paired `web_search_tool_result` blocks, encrypted result content needed for later turns, citations, `pause_turn`, embedded web-search error blocks, and `usage.server_tool_use.web_search_requests`. Reported successful search calls are stored separately from model tokens. Search-call cost remains unknown because the price model has no versioned provider-search rate. An Anthropic search failure remains an HTTP 200 Message with a `web_search_tool_result_error`; unsuccessful searches are not billed or counted as completed calls.
+
 ## Native prompt caching
 
 Messages sent to the fixed Anthropic preset may use top-level automatic `cache_control` or explicit controls on tools, system blocks, and message content blocks. Controls are bounded to `{ "type": "ephemeral", "ttl": "5m" | "1h" }`, with the documented four-breakpoint and TTL-order rules. The public model and upstream model must both publish `prompt_cache`; translated targets are ineligible, and a dispatched cached request never falls back to another target because duplicate cache writes can be billable.
 
 Accounting treats `input_tokens + cache_creation_input_tokens + cache_read_input_tokens` as total input. It also preserves cache creation, cache read, five-minute creation, and one-hour creation counters in authoritative attempts and the data projection. Cache-controlled attempts have unknown cost until the price model can represent versioned cache rates, so spend policies, free-only routes, and lowest-cost routing reject them before dispatch. The gateway stores counters only, never prompt or cached content.
 
-Sources: [Anthropic API](https://platform.claude.com/docs/en/api/overview), [streaming](https://platform.claude.com/docs/en/build-with-claude/streaming), [prompt caching](https://platform.claude.com/docs/en/build-with-claude/prompt-caching).
+Sources: [Anthropic API](https://platform.claude.com/docs/en/api/overview), [streaming](https://platform.claude.com/docs/en/build-with-claude/streaming), [prompt caching](https://platform.claude.com/docs/en/build-with-claude/prompt-caching), [web search](https://platform.claude.com/docs/en/agents-and-tools/tool-use/web-search-tool), and [server tools](https://platform.claude.com/docs/en/agents-and-tools/tool-use/server-tools).

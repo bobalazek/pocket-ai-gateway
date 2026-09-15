@@ -76,6 +76,49 @@ describe("official SDK compatibility through the Go gateway", () => {
     expect(result.usage).toMatchObject({ input_tokens: 2, cache_creation_input_tokens: 3, cache_read_input_tokens: 5, output_tokens: 1 });
   });
 
+  it("preserves bounded native Anthropic basic web search", async () => {
+    const result = await anthropic().messages.create({
+      model: "target-anthropic",
+      max_tokens: 128,
+      messages: [{ role: "user", content: "Find a source about Pocket AI Gateway" }],
+      tools: [{
+        type: "web_search_20250305",
+        name: "web_search",
+        max_uses: 1,
+        allowed_callers: ["direct"],
+        allowed_domains: ["example.com"],
+        user_location: { type: "approximate", country: "US" },
+      }],
+    });
+
+    expect(result.model).toBe("target-anthropic");
+    expect(result.content.find((block) => block.type === "server_tool_use")).toMatchObject({
+      id: "srvtoolu_1",
+      name: "web_search",
+      caller: { type: "direct" },
+      input: { query: "Pocket AI Gateway" },
+    });
+    expect(result.content.find((block) => block.type === "web_search_tool_result")).toMatchObject({
+      tool_use_id: "srvtoolu_1",
+      caller: { type: "direct" },
+      content: [{
+        type: "web_search_result",
+        url: "https://example.com/source",
+        title: "Example source",
+        encrypted_content: "encrypted-result",
+      }],
+    });
+    expect(result.content.find((block) => block.type === "text")).toMatchObject({
+      citations: [{
+        type: "web_search_result_location",
+        url: "https://example.com/source",
+        title: "Example source",
+        encrypted_index: "encrypted-index",
+      }],
+    });
+    expect(result.usage.server_tool_use?.web_search_requests).toBe(1);
+  });
+
   it.each(models)("decodes Google Gen AI through %s", async (model) => {
     const result = await gemini().models.generateContent({ model, contents: "Hi" });
     expect(result.text).toBe("Hello");

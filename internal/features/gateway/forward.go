@@ -47,8 +47,8 @@ func (handler *Handler) forwardAuthorized(response http.ResponseWriter, request 
 		handler.writeError(response, dialect, http.StatusBadRequest, "invalid_request", "Request body must be a JSON object")
 		return
 	}
-	if dialect != "responses" && containsHostedWebSearchTool(envelope["tools"]) {
-		handler.writeError(response, dialect, http.StatusBadRequest, "unsupported_feature", "web search is supported only by POST /api/openai/v1/responses")
+	if dialect != "responses" && !(dialect == "anthropic" && upstreamPath == "messages") && containsHostedWebSearchTool(envelope["tools"]) {
+		handler.writeError(response, dialect, http.StatusBadRequest, "unsupported_feature", "web search is supported only by POST /api/openai/v1/responses or POST /api/anthropic/v1/messages")
 		return
 	}
 	var publicID string
@@ -62,9 +62,22 @@ func (handler *Handler) forwardAuthorized(response http.ResponseWriter, request 
 		return
 	}
 	promptCache := promptCacheRequest{}
+	anthropicWebSearch := anthropicWebSearchRequest{}
 	if dialect == "anthropic" && upstreamPath == "messages" {
 		if promptCache, err = validatePromptCache(envelope); err != nil {
 			handler.writeError(response, dialect, http.StatusBadRequest, "invalid_request", err.Error())
+			return
+		}
+		if anthropicWebSearch, err = validateAnthropicWebSearch(envelope); err != nil {
+			handler.writeError(response, dialect, http.StatusBadRequest, "invalid_request_error", err.Error())
+			return
+		}
+		if anthropicWebSearch.enabled && promptCache.enabled {
+			handler.writeError(response, dialect, http.StatusBadRequest, "invalid_request_error", "prompt caching cannot be combined with web search")
+			return
+		}
+		if anthropicWebSearch.enabled && !principalHasScope(principal.Scopes, "messages:web_search") {
+			handler.writeError(response, dialect, http.StatusForbidden, "permission_error", "Web search access is not permitted")
 			return
 		}
 	}
@@ -93,6 +106,11 @@ func (handler *Handler) forwardAuthorized(response http.ResponseWriter, request 
 			return
 		}
 	}
+	hostedWebSearch := webSearch.enabled || anthropicWebSearch.enabled
+	webSearchMaxCalls := webSearch.maxCalls
+	if anthropicWebSearch.enabled {
+		webSearchMaxCalls = anthropicWebSearch.maxUses
+	}
 	if upstreamPath == "moderations" {
 		if err = validateModeration(envelope); err != nil {
 			handler.writeError(response, dialect, http.StatusBadRequest, "invalid_request", err.Error())
@@ -117,12 +135,12 @@ func (handler *Handler) forwardAuthorized(response http.ResponseWriter, request 
 		stream = *streamOverride
 	}
 	inputEstimate := originalBodyBytes
-	if webSearch.enabled {
-		if webSearch.maxCalls > (int64(^uint64(0)>>1)-inputEstimate)/webSearchInputPerCall {
+	if hostedWebSearch {
+		if webSearchMaxCalls > (int64(^uint64(0)>>1)-inputEstimate)/webSearchInputPerCall {
 			handler.writeError(response, dialect, http.StatusBadRequest, "invalid_request", "web search input reservation exceeds the supported range")
 			return
 		}
-		inputEstimate += webSearchInputPerCall * webSearch.maxCalls
+		inputEstimate += webSearchInputPerCall * webSearchMaxCalls
 	}
 	outputEstimate := maximumOutput(envelope)
 	batchItems := int64(0)
@@ -181,6 +199,11 @@ func (handler *Handler) forwardAuthorized(response http.ResponseWriter, request 
 		native := nativeTarget(dialect, target.Adapter)
 		if webSearch.enabled {
 			if eligible, reason := webSearchTargetEligibility(target); !eligible {
+				return false, reason
+			}
+		}
+		if anthropicWebSearch.enabled {
+			if eligible, reason := anthropicWebSearchTargetEligibility(target); !eligible {
 				return false, reason
 			}
 		}
@@ -280,7 +303,7 @@ func (handler *Handler) forwardAuthorized(response http.ResponseWriter, request 
 			handler.writeError(response, dialect, http.StatusBadRequest, "unsupported_feature", err.Error())
 			return
 		}
-		admission, admitErr := handler.usage.Admit(request.Context(), usage.AdmissionInput{RequestID: requestID, KeyID: principal.KeyID, ConnectionID: target.TargetConnectionID, ModelID: publicID, UpstreamModelRecordID: target.TargetModelID, UpstreamModelID: target.UpstreamID, ConnectionRevision: target.ConnectionRevision, ModelRevision: target.Revision, Operation: clientOperation, TargetOperation: targetPath, Scope: scope, Dialect: recordDialect, TargetDialect: target.Adapter, TranslationApplied: !native, RequestToolCount: requestToolCount, WebSearchMaxCalls: webSearch.maxCalls, SelectionReason: plan.SelectionReason, RejectedCandidatesJSON: string(rejected), RequiredPriceVersionID: routeTarget.PriceVersionID(), RequireFreePrice: plan.FreeOnly, PriceUnavailable: promptCache.enabled, BodyBytes: originalBodyBytes, BatchItems: batchItems, EstimatedInputTokens: inputEstimate, EstimatedOutputTokens: outputEstimate, EnforceOutputBound: generation, OutputBounded: !generation || outputBounded})
+		admission, admitErr := handler.usage.Admit(request.Context(), usage.AdmissionInput{RequestID: requestID, KeyID: principal.KeyID, ConnectionID: target.TargetConnectionID, ModelID: publicID, UpstreamModelRecordID: target.TargetModelID, UpstreamModelID: target.UpstreamID, ConnectionRevision: target.ConnectionRevision, ModelRevision: target.Revision, Operation: clientOperation, TargetOperation: targetPath, Scope: scope, Dialect: recordDialect, TargetDialect: target.Adapter, TranslationApplied: !native, RequestToolCount: requestToolCount, WebSearchMaxCalls: webSearchMaxCalls, SelectionReason: plan.SelectionReason, RejectedCandidatesJSON: string(rejected), RequiredPriceVersionID: routeTarget.PriceVersionID(), RequireFreePrice: plan.FreeOnly, PriceUnavailable: promptCache.enabled || hostedWebSearch, BodyBytes: originalBodyBytes, BatchItems: batchItems, EstimatedInputTokens: inputEstimate, EstimatedOutputTokens: outputEstimate, EnforceOutputBound: generation, OutputBounded: !generation || outputBounded})
 		if admitErr != nil {
 			if requestID != "" {
 				_ = handler.usage.CloseFailedRequest(context.WithoutCancel(request.Context()), requestID)
@@ -342,6 +365,7 @@ func (handler *Handler) forwardAuthorized(response http.ResponseWriter, request 
 			}
 		}
 		var webSearchCallCount *int64
+		anthropicWebSearchUsageKnown := true
 		webSearchTerminalFailure := false
 		webSearchResponseStatus := ""
 		if webSearch.enabled && copyErr == nil && result >= 200 && result < 300 {
@@ -359,6 +383,15 @@ func (handler *Handler) forwardAuthorized(response http.ResponseWriter, request 
 				if copyErr != nil {
 					attemptWriter.Reset()
 				}
+			}
+		}
+		if anthropicWebSearch.enabled && copyErr == nil && result >= 200 && result < 300 {
+			var exceeded bool
+			webSearchCallCount, anthropicWebSearchUsageKnown, exceeded = parseAnthropicWebSearchUsage(raw, anthropicWebSearch.maxUses)
+			if exceeded {
+				copyErr = errors.New("provider exceeded max_uses")
+				semanticResponseError = true
+				attemptWriter.Reset()
 			}
 		}
 		dispatchErr := copyErr
@@ -440,7 +473,7 @@ func (handler *Handler) forwardAuthorized(response http.ResponseWriter, request 
 			_ = handler.providers.RecordRouteOutcome(context.WithoutCancel(request.Context()), target, clientOperation, stream, success, attemptWriter.FirstByte(started), time.Since(started))
 		}
 		retryableDispatchError := !semanticResponseError && (native && dispatchErr != nil || errors.Is(dispatchErr, errUpstreamResponseInterrupted))
-		retry := !opaqueMedia && !promptCache.enabled && !webSearch.enabled && !terminalStreamFailure && index+1 < len(plan.Targets) && (retryableDispatchError || retryableResult(result, copyErr)) && !attemptWriter.Committed()
+		retry := !opaqueMedia && !promptCache.enabled && !hostedWebSearch && !terminalStreamFailure && index+1 < len(plan.Targets) && (retryableDispatchError || retryableResult(result, copyErr)) && !attemptWriter.Committed()
 		state, status := "succeeded", "provider_reported"
 		if estimatedUsage {
 			status = "estimated"
@@ -451,7 +484,8 @@ func (handler *Handler) forwardAuthorized(response http.ResponseWriter, request 
 			zero := int64(0)
 			cost = &zero
 		}
-		if webSearch.enabled && status == "unknown" {
+		if hostedWebSearch && (status == "unknown" || !anthropicWebSearchUsageKnown) {
+			status = "unknown"
 			inputTokens, outputTokens, cost, webSearchCallCount = nil, nil, nil, nil
 			cacheCreationInputTokens, cacheReadInputTokens = nil, nil
 			cacheCreation5mTokens, cacheCreation1hTokens = nil, nil
@@ -459,7 +493,7 @@ func (handler *Handler) forwardAuthorized(response http.ResponseWriter, request 
 		}
 		if !success {
 			webSearchCallCount = nil
-			if webSearch.enabled {
+			if hostedWebSearch {
 				toolCalls, toolStatus = 0, "none"
 			}
 			state = "failed"
@@ -468,7 +502,7 @@ func (handler *Handler) forwardAuthorized(response http.ResponseWriter, request 
 				inputTokens, outputTokens, cost = nil, nil, nil
 				cacheCreationInputTokens, cacheReadInputTokens = nil, nil
 				cacheCreation5mTokens, cacheCreation1hTokens = nil, nil
-				if !webSearch.enabled && result >= 400 && result < 500 && copyErr == nil {
+				if !hostedWebSearch && result >= 400 && result < 500 && copyErr == nil {
 					zero := int64(0)
 					status, inputTokens, outputTokens, cost = "estimated", &zero, &zero, &zero
 				}
@@ -492,7 +526,7 @@ func (handler *Handler) forwardAuthorized(response http.ResponseWriter, request 
 		}
 		if errors.Is(request.Context().Err(), context.Canceled) {
 			state, status = "interrupted_unknown", "unknown"
-			if webSearch.enabled {
+			if hostedWebSearch {
 				inputTokens, outputTokens, cost, webSearchCallCount = nil, nil, nil, nil
 				cacheCreationInputTokens, cacheReadInputTokens = nil, nil
 				cacheCreation5mTokens, cacheCreation1hTokens = nil, nil

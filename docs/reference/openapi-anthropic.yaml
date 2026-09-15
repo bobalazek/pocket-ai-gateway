@@ -1,5 +1,5 @@
 openapi: 3.1.0
-info: { title: Pocket AI Gateway Anthropic-Compatible API, version: 0.4.0 }
+info: { title: Pocket AI Gateway Anthropic-Compatible API, version: 0.5.0 }
 servers: [{ url: /api/anthropic/v1 }]
 security: [{ apiKey: [] }]
 paths:
@@ -22,12 +22,20 @@ paths:
               type: object
               required: [model, messages, max_tokens]
               additionalProperties: true
-              description: Prompt caching is available only through a native model on the fixed Anthropic preset. A request may use top-level automatic cache control or explicit controls on tool definitions, system content blocks, and message content blocks. The combined request supports at most four breakpoints; 1h breakpoints must precede 5m breakpoints.
+              description: Prompt caching is available only through a native model on the built-in Anthropic preset. A request may use top-level automatic cache control or explicit controls on tool definitions, system content blocks, and message content blocks. The combined request supports at most four breakpoints; 1h breakpoints must precede 5m breakpoints. Bounded hosted web search is also native-only and accepts one direct web_search_20250305 tool with max_uses from 1 through 4 in non-streaming JSON requests. Prompt caching and web search cannot be combined.
               properties:
+                model: { type: string, minLength: 1 }
+                max_tokens: { type: integer, minimum: 1 }
+                stream:
+                  type: [boolean, "null"]
+                  description: General Messages requests may stream. Requests containing web_search_20250305 must set this to false or omit it.
                 cache_control: { $ref: "#/components/schemas/CacheControl" }
                 tools:
                   type: array
-                  items: { $ref: "#/components/schemas/CacheableTool" }
+                  items:
+                    anyOf:
+                      - { $ref: "#/components/schemas/FunctionTool" }
+                      - { $ref: "#/components/schemas/WebSearchTool" }
                 system:
                   oneOf:
                     - { type: string }
@@ -37,7 +45,7 @@ paths:
                   items: { $ref: "#/components/schemas/MessageInput" }
       responses:
         "200":
-          description: Native Anthropic Message JSON or SSE. Cache usage remains in the provider response while gateway accounting counts ordinary input, cache creation, and cache reads as total input.
+          description: Native Anthropic Message JSON or SSE. Web-search requests return JSON only and preserve direct server-tool/result blocks, citations, pause_turn, and reported web-search usage. Cache usage remains in the provider response while gateway accounting counts ordinary input, cache creation, and cache reads as total input.
           content:
             application/json:
               schema: { $ref: "#/components/schemas/MessageResponse" }
@@ -60,12 +68,69 @@ components:
       description: A cacheable block in system[] or messages[].content[]. Thinking blocks and nested sub-content are not cacheable directly.
       properties:
         cache_control: { $ref: "#/components/schemas/CacheControl" }
-    CacheableTool:
+    FunctionTool:
       type: object
       additionalProperties: true
-      description: An Anthropic tool definition. cache_control creates an explicit breakpoint after this tool.
+      required: [name, input_schema]
+      description: An application-executed Anthropic tool definition. cache_control creates an explicit breakpoint after this tool.
       properties:
+        type: { type: string, const: custom, description: Optional discriminator for an application-executed tool }
+        name: { type: string, minLength: 1 }
+        description: { type: string }
+        input_schema: { type: object }
         cache_control: { $ref: "#/components/schemas/CacheControl" }
+    WebSearchTool:
+      type: object
+      additionalProperties: false
+      required: [type, name, max_uses]
+      not:
+        required: [allowed_domains, blocked_domains]
+        properties:
+          allowed_domains: { type: array }
+          blocked_domains: { type: array }
+      description: Gateway-bounded basic Anthropic hosted search. Dynamic-filtering versions, deferred loading, and indirect callers are unsupported.
+      properties:
+        type: { type: string, const: web_search_20250305 }
+        name: { type: string, const: web_search }
+        max_uses: { type: integer, minimum: 1, maximum: 4 }
+        cache_control: { type: "null", description: Only null is accepted; prompt caching cannot be combined with web search }
+        allowed_callers:
+          type: array
+          minItems: 1
+          maxItems: 1
+          uniqueItems: true
+          items: { type: string, const: direct }
+        allowed_domains:
+          oneOf:
+            - { type: "null" }
+            - type: array
+              maxItems: 100
+              items: { type: string, minLength: 1, maxLength: 1024, description: ASCII domain with an optional path and no URL scheme }
+        blocked_domains:
+          oneOf:
+            - { type: "null" }
+            - type: array
+              maxItems: 100
+              items: { type: string, minLength: 1, maxLength: 1024, description: ASCII domain with an optional path and no URL scheme }
+        user_location:
+          oneOf:
+            - { type: "null" }
+            - { $ref: "#/components/schemas/WebSearchUserLocation" }
+    WebSearchUserLocation:
+      type: object
+      additionalProperties: false
+      required: [type]
+      anyOf:
+        - { required: [city], properties: { city: { type: string, minLength: 1, maxLength: 255 } } }
+        - { required: [region], properties: { region: { type: string, minLength: 1, maxLength: 255 } } }
+        - { required: [country], properties: { country: { type: string, pattern: "^[A-Za-z]{2}$" } } }
+        - { required: [timezone], properties: { timezone: { type: string, minLength: 1, maxLength: 255 } } }
+      properties:
+        type: { type: string, const: approximate }
+        city: { type: [string, "null"], minLength: 1, maxLength: 255 }
+        region: { type: [string, "null"], minLength: 1, maxLength: 255 }
+        country: { type: [string, "null"], pattern: "^[A-Za-z]{2}$" }
+        timezone: { type: [string, "null"], minLength: 1, maxLength: 255, description: IANA timezone identifier }
     CacheControl:
       oneOf:
         - { type: "null" }
@@ -104,8 +169,21 @@ components:
     MessageResponse:
       type: object
       additionalProperties: true
-      required: [usage]
+      required: [id, type, role, model, content, stop_reason, usage]
       properties:
+        id: { type: string }
+        type: { type: string, const: message }
+        role: { type: string, const: assistant }
+        model: { type: string }
+        content:
+          type: array
+          items:
+            anyOf:
+              - { $ref: "#/components/schemas/TextBlock" }
+              - { $ref: "#/components/schemas/ServerToolUseBlock" }
+              - { $ref: "#/components/schemas/WebSearchToolResultBlock" }
+              - { type: object, additionalProperties: true }
+        stop_reason: { type: [string, "null"], enum: [end_turn, max_tokens, stop_sequence, tool_use, pause_turn, refusal, model_context_window_exceeded, null] }
         usage: { $ref: "#/components/schemas/MessageUsage" }
     MessageUsage:
       type: object
@@ -120,6 +198,81 @@ components:
             - { type: "null" }
             - { $ref: "#/components/schemas/CacheCreation" }
         output_tokens: { type: integer, minimum: 0 }
+        server_tool_use:
+          oneOf:
+            - { type: "null" }
+            - { $ref: "#/components/schemas/ServerToolUsage" }
+    DirectCaller:
+      type: object
+      additionalProperties: false
+      required: [type]
+      properties:
+        type: { type: string, const: direct }
+    ServerToolUsage:
+      type: object
+      additionalProperties: true
+      required: [web_search_requests]
+      properties:
+        web_search_requests: { type: integer, minimum: 0, maximum: 4, description: Successful provider-reported searches; failed searches are not billed }
+    ServerToolUseBlock:
+      type: object
+      additionalProperties: true
+      required: [type, id, name, input, caller]
+      properties:
+        type: { type: string, const: server_tool_use }
+        id: { type: string, pattern: "^srvtoolu_" }
+        name: { type: string, const: web_search }
+        input: { type: object, additionalProperties: true }
+        caller: { $ref: "#/components/schemas/DirectCaller" }
+    WebSearchResultBlock:
+      type: object
+      additionalProperties: true
+      required: [type, url, title, encrypted_content, page_age]
+      properties:
+        type: { type: string, const: web_search_result }
+        url: { type: string, format: uri }
+        title: { type: string }
+        encrypted_content: { type: string, description: Opaque content that must be returned unchanged in later Messages turns }
+        page_age: { type: [string, "null"] }
+    WebSearchToolResultError:
+      type: object
+      additionalProperties: false
+      required: [type, error_code]
+      properties:
+        type: { type: string, const: web_search_tool_result_error }
+        error_code: { type: string, enum: [invalid_tool_input, unavailable, max_uses_exceeded, too_many_requests, query_too_long, request_too_large] }
+    WebSearchToolResultBlock:
+      type: object
+      additionalProperties: true
+      required: [type, tool_use_id, content, caller]
+      properties:
+        type: { type: string, const: web_search_tool_result }
+        tool_use_id: { type: string, pattern: "^srvtoolu_" }
+        caller: { $ref: "#/components/schemas/DirectCaller" }
+        content:
+          oneOf:
+            - { type: array, items: { $ref: "#/components/schemas/WebSearchResultBlock" } }
+            - { $ref: "#/components/schemas/WebSearchToolResultError" }
+    WebSearchCitation:
+      type: object
+      additionalProperties: true
+      required: [type, url, title, encrypted_index, cited_text]
+      properties:
+        type: { type: string, const: web_search_result_location }
+        url: { type: string, format: uri }
+        title: { type: [string, "null"] }
+        encrypted_index: { type: string }
+        cited_text: { type: string, maxLength: 150 }
+    TextBlock:
+      type: object
+      additionalProperties: true
+      required: [type, text, citations]
+      properties:
+        type: { type: string, const: text }
+        text: { type: string }
+        citations:
+          type: [array, "null"]
+          items: { $ref: "#/components/schemas/WebSearchCitation" }
   securitySchemes:
     apiKey: { type: apiKey, in: header, name: x-api-key }
   parameters:
