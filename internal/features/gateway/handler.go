@@ -75,6 +75,7 @@ func (handler *Handler) Register(mux *http.ServeMux) {
 	mux.HandleFunc("POST /api/openai/v1/audio/speech", func(w http.ResponseWriter, r *http.Request) {
 		handler.forward(w, r, "openai", "audio:speech", "audio/speech", "", nil)
 	})
+	mux.HandleFunc("POST /api/openai/v1/audio/transcriptions", handler.audioTranscription)
 	mux.HandleFunc("GET /api/anthropic/v1/models", handler.anthropicModels)
 	mux.HandleFunc("GET /api/anthropic/v1/models/{model}", handler.anthropicModel)
 	mux.HandleFunc("POST /api/anthropic/v1/messages", func(w http.ResponseWriter, r *http.Request) {
@@ -109,6 +110,9 @@ func (handler *Handler) forwardAuthorized(response http.ResponseWriter, request 
 	}
 	var err error
 	originalBodyBytes := int64(len(body))
+	if multipart, ok := multipartRequest(request); ok {
+		originalBodyBytes = int64(len(multipart.body))
+	}
 	requestToolCount := countRequestTools(dialect, body)
 	var envelope map[string]json.RawMessage
 	if err := json.Unmarshal(body, &envelope); err != nil {
@@ -171,10 +175,11 @@ func (handler *Handler) forwardAuthorized(response http.ResponseWriter, request 
 	batchItems := int64(0)
 	imageGeneration := upstreamPath == "images/generations"
 	speechGeneration := upstreamPath == "audio/speech"
-	unboundedGeneration := imageGeneration || speechGeneration
+	audioTranscription := upstreamPath == "audio/transcriptions"
+	opaqueMedia := imageGeneration || speechGeneration || audioTranscription
 	if upstreamPath == "embeddings" || upstreamPath == "moderations" {
 		batchItems = jsonCardinality(envelope["input"])
-	} else if unboundedGeneration {
+	} else if opaqueMedia {
 		batchItems = 1
 		if imageGeneration {
 			_ = json.Unmarshal(envelope["n"], &batchItems)
@@ -194,8 +199,8 @@ func (handler *Handler) forwardAuthorized(response http.ResponseWriter, request 
 	if dialect == "responses_compact" {
 		outputEstimate, outputBounded = inputEstimate, true
 	}
-	generation := scope == "chat:generate" || scope == "responses:generate" || scope == "images:generate" || scope == "audio:speech"
-	if generation && outputEstimate == 0 && !unboundedGeneration {
+	generation := scope == "chat:generate" || scope == "responses:generate" || scope == "images:generate" || scope == "audio:speech" || scope == "audio:transcribe"
+	if generation && outputEstimate == 0 && !opaqueMedia {
 		outputEstimate = 4096
 	}
 	translationBody := body
@@ -216,10 +221,10 @@ func (handler *Handler) forwardAuthorized(response http.ResponseWriter, request 
 		if !hasCapability(target.Capabilities, scope) || !hasCapability(target.UpstreamCapabilities, scope) {
 			return false, "unsupported_capability"
 		}
-		if unboundedGeneration && target.RoutingStrategy == "lowest_cost" {
+		if opaqueMedia && target.RoutingStrategy == "lowest_cost" {
 			return false, "cost_estimate_unavailable"
 		}
-		if unboundedGeneration && target.FreeOnly {
+		if opaqueMedia && target.FreeOnly {
 			return false, "free_price_contract_unavailable"
 		}
 		if !native && scope != "chat:generate" && scope != "responses:generate" {
@@ -272,7 +277,9 @@ func (handler *Handler) forwardAuthorized(response http.ResponseWriter, request 
 		targetPath, targetBody := upstreamPath, body
 		var targetEnvelope map[string]json.RawMessage
 		_ = json.Unmarshal(body, &targetEnvelope)
-		if native && dialect == "gemini" {
+		if multipart, ok := multipartRequest(request); native && ok {
+			targetBody, err = rewriteMultipartModel(multipart, target.UpstreamID)
+		} else if native && dialect == "gemini" {
 			targetPath = "models/" + url.PathEscape(target.UpstreamID) + ":" + clientOperation
 			if stream {
 				targetPath += "?alt=sse"
@@ -401,7 +408,7 @@ func (handler *Handler) forwardAuthorized(response http.ResponseWriter, request 
 			_ = handler.providers.RecordRouteOutcome(context.WithoutCancel(request.Context()), target, clientOperation, stream, success, attemptWriter.FirstByte(started), time.Since(started))
 		}
 		retryableDispatchError := !semanticResponseError && (native && dispatchErr != nil || errors.Is(dispatchErr, errUpstreamResponseInterrupted))
-		retry := !unboundedGeneration && !terminalStreamFailure && index+1 < len(plan.Targets) && (retryableDispatchError || retryableResult(result, copyErr)) && !attemptWriter.Committed()
+		retry := !opaqueMedia && !terminalStreamFailure && index+1 < len(plan.Targets) && (retryableDispatchError || retryableResult(result, copyErr)) && !attemptWriter.Committed()
 		state, status := "succeeded", "provider_reported"
 		if estimatedUsage {
 			status = "estimated"

@@ -8,6 +8,7 @@
 | OpenAI Responses | Stored JSON, durable background lifecycle, stateless JSON/SSE, native response compaction and input-token counting, Conversation resources, and atomic synchronous/background/buffered-stream attachment | Go fixtures and OpenAI SDK 7.15.0 integration |
 | OpenAI Images | Native non-streaming generation with explicit model, scoped capability, body bounds, and reported token accounting | Go fixtures and OpenAI SDK 7.15.0 integration |
 | OpenAI Speech | Native JSON request and buffered audio response with explicit model, scoped capability, and body bounds | Go fixtures and OpenAI SDK 7.15.0 integration |
+| OpenAI Audio Transcription | Native multipart upload with model rewriting, scoped capability, upload bounds, and optional streaming passthrough | Go fixtures and OpenAI SDK 7.15.0 integration |
 | Anthropic Messages | JSON and native SSE generation, tools, image input, token counting, models | Go fixtures and Anthropic SDK 0.125.0 integration |
 | Gemini v1beta | JSON and SSE generation, tools, image input, embeddings, token counting, models | Go fixtures and Google Gen AI 2.22.0 integration |
 

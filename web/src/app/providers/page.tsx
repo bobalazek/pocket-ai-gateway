@@ -10,10 +10,10 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { GatewayAPIError, gatewayAPI, type ProviderConnection, type ProviderPreset } from "@/lib/api-client";
 
-const capabilities=["chat","embeddings","moderations","count_tokens","images","audio_speech"] as const;
+const capabilities=["chat","embeddings","moderations","count_tokens","images","audio_speech","audio_transcription"] as const;
 type Capability=(typeof capabilities)[number];
-const adapterCapabilities:Record<ProviderConnection["adapter"],Capability[]>={openai:["chat","embeddings","moderations","count_tokens","images","audio_speech"],openai_compatible:["chat","embeddings","moderations","count_tokens","images","audio_speech"],anthropic:["chat","count_tokens"],gemini:["chat","embeddings","count_tokens"]};
-const capabilityOperations:Record<Capability,string[]>={chat:["chat/completions","messages","generateContent","responses"],embeddings:["embeddings","embedContent","batchEmbedContents"],moderations:["moderations"],count_tokens:["responses/input_tokens","messages/count_tokens","countTokens"],images:["images/generations"],audio_speech:["audio/speech"]};
+const adapterCapabilities:Record<ProviderConnection["adapter"],Capability[]>={openai:["chat","embeddings","moderations","count_tokens","images","audio_speech","audio_transcription"],openai_compatible:["chat","embeddings","moderations","count_tokens","images","audio_speech","audio_transcription"],anthropic:["chat","count_tokens"],gemini:["chat","embeddings","count_tokens"]};
+const capabilityOperations:Record<Capability,string[]>={chat:["chat/completions","messages","generateContent","responses"],embeddings:["embeddings","embedContent","batchEmbedContents"],moderations:["moderations"],count_tokens:["responses/input_tokens","messages/count_tokens","countTokens"],images:["images/generations"],audio_speech:["audio/speech"],audio_transcription:["audio/transcriptions"]};
 function availableCapabilities(connection:ProviderConnection,presets:ProviderPreset[]){const supported=adapterCapabilities[connection.adapter];if(connection.preset==="custom")return supported;const operations=presets.find(preset=>preset.id===connection.preset)?.operations??[];return supported.filter(capability=>capabilityOperations[capability].some(operation=>operations.includes(operation)))}
 
 export default function ProvidersPage(){
