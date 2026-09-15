@@ -170,6 +170,118 @@ describe("official SDK compatibility through the Go gateway", () => {
     });
   });
 
+  it("manages gateway-owned Anthropic Message Batches", async () => {
+    const client = anthropic();
+    const created = await client.messages.batches.create({
+      requests: [{
+        custom_id: "sdk-success",
+        params: {
+          model: "target-anthropic",
+          max_tokens: 8,
+          messages: [{ role: "user", content: "Batch hello" }],
+        },
+      }],
+    });
+    expect(created).toMatchObject({
+      type: "message_batch",
+      processing_status: "in_progress",
+      request_counts: {
+        processing: 1,
+        succeeded: 0,
+        errored: 0,
+        canceled: 0,
+        expired: 0,
+      },
+      archived_at: null,
+      results_url: null,
+    });
+    expect(created.id).toMatch(/^msgbatch_/);
+    expect(Date.parse(created.expires_at) - Date.parse(created.created_at)).toBe(24 * 60 * 60 * 1000);
+
+    let completed = created;
+    for (let attempt = 0; attempt < 100 && completed.processing_status !== "ended"; attempt++) {
+      await new Promise((resolve) => setTimeout(resolve, 20));
+      completed = await client.messages.batches.retrieve(created.id);
+    }
+    expect(completed).toMatchObject({
+      id: created.id,
+      processing_status: "ended",
+      request_counts: {
+        processing: 0,
+        succeeded: 1,
+        errored: 0,
+        canceled: 0,
+        expired: 0,
+      },
+      archived_at: null,
+    });
+    expect(completed.results_url).toMatch(new RegExp(`^${baseURL}/api/anthropic/v1/messages/batches/${created.id}/results$`));
+
+    const page = await client.messages.batches.list({ limit: 1 });
+    expect(page.data.map((batch) => batch.id)).toContain(created.id);
+    const results = [];
+    for await (const result of await client.messages.batches.results(created.id)) results.push(result);
+    expect(results).toEqual([expect.objectContaining({
+      custom_id: "sdk-success",
+      result: expect.objectContaining({
+        type: "succeeded",
+        message: {
+          id: "msg_1",
+          type: "message",
+          role: "assistant",
+          model: "anthropic-upstream",
+          container: null,
+          content: [{ type: "text", text: "Hello", citations: null }],
+          stop_details: null,
+          stop_reason: "end_turn",
+          stop_sequence: null,
+          usage: {
+            cache_creation: null,
+            cache_creation_input_tokens: null,
+            cache_read_input_tokens: null,
+            inference_geo: null,
+            input_tokens: 2,
+            output_tokens: 1,
+            output_tokens_details: null,
+            server_tool_use: null,
+            service_tier: "standard",
+          },
+        },
+      }),
+    })]);
+    expect(await client.messages.batches.delete(created.id)).toEqual({ id: created.id, type: "message_batch_deleted" });
+    await expect(client.messages.batches.retrieve(created.id)).rejects.toMatchObject({ status: 404 });
+
+    const pending = await client.messages.batches.create({
+      requests: [{
+        custom_id: "sdk-canceled",
+        params: {
+          model: "target-anthropic",
+          max_tokens: 8,
+          messages: [{ role: "user", content: "Cancel me" }],
+        },
+      }],
+    });
+    let canceled = await client.messages.batches.cancel(pending.id);
+    for (let attempt = 0; attempt < 100 && canceled.processing_status !== "ended"; attempt++) {
+      await new Promise((resolve) => setTimeout(resolve, 20));
+      canceled = await client.messages.batches.retrieve(pending.id);
+    }
+    expect(canceled).toMatchObject({
+      processing_status: "ended",
+      request_counts: {
+        processing: 0,
+        succeeded: 0,
+        errored: 0,
+        canceled: 1,
+        expired: 0,
+      },
+    });
+    const canceledResults = [];
+    for await (const result of await client.messages.batches.results(pending.id)) canceledResults.push(result);
+    expect(canceledResults).toEqual([{ custom_id: "sdk-canceled", result: { type: "canceled" } }]);
+  });
+
   it.each(models)("decodes Google Gen AI through %s", async (model) => {
     const result = await gemini().models.generateContent({ model, contents: "Hi" });
     expect(result.text).toBe("Hello");

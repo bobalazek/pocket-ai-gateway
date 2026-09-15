@@ -109,18 +109,9 @@ func (handler *Handler) enqueueResponse(response http.ResponseWriter, request *h
 	queueLimited := false
 	tx, err := handler.database.BeginTx(request.Context(), nil)
 	if err == nil {
-		var count, size, ownerCount, ownerSize, keyCount, keySize int64
-		err = tx.QueryRowContext(request.Context(), `SELECT COUNT(*),COALESCE(SUM(length(request_json)+length(body_json)+COALESCE(length(conversation_items_json),0)),0),
-			COALESCE(SUM(CASE WHEN owner_user_id=? THEN 1 ELSE 0 END),0),COALESCE(SUM(CASE WHEN owner_user_id=? THEN length(request_json)+length(body_json)+COALESCE(length(conversation_items_json),0) ELSE 0 END),0),
-			COALESCE(SUM(CASE WHEN key_id=? THEN 1 ELSE 0 END),0),COALESCE(SUM(CASE WHEN key_id=? THEN length(request_json)+length(body_json)+COALESCE(length(conversation_items_json),0) ELSE 0 END),0)
-			FROM stored_responses WHERE state IN ('queued','running')`, principal.OwnerUserID, principal.OwnerUserID, principal.KeyID, principal.KeyID).Scan(&count, &size, &ownerCount, &ownerSize, &keyCount, &keySize)
 		incoming := int64(len(requestBody) + len(conversationItems) + len(queued))
-		if err == nil && (ownerCount >= backgroundOwnerJobs || ownerSize+incoming > backgroundOwnerBytes || keyCount >= backgroundKeyJobs || keySize+incoming > backgroundKeyBytes) {
-			queueLimited = true
-			err = errors.New("queue limit reached")
-		} else if err == nil && (count >= backgroundQueueJobs || size+incoming > backgroundQueueBytes) {
-			err = errors.New("queue full")
-		}
+		err = checkMessageBatchQueueCapacity(request.Context(), tx, principal.OwnerUserID, principal.KeyID, 1, incoming)
+		queueLimited = errors.Is(err, errMessageBatchQueueLimit)
 		if err == nil {
 			err = checkRetainedResponseCapacity(request.Context(), tx, principal.OwnerUserID, principal.KeyID, 1, incoming+maxInferenceBody)
 			queueLimited = errors.Is(err, errStoredResponseLimit)
@@ -154,7 +145,7 @@ func (handler *Handler) enqueueResponse(response http.ResponseWriter, request *h
 
 func (handler *Handler) RunBackground(ctx context.Context) {
 	for {
-		if err := handler.recoverBackground(ctx); err == nil {
+		if err := handler.recoverBackground(ctx); err == nil && handler.recoverMessageBatches(ctx) == nil {
 			break
 		}
 		if !waitBackground(ctx, time.Second) {
@@ -164,10 +155,28 @@ func (handler *Handler) RunBackground(ctx context.Context) {
 	ticker := time.NewTicker(5 * time.Second)
 	defer ticker.Stop()
 	for {
-		job, ok := handler.claimBackground(ctx)
-		if ok {
-			handler.runBackground(ctx, job)
-			continue
+		if handler.preferBatch {
+			if job, ok := handler.claimMessageBatch(ctx); ok {
+				handler.preferBatch = false
+				handler.runMessageBatch(ctx, job)
+				continue
+			}
+			if job, ok := handler.claimBackground(ctx); ok {
+				handler.preferBatch = true
+				handler.runBackground(ctx, job)
+				continue
+			}
+		} else {
+			if job, ok := handler.claimBackground(ctx); ok {
+				handler.preferBatch = true
+				handler.runBackground(ctx, job)
+				continue
+			}
+			if job, ok := handler.claimMessageBatch(ctx); ok {
+				handler.preferBatch = false
+				handler.runMessageBatch(ctx, job)
+				continue
+			}
 		}
 		select {
 		case <-ctx.Done():

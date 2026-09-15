@@ -28,7 +28,7 @@ func (handler *Handler) writeError(w http.ResponseWriter, dialect string, status
 	w.WriteHeader(status)
 	switch dialect {
 	case "anthropic":
-		_ = json.NewEncoder(w).Encode(map[string]any{"type": "error", "error": map[string]string{"type": code, "message": message}})
+		_ = json.NewEncoder(w).Encode(map[string]any{"type": "error", "error": map[string]string{"type": code, "message": message}, "request_id": nil})
 	case "gemini":
 		googleStatus := code
 		if !strings.Contains(code, "_") {

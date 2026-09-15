@@ -191,7 +191,7 @@ func serve(ctx context.Context, version string, cfg Config, logOutput io.Writer)
 	}
 	providerService := providers.New(stores.SystemDB(), masterKey)
 	keyService := keys.New(stores.SystemDB())
-	gatewayHandler := gateway.New(stores.SystemDB(), keyService, providerService, usageService)
+	gatewayHandler := gateway.New(stores.SystemDB(), keyService, providerService, usageService, publicOrigin)
 	operationService := operations.New(stores, providerService, version, os.Getenv)
 	if err := usageService.Recover(ctx); err != nil {
 		return fmt.Errorf("recover usage accounting: %w", err)

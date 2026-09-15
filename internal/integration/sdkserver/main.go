@@ -92,7 +92,7 @@ func main() {
 		connections = append(connections, connection.ID)
 	}
 	keyService := keys.New(store.SystemDB())
-	_, secret, err := keyService.Create(ctx, owner.ID, keys.Input{Label: "Official SDK matrix", Scopes: []string{"chat:generate", "messages:web_search", "responses:generate", "responses:web_search", "moderations:classify", "images:generate", "images:edit", "images:variation", "audio:speech", "audio:transcribe", "audio:translate", "models:read", "tokens:count"}, ModelPatterns: []string{"target-*"}, ConnectionIDs: connections})
+	_, secret, err := keyService.Create(ctx, owner.ID, keys.Input{Label: "Official SDK matrix", Scopes: []string{"chat:generate", "messages:batches", "messages:web_search", "responses:generate", "responses:web_search", "moderations:classify", "images:generate", "images:edit", "images:variation", "audio:speech", "audio:transcribe", "audio:translate", "models:read", "tokens:count"}, ModelPatterns: []string{"target-*"}, ConnectionIDs: connections})
 	must(err)
 
 	mux := http.NewServeMux()
@@ -214,14 +214,14 @@ func upstreamHandler(response http.ResponseWriter, request *http.Request) {
 		io.WriteString(response, `{"id":"chat_1","object":"chat.completion","choices":[{"index":0,"message":{"role":"assistant","content":"Hello"},"finish_reason":"stop"}],"usage":{"prompt_tokens":2,"completion_tokens":1,"total_tokens":3}}`)
 	case "anthropic":
 		if bytes.Contains(body, []byte(`"type":"web_search_20250305"`)) {
-			io.WriteString(response, `{"id":"msg_web","type":"message","role":"assistant","model":"target-anthropic","content":[{"type":"server_tool_use","id":"srvtoolu_1","name":"web_search","caller":{"type":"direct"},"input":{"query":"Pocket AI Gateway"}},{"type":"web_search_tool_result","tool_use_id":"srvtoolu_1","caller":{"type":"direct"},"content":[{"type":"web_search_result","url":"https://example.com/source","title":"Example source","encrypted_content":"encrypted-result","page_age":"September 15, 2026"}]},{"type":"text","text":"A sourced answer","citations":[{"type":"web_search_result_location","url":"https://example.com/source","title":"Example source","encrypted_index":"encrypted-index","cited_text":"Pocket AI Gateway"}]}],"stop_reason":"end_turn","usage":{"input_tokens":8,"output_tokens":4,"server_tool_use":{"web_search_requests":1}}}`)
+			io.WriteString(response, `{"id":"msg_web","type":"message","role":"assistant","model":"target-anthropic","container":null,"content":[{"type":"server_tool_use","id":"srvtoolu_1","name":"web_search","caller":{"type":"direct"},"input":{"query":"Pocket AI Gateway"}},{"type":"web_search_tool_result","tool_use_id":"srvtoolu_1","caller":{"type":"direct"},"content":[{"type":"web_search_result","url":"https://example.com/source","title":"Example source","encrypted_content":"encrypted-result","page_age":"September 15, 2026"}]},{"type":"text","text":"A sourced answer","citations":[{"type":"web_search_result_location","url":"https://example.com/source","title":"Example source","encrypted_index":"encrypted-index","cited_text":"Pocket AI Gateway"}]}],"stop_details":null,"stop_reason":"end_turn","stop_sequence":null,"usage":{"cache_creation":null,"cache_creation_input_tokens":null,"cache_read_input_tokens":null,"inference_geo":null,"input_tokens":8,"output_tokens":4,"output_tokens_details":null,"server_tool_use":{"web_fetch_requests":0,"web_search_requests":1},"service_tier":"standard"}}`)
 			return
 		}
 		if bytes.Contains(body, []byte(`"cache_control"`)) {
-			io.WriteString(response, `{"id":"msg_cache","type":"message","role":"assistant","content":[{"type":"text","text":"Hello"}],"stop_reason":"end_turn","usage":{"input_tokens":2,"cache_creation_input_tokens":3,"cache_read_input_tokens":5,"cache_creation":{"ephemeral_5m_input_tokens":3,"ephemeral_1h_input_tokens":0},"output_tokens":1}}`)
+			io.WriteString(response, `{"id":"msg_cache","type":"message","role":"assistant","model":"anthropic-upstream","container":null,"content":[{"type":"text","text":"Hello","citations":null}],"stop_details":null,"stop_reason":"end_turn","stop_sequence":null,"usage":{"cache_creation":{"ephemeral_5m_input_tokens":3,"ephemeral_1h_input_tokens":0},"cache_creation_input_tokens":3,"cache_read_input_tokens":5,"inference_geo":null,"input_tokens":2,"output_tokens":1,"output_tokens_details":null,"server_tool_use":null,"service_tier":"standard"}}`)
 			return
 		}
-		io.WriteString(response, `{"id":"msg_1","type":"message","role":"assistant","content":[{"type":"text","text":"Hello"}],"stop_reason":"end_turn","usage":{"input_tokens":2,"output_tokens":1}}`)
+		io.WriteString(response, `{"id":"msg_1","type":"message","role":"assistant","model":"anthropic-upstream","container":null,"content":[{"type":"text","text":"Hello","citations":null}],"stop_details":null,"stop_reason":"end_turn","stop_sequence":null,"usage":{"cache_creation":null,"cache_creation_input_tokens":null,"cache_read_input_tokens":null,"inference_geo":null,"input_tokens":2,"output_tokens":1,"output_tokens_details":null,"server_tool_use":null,"service_tier":"standard"}}`)
 	case "gemini":
 		io.WriteString(response, `{"responseId":"gemini_1","candidates":[{"index":0,"content":{"role":"model","parts":[{"text":"Hello"}]},"finishReason":"STOP"}],"usageMetadata":{"promptTokenCount":2,"candidatesTokenCount":1,"totalTokenCount":3}}`)
 	}

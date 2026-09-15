@@ -29,6 +29,7 @@ func TestPairedSnapshotRestoresBothStores(t *testing.T) {
 		t.Fatal(err)
 	}
 	seedWebSearchSnapshotRows(t, ctx, store)
+	seedMessageBatchSnapshotRows(t, ctx, store)
 	if err := store.Close(); err != nil {
 		t.Fatal(err)
 	}
@@ -68,6 +69,10 @@ func TestPairedSnapshotRestoresBothStores(t *testing.T) {
 	}
 	if err := restoredStore.DataDB().QueryRowContext(ctx, `SELECT web_search_calls FROM usage_daily WHERE owner_user_id='usr_web'`).Scan(&dailyCalls); err != nil || dailyCalls != 1 {
 		t.Fatalf("restored daily web search=%d error=%v", dailyCalls, err)
+	}
+	var batchStatus, customID, itemState string
+	if err := restoredStore.SystemDB().QueryRowContext(ctx, `SELECT message_batches.processing_status,message_batch_items.custom_id,message_batch_items.state FROM message_batches JOIN message_batch_items ON message_batch_items.batch_id=message_batches.id WHERE message_batches.id='msgbatch_snapshot'`).Scan(&batchStatus, &customID, &itemState); err != nil || batchStatus != "ended" || customID != "snapshot_item" || itemState != "succeeded" {
+		t.Fatalf("restored message batch=%q/%q/%q error=%v", batchStatus, customID, itemState, err)
 	}
 }
 

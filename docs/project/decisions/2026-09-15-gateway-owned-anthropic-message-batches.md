@@ -1,0 +1,11 @@
+# 2026-09-15 — Gateway-owned Anthropic Message Batches
+
+ID: ADR-021 · Status: accepted · Source: user decision
+
+**Context.** Anthropic's native Message Batches API exposes useful asynchronous lifecycle and official SDK methods, but forwarding provider-owned batches would couple public resource IDs, storage, cancellation, retention, limits, and billing to one upstream. Pocket AI Gateway already has durable local execution and key-owned resource patterns.
+
+**Decision.** Implement the six stable Anthropic Message Batches operations under `/api/anthropic/v1/messages/batches`: create, retrieve, list, cancel, delete, and stream results as JSONL. A batch is gateway-owned by its creating inference key, contains one to four uniquely identified non-streaming ordinary Messages requests, and has a 16 MiB request limit. Submission requires `chat:generate` and `messages:batches`; each item executes locally through the ordinary Messages authorization, routing, admission, and accounting path with the creating key's current grants.
+
+Batches process asynchronously, including nested `params` validation: an invalid item's error appears in its terminal result without rejecting otherwise valid items. Their public `expires_at` is the processing deadline 24 hours after creation, when unfinished items expire. Cancellation moves unfinished work through `canceling` before `ended`; completed items remain available. While a batch is active, all requests remain in the `processing` count and terminal counters remain zero; their final distribution appears together at `ended`. Results may be returned out of request order and are matched through `custom_id`. At 29 days after creation, the gateway deletes the whole batch and its results rather than preserving archived metadata. This contract does not forward Anthropic's provider-owned batch resource, 100,000-item ceiling, or native 50% batch price.
+
+**Consequences.** Gateway backups and retention now include bounded batch inputs, lifecycle state, and results. Official Anthropic SDK compatibility must cover all six operations and its two-step `results()` behavior. Files, provider-owned batches, beta batch extensions, and broader bulk execution remain separate contracts.

@@ -5,7 +5,7 @@ import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { WebSearchScopeHelp } from "@/features/auth/components/web-search-scope-help";
+import { InferenceScopeHelp } from "@/features/auth/components/inference-scope-help";
 import type { GatewayKey } from "@/features/keys/types/keys.types";
 import { useKeys } from "@/features/keys/hooks/use-keys";
 import { effectiveKeyState } from "@/features/keys/utils/key.utils";
@@ -22,7 +22,7 @@ export default function KeysPage() {
         <Card className="panel"><h2>Create key</h2><form onSubmit={create}>
           <div className="field"><Label htmlFor="label">Label</Label><Input id="label" name="label" placeholder="Production app" required /></div>
 			<fieldset className="scope-grid"><legend>Operation scopes</legend>{permittedScopes.map((scope) => <label key={scope}><input type="checkbox" name="scopes" value={scope} /> <span>{scope}</span></label>)}</fieldset>
-			<WebSearchScopeHelp />
+			<InferenceScopeHelp />
 			<small>Your key can only narrow your current user grants. Allowed models: {current?.grants.unrestricted ? "any" : current?.grants.model_patterns.join(", ") || "none"}. Allowed connections: {current?.grants.unrestricted ? "any" : current?.grants.connection_ids.join(", ") || "none"}.</small>
           <div className="inline-fields"><div className="field"><Label htmlFor="models">Model patterns</Label><Input id="models" name="models" placeholder="gpt-*, claude-*" /><small>Comma-separated. Empty denies every model.</small></div><div className="field"><Label htmlFor="connections">Connection IDs</Label><Input id="connections" name="connections" placeholder="conn_primary" /><small>Comma-separated. Empty denies every connection.</small></div></div>
           <div className="field"><Label htmlFor="expires_at">Expires</Label><Input id="expires_at" name="expires_at" type="datetime-local" /><small>Optional. Times use this browser&apos;s local timezone.</small></div>

@@ -215,6 +215,34 @@ type LoginThrottle struct {
 	BlockedUntil    int64  `json:"blocked_until"`
 }
 
+type MessageBatch struct {
+	ID                string        `json:"id"`
+	OwnerUserID       string        `json:"owner_user_id"`
+	KeyID             string        `json:"key_id"`
+	ProcessingStatus  string        `json:"processing_status"`
+	CancelRequested   int64         `json:"cancel_requested"`
+	CreatedAt         int64         `json:"created_at"`
+	CancelInitiatedAt sql.NullInt64 `json:"cancel_initiated_at"`
+	EndedAt           sql.NullInt64 `json:"ended_at"`
+	ExpiresAt         int64         `json:"expires_at"`
+}
+
+type MessageBatchItem struct {
+	BatchID             string         `json:"batch_id"`
+	Ordinal             int64          `json:"ordinal"`
+	CustomID            string         `json:"custom_id"`
+	ParamsJson          []byte         `json:"params_json"`
+	ResultJson          []byte         `json:"result_json"`
+	State               string         `json:"state"`
+	RequestID           sql.NullString `json:"request_id"`
+	AttemptID           sql.NullString `json:"attempt_id"`
+	ReservedResultBytes int64          `json:"reserved_result_bytes"`
+	LeaseEpoch          string         `json:"lease_epoch"`
+	ClaimedAt           sql.NullInt64  `json:"claimed_at"`
+	DispatchStartedAt   sql.NullInt64  `json:"dispatch_started_at"`
+	FinishedAt          sql.NullInt64  `json:"finished_at"`
+}
+
 type OperationSetting struct {
 	Singleton            int64  `json:"singleton"`
 	BackupEnabled        int64  `json:"backup_enabled"`

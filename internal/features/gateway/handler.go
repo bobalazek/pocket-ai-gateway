@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"net/http"
 	"strconv"
+	"strings"
 	"sync"
 	"time"
 
@@ -17,25 +18,31 @@ import (
 const maxInferenceBody = 16 << 20
 
 type Handler struct {
-	database  *sql.DB
-	keys      *keys.Service
-	providers *providers.Service
-	usage     *usage.Service
-	wake      chan struct{}
-	epoch     string
-	activeMu  sync.Mutex
-	active    map[string]context.CancelFunc
-	uploads   chan struct{}
-	lastOwner string
-	lastKey   string
+	database     *sql.DB
+	keys         *keys.Service
+	providers    *providers.Service
+	usage        *usage.Service
+	wake         chan struct{}
+	epoch        string
+	activeMu     sync.Mutex
+	active       map[string]context.CancelFunc
+	uploads      chan struct{}
+	lastOwner    string
+	lastKey      string
+	publicOrigin string
+	preferBatch  bool
 }
 
-func New(database *sql.DB, keyService *keys.Service, providerService *providers.Service, usageService *usage.Service) *Handler {
+func New(database *sql.DB, keyService *keys.Service, providerService *providers.Service, usageService *usage.Service, publicOrigin ...string) *Handler {
 	epoch, err := credentials.RandomToken(12)
 	if err != nil {
 		epoch = strconv.FormatInt(time.Now().UnixNano(), 10)
 	}
-	return &Handler{database: database, keys: keyService, providers: providerService, usage: usageService, wake: make(chan struct{}, 1), epoch: epoch, active: map[string]context.CancelFunc{}, uploads: make(chan struct{}, 1)}
+	origin := ""
+	if len(publicOrigin) > 0 {
+		origin = strings.TrimRight(publicOrigin[0], "/")
+	}
+	return &Handler{database: database, keys: keyService, providers: providerService, usage: usageService, wake: make(chan struct{}, 1), epoch: epoch, active: map[string]context.CancelFunc{}, uploads: make(chan struct{}, 1), publicOrigin: origin}
 }
 
 func (handler *Handler) Register(mux *http.ServeMux) {
@@ -86,6 +93,12 @@ func (handler *Handler) Register(mux *http.ServeMux) {
 	mux.HandleFunc("POST /api/anthropic/v1/messages/count_tokens", func(w http.ResponseWriter, r *http.Request) {
 		handler.forward(w, r, "anthropic", "tokens:count", "messages/count_tokens", "", nil)
 	})
+	mux.HandleFunc("POST /api/anthropic/v1/messages/batches", handler.createMessageBatch)
+	mux.HandleFunc("GET /api/anthropic/v1/messages/batches", handler.listMessageBatches)
+	mux.HandleFunc("GET /api/anthropic/v1/messages/batches/{message_batch_id}", handler.getMessageBatch)
+	mux.HandleFunc("POST /api/anthropic/v1/messages/batches/{message_batch_id}/cancel", handler.cancelMessageBatch)
+	mux.HandleFunc("DELETE /api/anthropic/v1/messages/batches/{message_batch_id}", handler.deleteMessageBatch)
+	mux.HandleFunc("GET /api/anthropic/v1/messages/batches/{message_batch_id}/results", handler.messageBatchResults)
 	mux.HandleFunc("GET /api/gemini/v1beta/models", handler.geminiModels)
 	mux.HandleFunc("GET /api/gemini/v1beta/models/{model}", handler.geminiModel)
 	mux.HandleFunc("POST /api/gemini/v1beta/models/{action...}", handler.geminiAction)
