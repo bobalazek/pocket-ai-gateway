@@ -1,4 +1,4 @@
-package gateway
+package protocol
 
 import (
 	"encoding/json"
@@ -45,7 +45,7 @@ type canonicalResult struct {
 	Refusal                   string
 }
 
-func translateRequest(client, target string, body []byte, upstreamModel string) (string, []byte, error) {
+func TranslateRequest(client, target string, body []byte, upstreamModel string) (string, []byte, error) {
 	request, err := decodeCanonicalRequest(client, body)
 	if err != nil {
 		return "", nil, err
@@ -149,7 +149,7 @@ func translateRequest(client, target string, body []byte, upstreamModel string) 
 	return "", nil, errors.New("unsupported target protocol")
 }
 
-func translateResponse(client, target, publicModel string, raw []byte) ([]byte, error) {
+func TranslateResponse(client, target, publicModel string, raw []byte) ([]byte, error) {
 	result, err := decodeCanonicalResult(target, raw)
 	if err != nil {
 		return nil, err

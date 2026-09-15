@@ -1,4 +1,4 @@
-package gateway
+package protocol
 
 import (
 	"encoding/json"
@@ -25,6 +25,14 @@ func array(value any) []any              { result, _ := value.([]any); return re
 func stringValue(value any) string       { result, _ := value.(string); return result }
 func number(value any) int64             { result, _ := value.(float64); return int64(result) }
 func mustJSON(value any) []byte          { result, _ := json.Marshal(value); return result }
+
+func integer(value any) (int64, bool) {
+	number, ok := value.(float64)
+	if !ok || number < 0 || number > 9_007_199_254_740_991 || number != float64(int64(number)) {
+		return 0, false
+	}
+	return int64(number), true
+}
 
 func firstMap(object map[string]any, names ...string) map[string]any {
 	for _, name := range names {

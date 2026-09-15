@@ -1,6 +1,6 @@
 # Gemini-compatible feature
 
-Root: /api/gemini/v1beta · SDK root: /api/gemini with API version v1beta · Backend owner: internal/features/gateway
+Root: /api/gemini/v1beta · SDK root: /api/gemini with API version v1beta · Backend owner: internal/gateway
 
 Own native Gemini URL actions, contents/parts/candidates/usageMetadata/errors, tool/stream codecs, model discovery/pagination, native upstream encoding, and fixtures. Gemini's OpenAI-compatible endpoint is a separate optional upstream preset.
 

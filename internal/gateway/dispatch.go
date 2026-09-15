@@ -14,7 +14,10 @@ import (
 
 	"github.com/bobalazek/pocket-ai-gateway/internal/features/providers"
 	"github.com/bobalazek/pocket-ai-gateway/internal/features/usage"
+	"github.com/bobalazek/pocket-ai-gateway/internal/protocol"
 )
+
+var errUpstreamResponseInterrupted = protocol.ErrUpstreamResponseInterrupted
 
 func (handler *Handler) settle(attemptID string, input usage.SettlementInput) error {
 	var last error
@@ -163,7 +166,7 @@ func (handler *Handler) dispatchTranslated(response http.ResponseWriter, request
 		return result.StatusCode, nil, nil
 	}
 	if stream {
-		return handler.translateStream(response, result.Body, dialect, target.Adapter, publicModel)
+		return protocol.TranslateStream(response, result.Body, dialect, target.Adapter, publicModel)
 	}
 	raw, err := io.ReadAll(io.LimitReader(result.Body, (16<<20)+1))
 	if err != nil {
@@ -174,7 +177,7 @@ func (handler *Handler) dispatchTranslated(response http.ResponseWriter, request
 		handler.writeError(response, dialect, http.StatusBadGateway, "upstream_error", "Provider response could not be translated")
 		return result.StatusCode, nil, errors.New("translated response exceeds 16 MiB")
 	}
-	translated, err := translateResponse(dialect, target.Adapter, publicModel, raw)
+	translated, err := protocol.TranslateResponse(dialect, target.Adapter, publicModel, raw)
 	if err != nil {
 		handler.writeError(response, dialect, http.StatusBadGateway, "translation_error", "Provider response could not be translated")
 		return result.StatusCode, nil, err

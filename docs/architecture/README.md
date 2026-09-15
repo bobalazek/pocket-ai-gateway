@@ -62,10 +62,9 @@ cmd/pocket-ai-gateway/main.go
 internal/
   app/          construction, lifecycle, process configuration
   server/       listener, global middleware, route registration
+  gateway/      compatibility routes, request/attempt lifecycle, admission, retries
+  protocol/     pure cross-protocol request, response, and SSE translation
   features/
-    openaicompat/    OpenAI routes, wire codecs, streams, upstream adapter, fixtures
-    anthropiccompat/ Anthropic routes, wire codecs, streams, upstream adapter, fixtures
-    geminicompat/    Gemini routes, wire codecs, streams, upstream adapter, fixtures
     auth/           setup, login/logout, sessions, activation, recovery
     users/          profiles, roles, suspension, user grants
     keys/           key lifecycle, grants, rotation
@@ -76,7 +75,6 @@ internal/
     usage/          reservations, ledger, price versions, historical repricing
     requests/       rich history, event projections, captures
     operations/     local/S3 backup, restore, import/export, diagnostics
-  gateway/      request/attempt lifecycle, policy admission, retries
   storage/      system/data migrations, sqlc queries, backend connectors, outbox
 web/            Next.js source and embedded out/ production assets
 api/            management OpenAPI document
@@ -86,7 +84,7 @@ docs/
 
 Module boundaries are ownership boundaries. Merge a package if it becomes a trivial wrapper. Interfaces belong at actual substitutable boundaries: upstream transport, clock for policy tests, and storage transactions if needed. Do not create interfaces for every struct.
 
-Each compatibility feature owns its HTTP handlers, request/response/error types, SSE codec, upstream format adapter, and contract fixtures. Shared gateway orchestration receives adapters through explicit construction and never imports concrete compatibility features. Keep shared wire codecs as leaf packages where necessary to avoid handler → gateway → adapter import cycles.
+The gateway owns compatibility routes because they share one authenticated admission, routing, retry, and accounting path. Pure cross-protocol conversion lives in the leaf `internal/protocol` package and cannot import gateway, storage, identity, or provider configuration. Add a protocol-specific package only when it can own independently testable behavior without exposing gateway internals or introducing facade interfaces.
 
 Gateway-owned resource APIs live under /api/v1/: /models, /providers, /connections, /keys, /requests, /usage, and /me; privileged instance management lives under /api/v1/admin/. Compatibility APIs live only under /api/openai/v1/, /api/anthropic/v1/, and /api/gemini/v1beta/. Paths determine wire format; routing selects the provider independently.
 
@@ -99,7 +97,7 @@ Feature-local SQL queries and generated methods stay near the feature; storage o
 | gateway | One inference execution path and request/attempt states | Identity, routing, accounting, protocol, providers; sole retry owner |
 | limits/usage | Policy state, reservations, ledger settlement and repricing | System transactions; no protocol response shaping |
 | routing | Eligible target order, scoring, circuit/latency observations | Immutable config + current policy facts; cannot override authorization |
-| compatibility features/providers | Namespace codecs, shape conversion, bounded upstream I/O and connection configuration | Cannot mint grants, decide retries, or bypass accounting |
+| protocol/providers | Pure wire conversion; provider catalog, connection configuration, and routing facts | Cannot mint grants, decide retries, or bypass accounting |
 | storage | Transaction boundaries, migrations, SQL and snapshots | No provider calls inside database transactions |
 | operations | Backups, restore/import, retention jobs | Storage and local filesystem; owner-only mutation paths |
 | feature HTTP handlers/web | Validated actions, response rendering, UI | Call shared services; never read stored credentials for display |

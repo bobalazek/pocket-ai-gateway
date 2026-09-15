@@ -1,4 +1,4 @@
-package gateway
+package protocol
 
 import (
 	"bufio"
@@ -12,7 +12,7 @@ import (
 	"strings"
 )
 
-var errUpstreamResponseInterrupted = errors.New("upstream response interrupted")
+var ErrUpstreamResponseInterrupted = errors.New("upstream response interrupted")
 
 type streamToolDelta struct {
 	Index     int
@@ -35,7 +35,7 @@ type streamTool struct {
 	OutputIndex         int
 }
 
-func (handler *Handler) translateStream(response http.ResponseWriter, source io.Reader, client, target, model string) (int, []byte, error) {
+func TranslateStream(response http.ResponseWriter, source io.Reader, client, target, model string) (int, []byte, error) {
 	if client == "anthropic" && target != "anthropic" {
 		return http.StatusBadRequest, nil, errors.New("anthropic streaming requires an Anthropic-compatible target")
 	}
@@ -63,7 +63,7 @@ func (handler *Handler) translateStream(response http.ResponseWriter, source io.
 	}
 
 	var data bytes.Buffer
-	outputText := &limitedCapture{limit: maxStreamBytes}
+	var outputText bytes.Buffer
 	tools := map[int]*streamTool{}
 	started, textStarted, completed := false, false, false
 	var inputTokens, outputTokens *int64
@@ -114,10 +114,10 @@ func (handler *Handler) translateStream(response http.ResponseWriter, source io.
 		}
 		if delta.Text != "" {
 			startText()
-			outputText.WriteString(delta.Text)
-			if outputText.overflow {
+			if int64(outputText.Len()+len(delta.Text)) > maxStreamBytes {
 				return errors.New("translated stream output exceeds 16 MiB")
 			}
+			outputText.WriteString(delta.Text)
 			switch client {
 			case "openai":
 				emit("", map[string]any{"id": "chatcmpl_translated", "object": "chat.completion.chunk", "model": model, "choices": []any{map[string]any{"index": 0, "delta": map[string]any{"content": delta.Text}, "finish_reason": nil}}})
@@ -227,7 +227,7 @@ func (handler *Handler) translateStream(response http.ResponseWriter, source io.
 		}
 	}
 	if scanner.Err() != nil {
-		return http.StatusOK, metadata("incomplete"), fmt.Errorf("%w: %v", errUpstreamResponseInterrupted, scanner.Err())
+		return http.StatusOK, metadata("incomplete"), fmt.Errorf("%w: %v", ErrUpstreamResponseInterrupted, scanner.Err())
 	}
 	if data.Len() > 0 {
 		if err := consume(bytes.TrimSpace(data.Bytes())); err != nil {
@@ -235,7 +235,7 @@ func (handler *Handler) translateStream(response http.ResponseWriter, source io.
 		}
 	}
 	if !completed {
-		return http.StatusOK, metadata("incomplete"), fmt.Errorf("%w: terminal event missing", errUpstreamResponseInterrupted)
+		return http.StatusOK, metadata("incomplete"), fmt.Errorf("%w: terminal event missing", ErrUpstreamResponseInterrupted)
 	}
 	for _, tool := range tools {
 		if tool.Arguments == "" {

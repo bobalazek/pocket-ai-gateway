@@ -15,6 +15,7 @@ import (
 	"github.com/bobalazek/pocket-ai-gateway/internal/features/keys"
 	"github.com/bobalazek/pocket-ai-gateway/internal/features/providers"
 	"github.com/bobalazek/pocket-ai-gateway/internal/features/usage"
+	"github.com/bobalazek/pocket-ai-gateway/internal/protocol"
 )
 
 func (handler *Handler) forward(response http.ResponseWriter, request *http.Request, dialect, scope, upstreamPath, publicIDOverride string, streamOverride *bool) {
@@ -238,7 +239,7 @@ func (handler *Handler) forwardAuthorized(response http.ResponseWriter, request 
 		}
 		if !native {
 			if !translationChecked[target.Adapter] {
-				targetPath, _, err := translateRequest(dialect, target.Adapter, translationBody, target.UpstreamID)
+				targetPath, _, err := protocol.TranslateRequest(dialect, target.Adapter, translationBody, target.UpstreamID)
 				translationChecked[target.Adapter], translationSupport[target.Adapter] = true, err == nil
 				translationOperation[target.Adapter] = targetPath
 			}
@@ -297,7 +298,7 @@ func (handler *Handler) forwardAuthorized(response http.ResponseWriter, request 
 			}
 			targetBody, err = json.Marshal(targetEnvelope)
 		} else {
-			targetPath, targetBody, err = translateRequest(dialect, target.Adapter, translationBody, target.UpstreamID)
+			targetPath, targetBody, err = protocol.TranslateRequest(dialect, target.Adapter, translationBody, target.UpstreamID)
 		}
 		if err != nil {
 			if requestID != "" {

@@ -1,4 +1,4 @@
-package gateway
+package protocol
 
 import (
 	"io"
@@ -15,7 +15,7 @@ func TestCrossProtocolRequestMappingsPreserveTextAndTools(t *testing.T) {
 		{"responses", "anthropic", `{"model":"assistant","input":"Hi","max_output_tokens":12,"store":false}`, "messages", `"text":"Hi"`},
 	}
 	for _, test := range tests {
-		path, body, err := translateRequest(test.client, test.target, []byte(test.body), "upstream")
+		path, body, err := TranslateRequest(test.client, test.target, []byte(test.body), "upstream")
 		if err != nil || !strings.HasPrefix(path, test.path) || !strings.Contains(string(body), test.contains) {
 			t.Errorf("%s->%s path=%s body=%s err=%v", test.client, test.target, path, body, err)
 		}
@@ -23,18 +23,18 @@ func TestCrossProtocolRequestMappingsPreserveTextAndTools(t *testing.T) {
 }
 
 func TestCrossProtocolRequestMappingsPreserveLimitsAndStops(t *testing.T) {
-	_, body, err := translateRequest("openai", "anthropic", []byte(`{"messages":[{"role":"user","content":"Hi"}],"max_tokens":12,"stop":["END","DONE"]}`), "claude")
+	_, body, err := TranslateRequest("openai", "anthropic", []byte(`{"messages":[{"role":"user","content":"Hi"}],"max_tokens":12,"stop":["END","DONE"]}`), "claude")
 	if err != nil || !strings.Contains(string(body), `"max_tokens":12`) || !strings.Contains(string(body), `"stop_sequences":["END","DONE"]`) {
 		t.Fatalf("body=%s err=%v", body, err)
 	}
-	_, body, err = translateRequest("gemini", "anthropic", []byte(`{"contents":[{"parts":[{"text":"Hi"}]}]}`), "claude")
+	_, body, err = TranslateRequest("gemini", "anthropic", []byte(`{"contents":[{"parts":[{"text":"Hi"}]}]}`), "claude")
 	if err != nil || !strings.Contains(string(body), `"max_tokens":4096`) {
 		t.Fatalf("default max body=%s err=%v", body, err)
 	}
-	if _, _, err := translateRequest("responses", "gemini", []byte(`{"input":"Hi","store":false,"previous_response_id":"resp_1"}`), "gemini"); err == nil || !strings.Contains(err.Error(), "previous_response_id") {
+	if _, _, err := TranslateRequest("responses", "gemini", []byte(`{"input":"Hi","store":false,"previous_response_id":"resp_1"}`), "gemini"); err == nil || !strings.Contains(err.Error(), "previous_response_id") {
 		t.Fatalf("unsupported stateful response err=%v", err)
 	}
-	if _, _, err := translateRequest("openai", "gemini", []byte(`{"messages":[{"role":"user","content":"Hi"}],"max_tokens":1.5}`), "gemini"); err == nil {
+	if _, _, err := TranslateRequest("openai", "gemini", []byte(`{"messages":[{"role":"user","content":"Hi"}],"max_tokens":1.5}`), "gemini"); err == nil {
 		t.Fatal("fractional token limit was accepted")
 	}
 }
@@ -46,7 +46,7 @@ func TestCrossProtocolRequestMappingsPreserveSampling(t *testing.T) {
 		{"gemini", "anthropic", `{"contents":[{"parts":[{"text":"Hi"}]}],"generationConfig":{"candidateCount":1,"temperature":0.4,"topP":0.8,"topK":20}}`, `"top_k":20`},
 	}
 	for _, test := range tests {
-		_, body, err := translateRequest(test.client, test.target, []byte(test.body), "upstream")
+		_, body, err := TranslateRequest(test.client, test.target, []byte(test.body), "upstream")
 		if err != nil || !strings.Contains(string(body), test.want) {
 			t.Errorf("%s->%s body=%s err=%v", test.client, test.target, body, err)
 		}
@@ -56,7 +56,7 @@ func TestCrossProtocolRequestMappingsPreserveSampling(t *testing.T) {
 		{"anthropic", "openai", `{"messages":[{"role":"user","content":"Hi"}],"top_k":20}`},
 		{"gemini", "anthropic", `{"contents":[{"parts":[{"text":"Hi"}]}],"generationConfig":{"candidateCount":2}}`},
 	} {
-		if _, _, err := translateRequest(test.client, test.target, []byte(test.body), "upstream"); err == nil {
+		if _, _, err := TranslateRequest(test.client, test.target, []byte(test.body), "upstream"); err == nil {
 			t.Errorf("%s->%s silently dropped an unsupported sampling control", test.client, test.target)
 		}
 	}
@@ -70,7 +70,7 @@ func TestCrossProtocolImagesStructuredOutputAndAffinity(t *testing.T) {
 		{"anthropic", "openai", `{"messages":[{"role":"user","content":"Hi"}],"tools":[{"name":"weather","input_schema":{"type":"object"}}],"tool_choice":{"type":"tool","name":"weather","disable_parallel_tool_use":true}}`, `"parallel_tool_calls":false`},
 	}
 	for _, test := range tests {
-		_, body, err := translateRequest(test.client, test.target, []byte(test.body), "upstream")
+		_, body, err := TranslateRequest(test.client, test.target, []byte(test.body), "upstream")
 		if err != nil || !strings.Contains(string(body), test.want) {
 			t.Errorf("%s->%s body=%s err=%v", test.client, test.target, body, err)
 		}
@@ -80,7 +80,7 @@ func TestCrossProtocolImagesStructuredOutputAndAffinity(t *testing.T) {
 		{"gemini", `{"contents":[{"parts":[{"text":"private","thoughtSignature":"opaque"}]}]}`, "provider affinity"},
 		{"openai", `{"messages":[{"role":"user","content":[{"type":"input_audio","input_audio":{"data":"x"}}]}]}`, "not supported"},
 	} {
-		if _, _, err := translateRequest(test.protocol, "openai", []byte(test.body), "upstream"); err == nil || !strings.Contains(err.Error(), test.want) {
+		if _, _, err := TranslateRequest(test.protocol, "openai", []byte(test.body), "upstream"); err == nil || !strings.Contains(err.Error(), test.want) {
 			t.Errorf("%s affinity err=%v", test.protocol, err)
 		}
 	}
@@ -94,7 +94,7 @@ func TestTranslatedStreamPreservesFragmentedToolArguments(t *testing.T) {
 		"event: message_delta\ndata: {\"type\":\"message_delta\",\"delta\":{\"stop_reason\":\"tool_use\"},\"usage\":{\"output_tokens\":3}}\n\n" +
 		"event: message_stop\ndata: {\"type\":\"message_stop\"}\n\n")
 	recorder := httptest.NewRecorder()
-	status, raw, err := (&Handler{}).translateStream(recorder, source, "openai", "anthropic", "assistant")
+	status, raw, err := TranslateStream(recorder, source, "openai", "anthropic", "assistant")
 	body, _ := io.ReadAll(recorder.Result().Body)
 	if err != nil || status != 200 || len(raw) == 0 || !strings.Contains(string(body), `"arguments":"{\"city\":"`) || !strings.Contains(string(body), `"finish_reason":"tool_calls"`) || !strings.Contains(string(body), `"prompt_tokens":7`) {
 		t.Fatalf("status=%d body=%s err=%v", status, body, err)
@@ -104,7 +104,7 @@ func TestTranslatedStreamPreservesFragmentedToolArguments(t *testing.T) {
 func TestTranslatedStreamRejectsMalformedOrTruncatedOutput(t *testing.T) {
 	for _, source := range []string{"data: not-json\n\n", "data: {\"choices\":[{\"delta\":{\"content\":\"partial\"}}]}\n\n", "data: {\"choices\":[{\"delta\":{},\"finish_reason\":\"stop\"}]}\n\n"} {
 		recorder := httptest.NewRecorder()
-		_, _, err := (&Handler{}).translateStream(recorder, strings.NewReader(source), "anthropic", "openai", "assistant")
+		_, _, err := TranslateStream(recorder, strings.NewReader(source), "anthropic", "openai", "assistant")
 		if err == nil {
 			t.Fatalf("source %q was accepted", source)
 		}
@@ -118,7 +118,7 @@ func TestCrossProtocolResponseMappingsPreserveRefusals(t *testing.T) {
 		{"gemini", "anthropic", `{"id":"msg_1","content":[],"stop_reason":"refusal","usage":{"input_tokens":2,"output_tokens":0}}`, `"finishReason":"SAFETY"`},
 	}
 	for _, test := range tests {
-		body, err := translateResponse(test.client, test.target, "assistant", []byte(test.body))
+		body, err := TranslateResponse(test.client, test.target, "assistant", []byte(test.body))
 		if err != nil || !strings.Contains(string(body), test.want) {
 			t.Errorf("%s<-%s body=%s err=%v", test.client, test.target, body, err)
 		}
@@ -140,14 +140,14 @@ func TestTranslatedStreamClientShapes(t *testing.T) {
 	for _, test := range tests {
 		t.Run(test.client+"-from-"+test.target, func(t *testing.T) {
 			recorder := httptest.NewRecorder()
-			_, _, err := (&Handler{}).translateStream(recorder, strings.NewReader(sources[test.target]), test.client, test.target, "assistant")
+			_, _, err := TranslateStream(recorder, strings.NewReader(sources[test.target]), test.client, test.target, "assistant")
 			body, _ := io.ReadAll(recorder.Result().Body)
 			if err != nil || !strings.Contains(string(body), test.want) || !strings.Contains(string(body), "Hello") {
 				t.Fatalf("body=%s err=%v", body, err)
 			}
 		})
 	}
-	if _, _, err := (&Handler{}).translateStream(httptest.NewRecorder(), strings.NewReader(sources["openai"]), "anthropic", "openai", "assistant"); err == nil {
+	if _, _, err := TranslateStream(httptest.NewRecorder(), strings.NewReader(sources["openai"]), "anthropic", "openai", "assistant"); err == nil {
 		t.Fatal("cross-provider Anthropic stream was accepted without first-event input usage")
 	}
 }
@@ -160,7 +160,7 @@ func TestCrossProtocolResponseMappingsPreserveUsageAndTools(t *testing.T) {
 		{"responses", "anthropic", `{"id":"msg_1","content":[{"type":"text","text":"Hello"}],"stop_reason":"end_turn","usage":{"input_tokens":5,"output_tokens":2}}`, `"object":"response"`},
 	}
 	for _, test := range tests {
-		body, err := translateResponse(test.client, test.target, "assistant", []byte(test.body))
+		body, err := TranslateResponse(test.client, test.target, "assistant", []byte(test.body))
 		if err != nil || !strings.Contains(string(body), test.contains) {
 			t.Errorf("%s<-%s body=%s err=%v", test.client, test.target, body, err)
 		}
@@ -168,7 +168,7 @@ func TestCrossProtocolResponseMappingsPreserveUsageAndTools(t *testing.T) {
 }
 
 func TestResponsesTranslationKeepsOneMessageAndUniqueToolItems(t *testing.T) {
-	body, err := translateResponse("responses", "openai", "assistant", []byte(`{"id":"chat_1","choices":[{"message":{"content":"Partial","refusal":"Cannot continue","tool_calls":[{"id":"call_1","function":{"name":"one","arguments":"{}"}},{"id":"call_2","function":{"name":"two","arguments":"{}"}}]},"finish_reason":"content_filter"}],"usage":{"prompt_tokens":2,"completion_tokens":1}}`))
+	body, err := TranslateResponse("responses", "openai", "assistant", []byte(`{"id":"chat_1","choices":[{"message":{"content":"Partial","refusal":"Cannot continue","tool_calls":[{"id":"call_1","function":{"name":"one","arguments":"{}"}},{"id":"call_2","function":{"name":"two","arguments":"{}"}}]},"finish_reason":"content_filter"}],"usage":{"prompt_tokens":2,"completion_tokens":1}}`))
 	if err != nil || strings.Count(string(body), `"type":"message"`) != 1 || !strings.Contains(string(body), `"type":"output_text"`) || !strings.Contains(string(body), `"type":"refusal"`) || !strings.Contains(string(body), `"id":"fc_call_1"`) || !strings.Contains(string(body), `"id":"fc_call_2"`) {
 		t.Fatalf("body=%s err=%v", body, err)
 	}
@@ -177,7 +177,7 @@ func TestResponsesTranslationKeepsOneMessageAndUniqueToolItems(t *testing.T) {
 func TestResponsesStreamCombinesTextAndRefusal(t *testing.T) {
 	source := strings.NewReader("data: {\"choices\":[{\"delta\":{\"content\":\"Partial\"},\"finish_reason\":null}]}\n\ndata: {\"choices\":[{\"delta\":{\"refusal\":\"Cannot continue\"},\"finish_reason\":\"content_filter\"}],\"usage\":{\"prompt_tokens\":2,\"completion_tokens\":1}}\n\ndata: [DONE]\n\n")
 	recorder := httptest.NewRecorder()
-	_, _, err := (&Handler{}).translateStream(recorder, source, "responses", "openai", "assistant")
+	_, _, err := TranslateStream(recorder, source, "responses", "openai", "assistant")
 	body, _ := io.ReadAll(recorder.Result().Body)
 	if err != nil || strings.Count(string(body), `"type":"response.output_item.done"`) != 1 || !strings.Contains(string(body), `"type":"output_text"`) || !strings.Contains(string(body), `"type":"refusal"`) {
 		t.Fatalf("body=%s err=%v", body, err)
