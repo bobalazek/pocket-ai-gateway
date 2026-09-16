@@ -32,7 +32,7 @@ Compatible responses keep their native usage fields. After admission, every forw
 | POST /api/openai/v1/responses | OpenAI input/output items, function tools/results, typed response lifecycle stream, durable background submission, or bounded native OpenAI web search with `responses:web_search` |
 | POST /api/openai/v1/responses/compact | Native OpenAI compaction for direct model/input requests; no cross-provider approximation |
 | POST /api/openai/v1/responses/input_tokens | Native OpenAI input-token count for direct model/input requests; no provider-owned references |
-| POST /api/openai/v1/files | Create a gateway-owned processed File from exactly one non-empty Batch JSONL upload; `files:manage`, 16 MiB file, 17 MiB multipart body, and optional 1-hour through 30-day expiry |
+| POST /api/openai/v1/files | Create a gateway-owned processed File for `assistants`, `batch`, `fine-tune`, `vision`, `user_data`, or `evals`; `files:manage`, 16 MiB file, 17 MiB multipart body, and optional 1-hour through 30-day expiry |
 | GET /api/openai/v1/files | List the creating key's unexpired Files with purpose/order filters and validated `after` keyset pagination |
 | GET /api/openai/v1/files/{file_id} | Retrieve metadata for an unexpired File owned by the creating key |
 | GET /api/openai/v1/files/{file_id}/content | Download the exact decrypted bytes as an uncached attachment; transfers are serialized to bound memory |
