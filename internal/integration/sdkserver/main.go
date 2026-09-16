@@ -77,6 +77,10 @@ func main() {
 		_, err = providerService.CreatePublicModel(ctx, owner, "target-"+adapter, "Target "+adapter, "", upstreamModel.ID, capabilities)
 		must(err)
 		if adapter == "openai" {
+			embeddingModel, createErr := providerService.CreateUpstreamModel(ctx, owner, connection.ID, "text-embedding-3-small", []string{"embeddings"})
+			must(createErr)
+			_, createErr = providerService.CreatePublicModel(ctx, owner, "target-openai-embedding", "Target OpenAI embedding", "", embeddingModel.ID, embeddingModel.Capabilities)
+			must(createErr)
 			editModel, createErr := providerService.CreateUpstreamModel(ctx, owner, connection.ID, "gpt-image-1", []string{"image_edit"})
 			must(createErr)
 			_, createErr = providerService.CreatePublicModel(ctx, owner, "target-openai-edit", "Target OpenAI edit", "", editModel.ID, editModel.Capabilities)
@@ -93,7 +97,7 @@ func main() {
 		connections = append(connections, connection.ID)
 	}
 	keyService := keys.New(store.SystemDB())
-	_, secret, err := keyService.Create(ctx, owner.ID, keys.Input{Label: "Official SDK matrix", Scopes: []string{"chat:generate", "messages:batches", "messages:web_search", "responses:generate", "responses:web_search", "moderations:classify", "images:generate", "images:edit", "images:variation", "audio:speech", "audio:transcribe", "audio:translate", "models:read", "tokens:count", "files:manage", "batches:manage"}, ModelPatterns: []string{"target-*"}, ConnectionIDs: connections})
+	_, secret, err := keyService.Create(ctx, owner.ID, keys.Input{Label: "Official SDK matrix", Scopes: []string{"chat:generate", "messages:batches", "messages:web_search", "responses:generate", "responses:web_search", "embeddings:generate", "moderations:classify", "images:generate", "images:edit", "images:variation", "audio:speech", "audio:transcribe", "audio:translate", "models:read", "tokens:count", "files:manage", "batches:manage"}, ModelPatterns: []string{"target-*"}, ConnectionIDs: connections})
 	must(err)
 	_, otherSecret, err := keyService.Create(ctx, owner.ID, keys.Input{Label: "Official SDK ownership boundary", Scopes: []string{"files:manage", "batches:manage", "responses:generate"}, ModelPatterns: []string{"target-*"}, ConnectionIDs: connections})
 	must(err)
@@ -174,6 +178,10 @@ func upstreamHandler(response http.ResponseWriter, request *http.Request) {
 	}
 	switch target {
 	case "openai":
+		if strings.HasSuffix(request.URL.Path, "/embeddings") {
+			io.WriteString(response, `{"object":"list","data":[{"object":"embedding","embedding":[0.1,0.2],"index":0},{"object":"embedding","embedding":[0.3,0.4],"index":1}],"model":"text-embedding-3-small","usage":{"prompt_tokens":2,"total_tokens":2}}`)
+			return
+		}
 		if strings.HasSuffix(request.URL.Path, "/images/edits") {
 			io.WriteString(response, `{"created":1,"data":[{"b64_json":"ZWRpdA=="}]}`)
 			return

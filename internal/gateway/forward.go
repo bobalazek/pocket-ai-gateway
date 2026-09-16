@@ -136,6 +136,14 @@ func (handler *Handler) forwardAuthorized(response http.ResponseWriter, request 
 			return
 		}
 	}
+	embeddingItems := int64(0)
+	if upstreamPath == "embeddings" {
+		embeddingItems, err = validateEmbedding(envelope)
+		if err != nil {
+			handler.writeError(response, dialect, http.StatusBadRequest, "invalid_request", err.Error())
+			return
+		}
+	}
 	stream := false
 	_ = json.Unmarshal(envelope["stream"], &stream)
 	if streamOverride != nil {
@@ -166,7 +174,12 @@ func (handler *Handler) forwardAuthorized(response http.ResponseWriter, request 
 	audioTranslation := upstreamPath == "audio/translations"
 	imageOperation := imageGeneration || imageEdit || imageVariation
 	opaqueMedia := imageOperation || speechGeneration || audioTranscription || audioTranslation
-	if upstreamPath == "embeddings" || upstreamPath == "moderations" {
+	if upstreamPath == "embeddings" {
+		batchItems = embeddingItems
+		if openAIBatch && openAIBatchItems > batchItems {
+			batchItems = openAIBatchItems
+		}
+	} else if upstreamPath == "moderations" {
 		batchItems = jsonCardinality(envelope["input"])
 	} else if opaqueMedia {
 		batchItems = 1

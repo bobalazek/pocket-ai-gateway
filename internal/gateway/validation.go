@@ -6,8 +6,96 @@ import (
 	"errors"
 	"fmt"
 	"slices"
+	"strconv"
 	"strings"
 )
+
+func validateEmbedding(envelope map[string]json.RawMessage) (int64, error) {
+	decoder := json.NewDecoder(bytes.NewReader(envelope["input"]))
+	decoder.UseNumber()
+	var input any
+	if decoder.Decode(&input) != nil {
+		return 0, errors.New("input must be a non-empty string, string array, token array, or token-array collection")
+	}
+	var cardinality int64
+	switch value := input.(type) {
+	case string:
+		if value == "" {
+			return 0, errors.New("embedding input strings must not be empty")
+		}
+		cardinality = 1
+	case []any:
+		if len(value) == 0 {
+			return 0, errors.New("embedding input arrays must not be empty")
+		}
+		switch value[0].(type) {
+		case string:
+			if len(value) > 2048 {
+				return 0, errors.New("embedding input collections accept at most 2048 items")
+			}
+			for _, item := range value {
+				text, ok := item.(string)
+				if !ok || text == "" {
+					return 0, errors.New("embedding string arrays must contain only non-empty strings")
+				}
+			}
+			cardinality = int64(len(value))
+		case json.Number:
+			if !validEmbeddingTokenIDs(value) {
+				return 0, errors.New("embedding token arrays must contain only non-negative integers")
+			}
+			cardinality = 1
+		case []any:
+			if len(value) > 2048 {
+				return 0, errors.New("embedding input collections accept at most 2048 items")
+			}
+			for _, item := range value {
+				tokens, ok := item.([]any)
+				if !ok || len(tokens) == 0 || !validEmbeddingTokenIDs(tokens) {
+					return 0, errors.New("embedding token-array collections must contain only non-empty integer arrays")
+				}
+			}
+			cardinality = int64(len(value))
+		default:
+			return 0, errors.New("input must be a non-empty string, string array, token array, or token-array collection")
+		}
+	default:
+		return 0, errors.New("input must be a non-empty string, string array, token array, or token-array collection")
+	}
+	if raw, exists := envelope["dimensions"]; exists {
+		var dimensions int64
+		if json.Unmarshal(raw, &dimensions) != nil || dimensions < 1 {
+			return 0, errors.New("dimensions must be a positive integer")
+		}
+	}
+	if raw, exists := envelope["encoding_format"]; exists {
+		var format string
+		if json.Unmarshal(raw, &format) != nil || format != "float" && format != "base64" {
+			return 0, errors.New("encoding_format must be float or base64")
+		}
+	}
+	if raw, exists := envelope["user"]; exists {
+		var user string
+		if json.Unmarshal(raw, &user) != nil || bytes.Equal(bytes.TrimSpace(raw), []byte("null")) {
+			return 0, errors.New("user must be a string")
+		}
+	}
+	return cardinality, nil
+}
+
+func validEmbeddingTokenIDs(values []any) bool {
+	for _, value := range values {
+		number, ok := value.(json.Number)
+		if !ok {
+			return false
+		}
+		parsed, err := strconv.ParseInt(number.String(), 10, 64)
+		if err != nil || parsed < 0 {
+			return false
+		}
+	}
+	return true
+}
 
 func validateModeration(envelope map[string]json.RawMessage) error {
 	if _, exists := envelope["stream"]; exists {
