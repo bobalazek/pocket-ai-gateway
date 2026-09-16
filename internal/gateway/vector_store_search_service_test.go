@@ -81,6 +81,18 @@ func TestSearchVectorStoresRanksGloballyAndTouchesEachStore(t *testing.T) {
 		t.Fatalf("failed search touched store: last_active_at=%d error=%v", lastActive, err)
 	}
 
+	unsupported := createStore(secret, "Unsupported")
+	attach(unsupported.ID, "paper.pdf", "%PDF-1.7\nASCII body")
+	if _, err := store.SystemDB().ExecContext(ctx, `UPDATE openai_vector_stores SET created_at=0,last_active_at=0 WHERE id=?`, unsupported.ID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := handler.searchVectorStores(ctx, key.ID, []string{unsupported.ID}, options); !errors.Is(err, errVectorStoreSearchContent) {
+		t.Fatalf("unsupported content error=%v", err)
+	}
+	if err := store.SystemDB().QueryRowContext(ctx, `SELECT last_active_at FROM openai_vector_stores WHERE id=?`, unsupported.ID).Scan(&lastActive); err != nil || lastActive != 0 {
+		t.Fatalf("unsupported search touched store: last_active_at=%d error=%v", lastActive, err)
+	}
+
 	handler.fileTransfers <- struct{}{}
 	defer handler.releaseFileTransfer()
 	if _, err := handler.searchVectorStores(ctx, key.ID, []string{first.ID}, options); !errors.Is(err, errVectorStoreSearchBusy) {
