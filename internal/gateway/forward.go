@@ -351,7 +351,8 @@ func (handler *Handler) forwardAuthorized(response http.ResponseWriter, request 
 		var countedInputTokens *int64
 		semanticResponseError := false
 		if native {
-			result, raw, copyErr = handler.dispatch(attemptWriter, request, target, targetPath, targetBody, stream, dialect, anthropicWebSearch.enabled && stream, releaseDispatch)
+			result, raw, copyErr = handler.dispatch(attemptWriter, request, target, targetPath, targetBody, stream, dialect, publicID, anthropicWebSearch.enabled && stream, releaseDispatch)
+			semanticResponseError = errors.Is(copyErr, errAnthropicStreamInvalid)
 		} else {
 			result, raw, copyErr = handler.dispatchTranslated(attemptWriter, request, target, targetPath, targetBody, dialect, publicID, stream, releaseDispatch)
 		}

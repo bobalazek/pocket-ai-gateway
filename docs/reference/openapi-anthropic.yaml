@@ -1,5 +1,5 @@
 openapi: 3.1.0
-info: { title: Pocket AI Gateway Anthropic-Compatible API, version: 0.7.0 }
+info: { title: Pocket AI Gateway Anthropic-Compatible API, version: 0.8.0 }
 servers: [{ url: /api/anthropic/v1 }]
 security: [{ apiKey: [] }]
 paths:
@@ -53,13 +53,13 @@ paths:
               schema:
                 type: string
                 description: >-
-                  Native Anthropic SSE. message_start contains the provider-reported upstream model and initial MessageUsage; the native stream is byte-preserved rather than rewriting this response field to the public model. A direct search begins with a server_tool_use content_block_start, streams its input through input_json_delta frames, and closes that block. Its paired web_search_tool_result arrives complete in content_block_start and is followed by content_block_stop. Text may use text_delta and citations_delta frames. The terminal message_delta carries the stop reason and cumulative MessageDeltaUsage, including server_tool_use.web_search_requests, before message_stop. Ping and unknown future Anthropic events are preserved; an Anthropic error event may terminate a stream after HTTP 200 without an invented success event.
+                  Native Anthropic SSE. message_start contains the requested public model and initial MessageUsage; other native event payloads keep their provider fields. A direct search begins with a server_tool_use content_block_start, streams its input through input_json_delta frames, and closes that block. Its paired web_search_tool_result arrives complete in content_block_start and is followed by content_block_stop. Text may use text_delta and citations_delta frames. The terminal message_delta carries the stop reason and cumulative MessageDeltaUsage, including server_tool_use.web_search_requests, before message_stop. Ping and unknown future Anthropic events are preserved; an Anthropic error event may terminate a stream after HTTP 200 without an invented success event.
               examples:
                 boundedWebSearch:
                   summary: One native direct search with a cited answer and cumulative terminal usage
                   value: |
                     event: message_start
-                    data: {"type":"message_start","message":{"id":"msg_example","type":"message","role":"assistant","model":"anthropic-upstream","content":[],"container":null,"stop_details":null,"stop_reason":null,"stop_sequence":null,"usage":{"cache_creation":null,"cache_creation_input_tokens":0,"cache_read_input_tokens":0,"inference_geo":null,"input_tokens":12,"output_tokens":1,"output_tokens_details":null,"server_tool_use":{"web_fetch_requests":0,"web_search_requests":0},"service_tier":"standard"}}}
+                    data: {"type":"message_start","message":{"id":"msg_example","type":"message","role":"assistant","model":"assistant","content":[],"container":null,"stop_details":null,"stop_reason":null,"stop_sequence":null,"usage":{"cache_creation":null,"cache_creation_input_tokens":0,"cache_read_input_tokens":0,"inference_geo":null,"input_tokens":12,"output_tokens":1,"output_tokens_details":null,"server_tool_use":{"web_fetch_requests":0,"web_search_requests":0},"service_tier":"standard"}}}
 
                     event: content_block_start
                     data: {"type":"content_block_start","index":0,"content_block":{"type":"server_tool_use","id":"srvtoolu_example","name":"web_search","input":{},"caller":{"type":"direct"}}}

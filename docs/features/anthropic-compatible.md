@@ -35,7 +35,7 @@ Errors preserve the Anthropic envelope:
 
 ## Stream and tool contract
 
-The stream follows message_start, ordered content_block_start/delta/stop events, message_delta, and message_stop. A tool_use block contains id/name/input; tool_result content links back to the original tool ID. Partial argument JSON is forwarded through input_json_delta, not flattened into text.
+The stream follows message_start, ordered content_block_start/delta/stop events, message_delta, and message_stop. The gateway replaces only `message_start.message.model` with the requested public model; the remaining native events retain their provider fields. A tool_use block contains id/name/input; tool_result content links back to the original tool ID. Partial argument JSON is forwarded through input_json_delta, not flattened into text.
 
 Translate ordinary JSON requests to/from OpenAI and Gemini while preserving multiple tool calls/results, stop reasons, usage, refusals, and cancellation. Streaming currently requires an Anthropic-compatible target: Anthropic requires input usage in its first event, while OpenAI and Gemini report it only at completion. Opaque thinking/signatures need an explicit valid mapping/affinity rule; unsupported ones are not silently removed. Count tokens using a capable target-specific path, with honest estimate semantics.
 
@@ -57,7 +57,7 @@ The public and upstream model must both publish `chat` and `web_search`; the sel
 
 The gateway preserves native `server_tool_use` and paired `web_search_tool_result` blocks, encrypted result content needed for later turns, citations, `pause_turn`, embedded web-search error blocks, and `usage.server_tool_use.web_search_requests`. Reported successful search calls are stored separately from model tokens. Search-call cost remains unknown because the price model has no versioned provider-search rate. An Anthropic search failure remains an HTTP 200 Message with a `web_search_tool_result_error`; unsuccessful searches are not billed or counted as completed calls.
 
-With `stream: true`, the gateway preserves the native Anthropic sequence: `message_start`, ordered content-block frames, terminal `message_delta`, then `message_stop`. A direct `server_tool_use` starts as a content block and streams its query through `input_json_delta`. Its paired `web_search_tool_result` arrives as a complete block in `content_block_start`. Text and `citations_delta` frames remain native. Terminal `message_delta.usage` is cumulative and includes `server_tool_use.web_search_requests`. Ping, error, and unknown future Anthropic event types are forwarded without being rewritten into a successful terminal event. Native SSE is byte-preserved, so `message_start.message.model` remains the provider-reported upstream model; public-model response rewriting is a separate compatibility change.
+With `stream: true`, the gateway preserves the native Anthropic sequence: `message_start`, ordered content-block frames, terminal `message_delta`, then `message_stop`. A direct `server_tool_use` starts as a content block and streams its query through `input_json_delta`. Its paired `web_search_tool_result` arrives as a complete block in `content_block_start`. Text and `citations_delta` frames remain native. Terminal `message_delta.usage` is cumulative and includes `server_tool_use.web_search_requests`. The gateway rewrites `message_start.message.model` to the requested public model while streaming; ping, error, content, usage, and unknown future event payloads otherwise pass through unchanged.
 
 ## Native prompt caching
 

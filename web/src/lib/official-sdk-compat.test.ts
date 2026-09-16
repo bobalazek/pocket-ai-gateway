@@ -312,7 +312,7 @@ describe("official SDK compatibility through the Go gateway", () => {
 
     const serverTool = result.content.find((block) => block.type === "server_tool_use");
     const toolResult = result.content.find((block) => block.type === "web_search_tool_result");
-    expect(result.model).toBe("anthropic-upstream");
+    expect(result.model).toBe("target-anthropic");
     expect(serverTool).toMatchObject({
       name: "web_search",
       caller: { type: "direct" },

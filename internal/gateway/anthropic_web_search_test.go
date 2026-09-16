@@ -352,7 +352,7 @@ func TestAnthropicWebSearchStreamingSuccess(t *testing.T) {
 				_, _ = io.WriteString(response, stream)
 			})
 			result := performAnthropicRequest(t, handler, secret, `{"model":"claude-search","max_tokens":64,"stream":true,"messages":[{"role":"user","content":"News"}],"tools":[{"type":"web_search_20250305","name":"web_search","max_uses":2}]}`)
-			if result.Code != http.StatusOK || result.Body.String() != stream || firstCalls.Load() != 1 || secondCalls.Load() != 0 {
+			if result.Code != http.StatusOK || !strings.Contains(result.Body.String(), `"model":"claude-search"`) || strings.Contains(result.Body.String(), `"model":"claude-upstream"`) || firstCalls.Load() != 1 || secondCalls.Load() != 0 {
 				t.Fatalf("response=%d first=%d second=%d body=%s", result.Code, firstCalls.Load(), secondCalls.Load(), result.Body.String())
 			}
 			var state, usageStatus, toolStatus string
@@ -385,7 +385,7 @@ func TestAnthropicWebSearchStreamingFailuresDoNotFallback(t *testing.T) {
 				_, _ = io.WriteString(response, stream)
 			})
 			result := performAnthropicRequest(t, handler, secret, `{"model":"claude-search","max_tokens":64,"stream":true,"messages":[{"role":"user","content":"News"}],"tools":[{"type":"web_search_20250305","name":"web_search","max_uses":1}]}`)
-			if result.Code != http.StatusOK || result.Body.String() != stream || firstCalls.Load() != 1 || secondCalls.Load() != 0 {
+			if result.Code != http.StatusOK || !strings.Contains(result.Body.String(), `"model":"claude-search"`) || firstCalls.Load() != 1 || secondCalls.Load() != 0 {
 				t.Fatalf("response=%d first=%d second=%d body=%s", result.Code, firstCalls.Load(), secondCalls.Load(), result.Body.String())
 			}
 			var state, usageStatus string
@@ -443,14 +443,14 @@ func TestAnthropicWebSearchStreamingCancellationIsInterrupted(t *testing.T) {
 	}
 }
 
-func TestOrdinaryAnthropicToolStreamingRemainsUnchanged(t *testing.T) {
+func TestOrdinaryAnthropicToolStreamingPreservesEventsAfterModelNormalization(t *testing.T) {
 	stream := "event: message_start\ndata: {\"type\":\"message_start\",\"message\":{\"usage\":{\"input_tokens\":3,\"output_tokens\":0}}}\n\nevent: content_block_start\ndata: {\"type\":\"content_block_start\",\"index\":0,\"content_block\":{\"type\":\"tool_use\",\"id\":\"toolu_1\",\"name\":\"weather\",\"input\":{}}}\n\nevent: content_block_stop\ndata: {\"type\":\"content_block_stop\",\"index\":0}\n\nevent: message_delta\ndata: {\"type\":\"message_delta\",\"delta\":{\"stop_reason\":\"tool_use\"},\"usage\":{\"output_tokens\":1}}\n\nevent: message_stop\ndata: {\"type\":\"message_stop\"}\n\n"
 	ctx, database, handler, secret, firstCalls, secondCalls := anthropicWebSearchStreamFixture(t, func(response http.ResponseWriter, _ *http.Request) {
 		response.Header().Set("Content-Type", "text/event-stream")
 		_, _ = io.WriteString(response, stream)
 	})
 	result := performAnthropicRequest(t, handler, secret, `{"model":"claude-search","max_tokens":64,"stream":true,"messages":[{"role":"user","content":"Weather"}],"tools":[{"name":"weather","input_schema":{"type":"object"}}]}`)
-	if result.Code != http.StatusOK || result.Body.String() != stream || firstCalls.Load() != 1 || secondCalls.Load() != 0 {
+	if result.Code != http.StatusOK || !strings.Contains(result.Body.String(), `"model":"claude-search"`) || !strings.Contains(result.Body.String(), `"name":"weather"`) || firstCalls.Load() != 1 || secondCalls.Load() != 0 {
 		t.Fatalf("response=%d first=%d second=%d body=%s", result.Code, firstCalls.Load(), secondCalls.Load(), result.Body.String())
 	}
 	var state, usageStatus, toolStatus string
