@@ -26,6 +26,7 @@ type Preset struct {
 	CredentialRequired bool     `json:"credential_required"`
 	PrivateNetwork     bool     `json:"private_network"`
 	Operations         []string `json:"operations"`
+	Capabilities       []string `json:"capabilities"`
 	DocumentationURL   string   `json:"documentation_url"`
 	ReviewedAt         string   `json:"reviewed_at"`
 }
@@ -80,8 +81,28 @@ func Presets() []Preset {
 	items := append([]Preset(nil), presets...)
 	for index := range items {
 		items[index].Operations = append([]string(nil), items[index].Operations...)
+		items[index].Capabilities = availableCapabilities(items[index].ID, items[index].Adapter)
 	}
 	return items
+}
+
+func availableCapabilities(presetID, adapter string) []string {
+	capabilities := make([]string, 0, len(adapters[adapter]))
+	for _, capability := range adapters[adapter] {
+		if PresetSupportsCapabilities(presetID, []string{capability}) {
+			capabilities = append(capabilities, capability)
+		}
+	}
+	return capabilities
+}
+
+func presetCredentialRequired(presetID string) bool {
+	for _, preset := range presets {
+		if preset.ID == presetID {
+			return preset.CredentialRequired
+		}
+	}
+	return true
 }
 
 func PresetSupports(presetID, operation string) bool {
@@ -115,6 +136,12 @@ func PresetSupportsCapabilities(presetID string, capabilities []string) bool {
 		}
 		if capability == "web_search" {
 			if presetID == "openai" || presetID == "anthropic" {
+				continue
+			}
+			return false
+		}
+		if capability == "web_fetch" {
+			if presetID == "anthropic" {
 				continue
 			}
 			return false

@@ -55,6 +55,33 @@ func TestWebSearchCapabilityRequiresNativePresetAndChat(t *testing.T) {
 	}
 }
 
+func TestWebFetchCapabilityRequiresAnthropicPresetAndChat(t *testing.T) {
+	if !PresetSupportsCapabilities("anthropic", []string{"chat", "web_fetch"}) {
+		t.Fatal("Anthropic preset rejected web_fetch")
+	}
+	for _, preset := range []string{"custom", "openai", "openai_compatible", "gemini"} {
+		if PresetSupportsCapabilities(preset, []string{"chat", "web_fetch"}) {
+			t.Fatalf("%s preset accepted web_fetch", preset)
+		}
+	}
+	if validCapabilities([]string{"web_fetch"}) {
+		t.Fatal("web_fetch accepted without chat")
+	}
+	if !validCapabilities([]string{"chat", "web_fetch"}) {
+		t.Fatal("chat plus web_fetch was rejected")
+	}
+	for _, provider := range ProviderTypes() {
+		capabilities, _ := provider["capabilities"].([]string)
+		hasWebFetch := false
+		for _, capability := range capabilities {
+			hasWebFetch = hasWebFetch || capability == "web_fetch"
+		}
+		if hasWebFetch != (provider["id"] == "anthropic") {
+			t.Fatalf("provider capability publication = %#v", provider)
+		}
+	}
+}
+
 func TestMasterKeyAndStoredCredentialRoundTrip(t *testing.T) {
 	directory := t.TempDir()
 	if _, err := LoadOrCreateMasterKey(directory, true); err == nil || !strings.Contains(err.Error(), "stored encrypted data") {
@@ -136,6 +163,9 @@ func TestConnectionModelAndCredentialLifecycle(t *testing.T) {
 	connections, err := service.ListConnections(ctx, owner)
 	if err != nil || len(connections) != 1 || connections[0].CredentialState != "stored" {
 		t.Fatalf("connections = %#v, %v", connections, err)
+	}
+	if !connections[0].CredentialRequired || !containsString(connections[0].Capabilities, "chat") {
+		t.Fatalf("backend connection policy = %#v", connections[0])
 	}
 	if connections[0].Name == "provider-secret" {
 		t.Fatal("credential leaked through connection")

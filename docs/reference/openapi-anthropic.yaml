@@ -1,5 +1,5 @@
 openapi: 3.1.0
-info: { title: Pocket AI Gateway Anthropic-Compatible API, version: 0.8.0 }
+info: { title: Pocket AI Gateway Anthropic-Compatible API, version: 0.8.1 }
 servers: [{ url: /api/anthropic/v1 }]
 security: [{ apiKey: [] }]
 paths:
@@ -22,13 +22,13 @@ paths:
               type: object
               required: [model, messages, max_tokens]
               additionalProperties: true
-              description: Prompt caching is available only through a native model on the built-in Anthropic preset. A request may use top-level automatic cache control or explicit controls on tool definitions, system content blocks, and message content blocks. The combined request supports at most four breakpoints; 1h breakpoints must precede 5m breakpoints. Bounded hosted web search is also native-only and accepts one direct web_search_20250305 tool with max_uses from 1 through 4 in JSON or SSE requests. Prompt caching and web search cannot be combined.
+              description: Prompt caching is available only through a native model on the built-in Anthropic preset. A request may use top-level automatic cache control or explicit controls on tool definitions, system content blocks, and message content blocks. The combined request supports at most four breakpoints; 1h breakpoints must precede 5m breakpoints. Bounded hosted web search and basic web fetch are also native-only. Search accepts one direct web_search_20250305 tool; fetch accepts one web_fetch_20250910 tool. Each permits max_uses from 1 through 4 in JSON or SSE. Prompt caching, search, and fetch cannot be combined with each other.
               properties:
                 model: { type: string, minLength: 1 }
                 max_tokens: { type: integer, minimum: 1 }
                 stream:
                   type: [boolean, "null"]
-                  description: Set true for native Anthropic SSE. Bounded web_search_20250305 supports both false/omitted JSON delivery and true SSE delivery.
+                  description: Set true for native Anthropic SSE. Bounded web_search_20250305 and web_fetch_20250910 support both false/omitted JSON delivery and true SSE delivery.
                 cache_control: { $ref: "#/components/schemas/CacheControl" }
                 tools:
                   type: array
@@ -36,6 +36,7 @@ paths:
                     anyOf:
                       - { $ref: "#/components/schemas/FunctionTool" }
                       - { $ref: "#/components/schemas/WebSearchTool" }
+                      - { $ref: "#/components/schemas/WebFetchTool" }
                 system:
                   oneOf:
                     - { type: string }
@@ -45,7 +46,7 @@ paths:
                   items: { $ref: "#/components/schemas/MessageInput" }
       responses:
         "200":
-          description: Native Anthropic Message JSON or SSE. Web-search responses preserve direct server-tool/result blocks, citations, pause_turn, and reported web-search usage. Cache usage remains in the provider response while gateway accounting counts ordinary input, cache creation, and cache reads as total input.
+          description: Native Anthropic Message JSON or SSE. Web-search and web-fetch responses preserve server-tool/result blocks, citations, embedded tool errors, and reported server-tool usage. Cache usage remains in the provider response while gateway accounting counts ordinary input, cache creation, and cache reads as total input.
           content:
             application/json:
               schema: { $ref: "#/components/schemas/MessageResponse" }
@@ -53,7 +54,7 @@ paths:
               schema:
                 type: string
                 description: >-
-                  Native Anthropic SSE. message_start contains the requested public model and initial MessageUsage; other native event payloads keep their provider fields. A direct search begins with a server_tool_use content_block_start, streams its input through input_json_delta frames, and closes that block. Its paired web_search_tool_result arrives complete in content_block_start and is followed by content_block_stop. Text may use text_delta and citations_delta frames. The terminal message_delta carries the stop reason and cumulative MessageDeltaUsage, including server_tool_use.web_search_requests, before message_stop. Ping and unknown future Anthropic events are preserved; an Anthropic error event may terminate a stream after HTTP 200 without an invented success event.
+                  Native Anthropic SSE. message_start contains the requested public model and initial MessageUsage; other native event payloads keep their provider fields. A hosted tool begins with server_tool_use, streams input_json_delta frames, and is paired with a complete web_search_tool_result or web_fetch_tool_result block. Text and citations remain native. Terminal message_delta usage includes provider-reported web_search_requests and web_fetch_requests before message_stop. Ping and unknown future events are preserved; an Anthropic error event may terminate a stream after HTTP 200 without an invented success event.
               examples:
                 boundedWebSearch:
                   summary: One native direct search with a cited answer and cumulative terminal usage
@@ -368,6 +369,45 @@ components:
         region: { type: [string, "null"], minLength: 1, maxLength: 255 }
         country: { type: [string, "null"], pattern: "^[A-Za-z]{2}$" }
         timezone: { type: [string, "null"], minLength: 1, maxLength: 255, description: IANA timezone identifier }
+    WebFetchTool:
+      type: object
+      additionalProperties: false
+      required: [type, name, max_uses, max_content_tokens]
+      not:
+        required: [allowed_domains, blocked_domains]
+        properties:
+          allowed_domains: { type: array }
+          blocked_domains: { type: array }
+      description: Gateway-bounded basic Anthropic hosted fetch. Later versions and provider-owned extensions are unsupported.
+      properties:
+        type: { type: string, const: web_fetch_20250910 }
+        name: { type: string, const: web_fetch }
+        max_uses: { type: integer, minimum: 1, maximum: 4 }
+        max_content_tokens:
+          type: integer
+          minimum: 1
+          maximum: 16384
+          description: Approximate fetched text extraction limit; it does not bound binary PDF input.
+        allowed_domains:
+          oneOf:
+            - { type: "null" }
+            - type: array
+              maxItems: 10
+              items: { type: string, minLength: 1, maxLength: 253, description: Plain hostname without a URL scheme, path, port, or wildcard }
+        blocked_domains:
+          oneOf:
+            - { type: "null" }
+            - type: array
+              maxItems: 10
+              items: { type: string, minLength: 1, maxLength: 253, description: Plain hostname without a URL scheme, path, port, or wildcard }
+        citations:
+          oneOf:
+            - { type: "null" }
+            - type: object
+              additionalProperties: false
+              required: [enabled]
+              properties:
+                enabled: { type: boolean }
     CacheControl:
       oneOf:
         - { type: "null" }
@@ -387,7 +427,7 @@ components:
     MessageDeltaUsage:
       type: object
       additionalProperties: true
-      description: Cumulative usage through the message_delta event. For web search, server_tool_use.web_search_requests is the cumulative provider-reported successful search count.
+      description: Cumulative usage through the message_delta event. server_tool_use contains cumulative provider-reported successful web-search and web-fetch counts.
       required: [cache_creation_input_tokens, cache_read_input_tokens, input_tokens, output_tokens, output_tokens_details, server_tool_use]
       properties:
         input_tokens: { type: [integer, "null"], minimum: 0 }
@@ -438,6 +478,7 @@ components:
               - { $ref: "#/components/schemas/TextBlock" }
               - { $ref: "#/components/schemas/ServerToolUseBlock" }
               - { $ref: "#/components/schemas/WebSearchToolResultBlock" }
+              - { $ref: "#/components/schemas/WebFetchToolResultBlock" }
               - { type: object, additionalProperties: true }
         stop_reason: { type: [string, "null"], enum: [end_turn, max_tokens, stop_sequence, tool_use, pause_turn, refusal, model_context_window_exceeded, null] }
         stop_sequence: { type: [string, "null"] }
@@ -480,7 +521,7 @@ components:
       additionalProperties: true
       required: [web_fetch_requests, web_search_requests]
       properties:
-        web_fetch_requests: { type: integer, minimum: 0 }
+        web_fetch_requests: { type: integer, minimum: 0, maximum: 4, description: Successful provider-reported fetches }
         web_search_requests: { type: integer, minimum: 0, maximum: 4, description: Successful provider-reported searches; failed searches are not billed }
     ServerToolUseBlock:
       type: object
@@ -489,7 +530,7 @@ components:
       properties:
         type: { type: string, const: server_tool_use }
         id: { type: string, pattern: "^srvtoolu_" }
-        name: { type: string, const: web_search }
+        name: { type: string, enum: [web_search, web_fetch] }
         input: { type: object, additionalProperties: true }
         caller: { $ref: "#/components/schemas/DirectCaller" }
     WebSearchResultBlock:
@@ -531,6 +572,56 @@ components:
         title: { type: [string, "null"] }
         encrypted_index: { type: string }
         cited_text: { type: string, maxLength: 150 }
+    WebFetchDocumentSource:
+      type: object
+      additionalProperties: true
+      required: [type, media_type, data]
+      properties:
+        type: { type: string, enum: [text, base64] }
+        media_type: { type: string }
+        data: { type: string }
+    WebFetchDocument:
+      type: object
+      additionalProperties: true
+      required: [type, source]
+      properties:
+        type: { type: string, const: document }
+        source: { $ref: "#/components/schemas/WebFetchDocumentSource" }
+        title: { type: [string, "null"] }
+        citations:
+          type: [object, "null"]
+          additionalProperties: false
+          required: [enabled]
+          properties:
+            enabled: { type: boolean }
+    WebFetchResult:
+      type: object
+      additionalProperties: true
+      required: [type, url, retrieved_at, content]
+      properties:
+        type: { type: string, const: web_fetch_result }
+        url: { type: string, format: uri }
+        retrieved_at: { type: [string, "null"], format: date-time }
+        content: { $ref: "#/components/schemas/WebFetchDocument" }
+    WebFetchToolResultError:
+      type: object
+      additionalProperties: true
+      required: [type, error_code]
+      properties:
+        type: { type: string, const: web_fetch_tool_result_error }
+        error_code: { type: string }
+    WebFetchToolResultBlock:
+      type: object
+      additionalProperties: true
+      required: [type, tool_use_id, content]
+      properties:
+        type: { type: string, const: web_fetch_tool_result }
+        tool_use_id: { type: string, pattern: "^srvtoolu_" }
+        caller: { $ref: "#/components/schemas/DirectCaller" }
+        content:
+          oneOf:
+            - { $ref: "#/components/schemas/WebFetchResult" }
+            - { $ref: "#/components/schemas/WebFetchToolResultError" }
     TextBlock:
       type: object
       additionalProperties: true
@@ -540,7 +631,10 @@ components:
         text: { type: string }
         citations:
           type: [array, "null"]
-          items: { $ref: "#/components/schemas/WebSearchCitation" }
+          items:
+            anyOf:
+              - { $ref: "#/components/schemas/WebSearchCitation" }
+              - { type: object, additionalProperties: true, required: [type] }
   securitySchemes:
     apiKey: { type: apiKey, in: header, name: x-api-key }
   parameters:

@@ -7,6 +7,8 @@ export type ProviderConnection = {
   allow_private_network: boolean;
   timeout_ms: number;
   preset: string;
+  capabilities: string[];
+  credential_required: boolean;
   credential_state: "missing" | "stored" | "external";
   revision: number;
   created_at: string;
@@ -22,6 +24,7 @@ export type ProviderPreset = {
   credential_required: boolean;
   private_network: boolean;
   operations: string[];
+  capabilities: string[];
   documentation_url: string;
   reviewed_at: string;
 };

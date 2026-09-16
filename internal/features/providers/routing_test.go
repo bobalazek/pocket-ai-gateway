@@ -161,6 +161,20 @@ func TestCatalogValidationAndPresets(t *testing.T) {
 		"perplexity": "https://api.perplexity.ai/v1",
 	}
 	available := Presets()
+	for _, preset := range available {
+		if len(preset.Capabilities) == 0 {
+			t.Errorf("%s preset has no published capabilities", preset.ID)
+		}
+	}
+	if !containsString(availableCapabilities("anthropic", "anthropic"), "web_fetch") || containsString(availableCapabilities("custom", "anthropic"), "web_fetch") {
+		t.Fatal("provider capability policy was not applied by the backend")
+	}
+	if !containsString(availableCapabilities("anthropic", "anthropic"), "chat") || !containsString(availableCapabilities("gemini", "gemini"), "chat") {
+		t.Fatal("backend capability policy omitted canonical chat capability")
+	}
+	if presetCredentialRequired("ollama") || !presetCredentialRequired("custom") {
+		t.Fatal("backend credential policy does not match provider presets")
+	}
 	for id, baseURL := range expected {
 		input, err = validateConnection(ConnectionInput{Name: id, Preset: id, Enabled: true})
 		if err != nil || input.Adapter != "openai_compatible" || input.BaseURL != baseURL {
@@ -177,8 +191,12 @@ func TestCatalogValidationAndPresets(t *testing.T) {
 		}
 	}
 	available[0].Operations[0] = "mutated"
+	available[0].Capabilities[0] = "mutated"
 	if Presets()[0].Operations[0] == "mutated" {
 		t.Fatal("preset operations escaped by reference")
+	}
+	if Presets()[0].Capabilities[0] == "mutated" {
+		t.Fatal("preset capabilities escaped by reference")
 	}
 	clouds := []ConnectionInput{
 		{Name: "Azure", Preset: "azure-openai", BaseURL: "https://gateway.openai.azure.com/openai/v1"},
@@ -210,6 +228,17 @@ func TestCatalogValidationAndPresets(t *testing.T) {
 	}
 	if !PresetSupports("openai", "moderations") || !PresetSupports("openai", "responses/input_tokens") || !PresetSupports("openai", "images/generations") || !PresetSupports("openai", "images/edits") || !PresetSupports("openai", "images/variations") || !PresetSupports("openai", "audio/speech") || !PresetSupports("openai", "audio/transcriptions") || !PresetSupports("openai", "audio/translations") || PresetSupports("anthropic", "moderations") || !PresetSupportsCapabilities("openai", []string{"moderations", "count_tokens", "images", "image_edit", "image_variation", "audio_speech", "audio_transcription", "audio_translation"}) {
 		t.Fatal("OpenAI preset capability mapping is incorrect")
+	}
+}
+
+func TestRoutingPolicyIsDerivedByTheBackend(t *testing.T) {
+	embedding := routingPolicy([]string{"embeddings"})
+	if len(embedding.AllowedStrategies) != 1 || embedding.AllowedStrategies[0] != "fixed" || embedding.MaxTargetsByStrategy["fixed"] != 1 || !embedding.FreeOnlyAllowed {
+		t.Fatalf("embedding routing policy = %#v", embedding)
+	}
+	chat := routingPolicy([]string{"chat"})
+	if len(chat.AllowedStrategies) != len(routeStrategyOrder) || chat.MaxTargetsByStrategy["fixed"] != 1 || chat.MaxTargetsByStrategy["weighted"] != 32 || !chat.FreeOnlyAllowed {
+		t.Fatalf("chat routing policy = %#v", chat)
 	}
 }
 

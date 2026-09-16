@@ -2,8 +2,6 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import type { RouteStrategy } from "@/features/models/types/models.types";
 
-export const modelCapabilities = ["chat", "embeddings", "moderations", "count_tokens", "images", "image_edit", "image_variation", "audio_speech", "audio_transcription", "audio_translation", "prompt_cache", "web_search"];
-
 export const routeStrategies: { value: RouteStrategy; label: string }[] = [
   { value: "fixed", label: "Fixed target" },
   { value: "ordered_fallback", label: "Ordered fallback" },

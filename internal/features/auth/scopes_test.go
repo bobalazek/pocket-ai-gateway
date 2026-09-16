@@ -8,6 +8,12 @@ func TestAnthropicWebSearchScopeIsAnInferenceScope(t *testing.T) {
 	}
 }
 
+func TestAnthropicWebFetchScopeIsAnInferenceScope(t *testing.T) {
+	if !ValidInferenceScope("messages:web_fetch") {
+		t.Fatal("messages:web_fetch was rejected")
+	}
+}
+
 func TestAnthropicMessageBatchesScopeIsAnInferenceScope(t *testing.T) {
 	if !ValidInferenceScope("messages:batches") {
 		t.Fatal("messages:batches was rejected")

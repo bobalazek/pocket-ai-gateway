@@ -179,6 +179,25 @@ func TestCeilingDenialDoesNotConsumeSiblingPolicy(t *testing.T) {
 	}
 }
 
+func TestAdmissionRejectsUnboundedInputForTokenAndSpendPolicies(t *testing.T) {
+	for _, metric := range []string{"tokens", "spend"} {
+		t.Run(metric, func(t *testing.T) {
+			ctx, service, owner, keyID, store := testService(t)
+			defer store.Close()
+			input := PolicyInput{ScopeKind: "key", ScopeID: keyID, Metric: metric, Algorithm: "quota", Period: "lifetime", LimitUnits: 100}
+			if metric == "spend" {
+				input.LimitUSD, input.LimitUnits = "1", 0
+			}
+			policy := createPolicy(t, ctx, service, owner, input)
+			_, err := service.Admit(ctx, AdmissionInput{KeyID: keyID, ConnectionID: "conn_test", ModelID: "model_test", Operation: "messages", Scope: "chat:generate", Dialect: "anthropic", EnforceInputBound: true})
+			var denial *Denial
+			if !errors.As(err, &denial) || denial.PolicyID != policy.ID || denial.Metric != metric {
+				t.Fatalf("unbounded input denial = %#v, %v", denial, err)
+			}
+		})
+	}
+}
+
 func TestAdmissionRechecksKeyGrants(t *testing.T) {
 	ctx, service, _, keyID, store := testService(t)
 	defer store.Close()

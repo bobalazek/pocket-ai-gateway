@@ -37,6 +37,7 @@ Each record states status/source, context, decision, and consequences. A recomme
 | ADR-029 | [Gateway-owned OpenAI Moderations Batches](2026-09-16-gateway-owned-openai-moderation-batches.md) | Accepted bounded Phase 8 contract extending ADR-024, ADR-027, and ADR-028 |
 | ADR-030 | [Gateway-owned OpenAI Image Generation Batches](2026-09-16-gateway-owned-openai-image-generation-batches.md) | Accepted bounded Phase 8 contract extending ADR-024, ADR-027, ADR-028, and ADR-029 |
 | ADR-031 | [Gateway-owned OpenAI Image Edit Batches](2026-09-16-gateway-owned-openai-image-edit-batches.md) | Accepted bounded Phase 8 contract extending ADR-024 through ADR-030 |
+| ADR-032 | [Bounded native Anthropic basic web fetch](2026-09-16-native-anthropic-web-fetch.md) | Accepted bounded Phase 8 contract |
 
 Historical: [initial proposal](2026-09-14-initial-proposal.md), superseded by the records above where they differ. Its A/P/D/M identifiers are historical references only; current documents use ADR IDs.
 

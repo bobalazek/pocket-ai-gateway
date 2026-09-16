@@ -4,26 +4,24 @@ import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Label } from "@/components/ui/label";
 import { Field } from "@/features/providers/components/provider-form";
-import type { ProviderConnection, ProviderPreset } from "@/features/providers/types/providers.types";
-import { availableCapabilities } from "@/features/providers/utils/provider-capabilities.utils";
+import type { ProviderConnection } from "@/features/providers/types/providers.types";
 
 type Props = {
   item: ProviderConnection;
-  presets: ProviderPreset[];
   busy: boolean;
   onToggle: (item: ProviderConnection) => void;
   onCredential: (event: FormEvent<HTMLFormElement>, id: string) => void;
   onAddModel: (event: FormEvent<HTMLFormElement>, id: string) => void;
 };
 
-export function ProviderCard({ item, presets, busy, onToggle, onCredential, onAddModel }: Props) {
+export function ProviderCard({ item, busy, onToggle, onCredential, onAddModel }: Props) {
   return (
     <Card className="panel">
       <div className="resource-row-main">
         <div><strong>{item.name}</strong><small>{item.preset} · {item.adapter.replaceAll("_", " ")} · {item.base_url} · credential {item.credential_state} · {item.enabled ? "enabled" : "disabled"}</small><code>{item.id}</code></div>
         <Button variant="outline" disabled={busy} onClick={() => onToggle(item)}>{item.enabled ? "Disable" : "Enable"}</Button>
       </div>
-      {item.preset !== "ollama" && (
+      {item.credential_required && (
         <details className="grant-editor">
           <summary>Replace credential</summary>
           <form onSubmit={(event) => onCredential(event, item.id)}>
@@ -39,9 +37,7 @@ export function ProviderCard({ item, presets, busy, onToggle, onCredential, onAd
         <summary>Add upstream model</summary>
         <form onSubmit={(event) => onAddModel(event, item.id)}>
           <Field id={`upstream-${item.id}`} name="upstream_id" label="Upstream model ID" required />
-          {item.preset === "openai" && <p className="help-text">Image edits support GPT Image models; variations require <code>dall-e-2</code>; audio translation requires <code>whisper-1</code>.</p>}
-          <fieldset className="scope-grid"><legend>Capabilities</legend>{availableCapabilities(item, presets).map((value) => <label key={value}><input type="checkbox" name="capabilities" value={value} /><span>{value.replaceAll("_", " ")}</span></label>)}</fieldset>
-          {(item.preset === "openai" || item.preset === "anthropic") && <p className="help-text">Hosted web search requires both <code>chat</code> and <code>web_search</code>. Anthropic supports direct JSON or SSE <code>web_search_20250305</code> requests with an explicit 1–4 use limit and no prompt-cache controls.</p>}
+          <fieldset className="scope-grid"><legend>Capabilities</legend>{item.capabilities.map((value) => <label key={value}><input type="checkbox" name="capabilities" value={value} /><span>{value.replaceAll("_", " ")}</span></label>)}</fieldset>
           <Button disabled={busy}>Add upstream model</Button>
         </form>
       </details>
