@@ -1,6 +1,6 @@
 # API parity inventory
 
-Updated September 15, 2026. This inventory distinguishes implemented wire compatibility from future API breadth. An endpoint is supported only when its namespace contract and failure behavior are tested. Unknown routes return the selected protocol's safe error rather than being forwarded opportunistically.
+Updated September 16, 2026. This inventory distinguishes implemented wire compatibility from future API breadth. An endpoint is supported only when its namespace contract and failure behavior are tested. Unknown routes return the selected protocol's safe error rather than being forwarded opportunistically.
 
 ## Status terms
 
@@ -38,9 +38,9 @@ Base URL: `/api/openai/v1`.
 | Conversations and conversation items | Constrained, gateway-owned | Resource/item CRUD plus synchronous/background/buffered-stream Response attachment, key isolation, storage bounds, and cursor pagination are implemented; provider references/projections remain pending |
 | Files | Constrained, gateway-owned | Five official SDK operations over creating-key-owned local resources; `files:manage`; one non-empty JSONL `purpose=batch` upload up to 16 MiB; optional 1-hour through 30-day expiry; 30-day default; bounded purpose/order/keyset listing; exact content; delete and expiry become not found |
 | Uploads | Constrained, gateway-owned | Four official operations under `files:manage`; one-hour key-owned Uploads assemble a declared 1–16 MiB Batch JSONL File from at most 16 encrypted non-empty Parts in caller-supplied order; exact byte match; completed-File expiry from 1 hour through 30 days; no checksum validation, provider dispatch, or accounting |
-| Batches | Constrained, gateway-owned | Four official SDK methods over creating-key-owned resources; `batches:manage` plus the endpoint's generation scope; one same-key Batch File with 1–4 non-streaming `/v1/responses`, `/v1/chat/completions`, or `/v1/embeddings` requests for one public model; local routing/accounting; fixed vector-space embedding target; 24-hour processing expiry; separate success/error output Files; no provider Batch discount, limits, or rate pool |
+| Batches | Constrained, gateway-owned | Four official SDK methods over creating-key-owned resources; `batches:manage` plus the endpoint scope; one same-key Batch File with 1–4 non-streaming `/v1/responses`, `/v1/chat/completions`, `/v1/embeddings`, or `/v1/moderations` requests for one public model; local routing/accounting; fixed vector-space embedding target; native-only Moderations without fallback and with null aggregate Batch usage; 24-hour processing expiry; separate success/error output Files; no provider Batch discount, limits, or rate pool |
 | Other upload purposes and vector stores | Pending | Need their own purpose, quota, scanning, ownership, and lifecycle rules |
-| Additional OpenAI and provider-owned Batches | Pending | Completions, Moderations, image/video endpoints, and provider execution need their own validation, capability, billing, and retention contracts |
+| Additional OpenAI and provider-owned Batches | Pending | Completions, image/video endpoints, and provider execution need their own validation, capability, billing, and retention contracts |
 | DALL-E 2 edits | Deferred | OpenAI marks [DALL-E 2](https://developers.openai.com/api/docs/models/dall-e-2) deprecated; the gateway avoids extra routing complexity for its legacy edit contract |
 | Image streaming and video | Pending | Each media format needs its own bounded upload/download, event, and accounting contract |
 | Realtime | Pending | Needs WebSocket/WebRTC authentication, event limits, connection accounting, and protocol tests |

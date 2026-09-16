@@ -194,6 +194,8 @@ func openAIBatchEndpoint(endpoint string) (dialect, scope, upstreamPath string, 
 		return "openai", "chat:generate", "chat/completions", true
 	case "/v1/embeddings":
 		return "openai", "embeddings:generate", "embeddings", true
+	case "/v1/moderations":
+		return "openai", "moderations:classify", "moderations", true
 	default:
 		return "", "", "", false
 	}
@@ -278,6 +280,10 @@ func parseOpenAIBatchInput(content []byte, endpoint string) ([]openAIBatchInputL
 				}
 			}
 			if _, err := validateEmbedding(envelope); err != nil {
+				return nil, "", err
+			}
+		case "/v1/moderations":
+			if err := validateModeration(envelope); err != nil {
 				return nil, "", err
 			}
 		}

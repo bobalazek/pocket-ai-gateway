@@ -181,6 +181,9 @@ func (handler *Handler) forwardAuthorized(response http.ResponseWriter, request 
 		}
 	} else if upstreamPath == "moderations" {
 		batchItems = jsonCardinality(envelope["input"])
+		if openAIBatch && openAIBatchItems > batchItems {
+			batchItems = openAIBatchItems
+		}
 	} else if opaqueMedia {
 		batchItems = 1
 		if imageOperation {
