@@ -446,12 +446,14 @@ func TestNativeOpenAIImageGenerationUsesScopedModel(t *testing.T) {
 		`{"model":"` + publicModel.ID + `","prompt":"x","n":11}`,
 		`{"model":"` + publicModel.ID + `","prompt":"x","n":1.5}`,
 		`{"model":"` + publicModel.ID + `","prompt":"x","output_compression":101}`,
-		`{"model":"` + publicModel.ID + `","prompt":"x","stream":true}`,
 		`{"model":"` + publicModel.ID + `","prompt":"x","partial_images":0}`,
 	} {
 		if status, _ = generate(secret, invalid); status != http.StatusBadRequest {
 			t.Fatalf("invalid status=%d payload=%s", status, invalid)
 		}
+	}
+	if status, _ = generate(secret, `{"model":"`+publicModel.ID+`","prompt":"x","stream":true}`); status != http.StatusNotFound || calls != 1 {
+		t.Fatalf("unsupported stream status=%d upstream calls=%d", status, calls)
 	}
 	routed, err := providerService.ConfigureRoute(ctx, owner, publicModel.ID, publicModel.Revision, providers.RouteConfigInput{Strategy: "lowest_cost", Targets: []providers.RouteTargetInput{{UpstreamModelID: publicModel.TargetModelID, Priority: 1, Enabled: true}}})
 	if err != nil {
@@ -1561,7 +1563,7 @@ func TestNativeNonStreamResponseIsBounded(t *testing.T) {
 	recorder := httptest.NewRecorder()
 	writer := newAttemptWriter(recorder, false, 0)
 	request := httptest.NewRequest(http.MethodPost, "/", nil)
-	status, _, err := new(Handler).dispatch(writer, request, providers.Target{BaseURL: upstream.URL, AllowPrivateNetwork: true, TimeoutMS: 5000}, "v1/chat", nil, false, "openai", "assistant", false, func() {})
+	status, _, err := new(Handler).dispatch(writer, request, providers.Target{BaseURL: upstream.URL, AllowPrivateNetwork: true, TimeoutMS: 5000}, "v1/chat", nil, false, "openai", "assistant", false, 0, func() {})
 	writer.Commit()
 	if err == nil || status != http.StatusOK || recorder.Code != http.StatusBadGateway || recorder.Body.Len() > 1024 {
 		t.Fatalf("status=%d gateway=%d bytes=%d err=%v", status, recorder.Code, recorder.Body.Len(), err)

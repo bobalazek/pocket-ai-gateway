@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"mime"
 	"net"
 	"net/http"
 	"net/url"
@@ -43,7 +44,7 @@ func permanentSettlementError(err error) bool {
 	return errors.Is(err, usage.ErrConflict) || errors.Is(err, usage.ErrNotFound)
 }
 
-func (handler *Handler) dispatch(response http.ResponseWriter, request *http.Request, target providers.Target, relative string, body []byte, stream bool, dialect, publicModel string, captureStreamTail bool, releaseDispatch func()) (int, []byte, error) {
+func (handler *Handler) dispatch(response http.ResponseWriter, request *http.Request, target providers.Target, relative string, body []byte, stream bool, dialect, publicModel string, captureStreamTail bool, imageStreamPartialImages int, releaseDispatch func()) (int, []byte, error) {
 	released := false
 	release := func() {
 		if !released {
@@ -106,6 +107,13 @@ func (handler *Handler) dispatch(response http.ResponseWriter, request *http.Req
 		_, err = response.Write(raw)
 		return result.StatusCode, raw, err
 	}
+	if relative == "images/generations" {
+		mediaType, _, parseErr := mime.ParseMediaType(contentType)
+		if parseErr != nil || mediaType != "text/event-stream" {
+			handler.writeError(response, dialect, http.StatusBadGateway, "upstream_error", "Provider returned an invalid image stream")
+			return result.StatusCode, nil, protocol.ErrInvalidOpenAIImageStream
+		}
+	}
 	response.Header().Set("Content-Type", contentType)
 	response.Header().Set("Cache-Control", "no-store")
 	response.WriteHeader(result.StatusCode)
@@ -124,14 +132,19 @@ func (handler *Handler) dispatch(response http.ResponseWriter, request *http.Req
 		window = &headTailCapture{head: limitedCapture{limit: 1 << 20}, tail: tailCapture{limit: maxInferenceBody}}
 		captureWriter = window
 	}
-	if relative == "completions" {
+	var raw []byte
+	if relative == "images/generations" {
+		raw, err = protocol.CopyOpenAIImageGenerationStream(flushWriter{writer: response, flusher: flusher}, result.Body, imageStreamPartialImages)
+	} else if relative == "completions" {
 		err = protocol.CopyOpenAICompletionStream(io.MultiWriter(flushWriter{writer: response, flusher: flusher}, captureWriter), result.Body, publicModel)
 	} else if dialect == "anthropic" {
 		err = copyAnthropicStream(io.MultiWriter(flushWriter{writer: response, flusher: flusher}, captureWriter), result.Body, publicModel)
 	} else {
 		_, err = io.Copy(flushWriter{writer: response, flusher: flusher}, io.TeeReader(result.Body, captureWriter))
 	}
-	raw := capture.Bytes()
+	if relative != "images/generations" {
+		raw = capture.Bytes()
+	}
 	if tail != nil {
 		raw = tail.Bytes()
 		if err == nil {

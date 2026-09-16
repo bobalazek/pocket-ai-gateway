@@ -902,6 +902,47 @@ describe("official SDK compatibility through the Go gateway", () => {
     expect(result).toMatchObject({ data: [{ b64_json: "eA==" }], usage: { input_tokens: 5, input_tokens_details: { image_tokens: 0, text_tokens: 5 }, output_tokens: 7 } });
   });
 
+  it("streams native OpenAI image generation", async () => {
+    const events = [];
+    for await (const event of await openAI().images.generate({
+      model: "target-openai-image",
+      prompt: "A black dot",
+      n: 1,
+      stream: true,
+      partial_images: 1,
+    })) {
+      events.push(event);
+    }
+
+    expect(events).toEqual([
+      {
+        type: "image_generation.partial_image",
+        b64_json: "cGFydGlhbA==",
+        background: "opaque",
+        created_at: 1764967971,
+        output_format: "png",
+        partial_image_index: 0,
+        quality: "medium",
+        size: "1024x1024",
+      },
+      {
+        type: "image_generation.completed",
+        b64_json: "ZmluYWw=",
+        background: "opaque",
+        created_at: 1764967971,
+        output_format: "png",
+        quality: "medium",
+        size: "1024x1024",
+        usage: {
+          input_tokens: 5,
+          input_tokens_details: { image_tokens: 0, text_tokens: 5 },
+          output_tokens: 7,
+          total_tokens: 12,
+        },
+      },
+    ]);
+  });
+
   it("decodes native OpenAI image edits", async () => {
     const png = Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=", "base64");
     const result = await openAI().images.edit({ model: "target-openai-edit", image: await toFile(png, "source.png"), prompt: "Add a hat" });
