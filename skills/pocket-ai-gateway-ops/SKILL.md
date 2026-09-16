@@ -11,6 +11,6 @@ For a health question, call `GET /healthz` and distinguish process liveness from
 
 When authenticated management APIs are available, use the documented `/api/v1/` endpoints and preserve their scope, period, currency, provenance, and timestamp in the answer. Treat missing prices as unknown rather than free. Separate accepted requests from upstream attempts and provider-reported usage from estimates.
 
-Snapshot and restore are local CLI operations. Inspect `docs/guides/operations.md` before proposing commands. A restore must target an absent directory and must never replace the active data directory in place. Do not expose cookies, API keys, recovery codes, provider credentials, captured content, or database files in output.
+Snapshot, restore, and standalone Linux self-update are local CLI operations. Inspect `docs/guides/operations.md` before proposing commands. A restore must target an absent directory and must never replace the active data directory in place. An update defaults to a signed dry-run; run `--apply` only when the user asks, the service is stopped, and the executable directory is writable by the service account. Docker deployments replace a pinned image instead. Do not expose cookies, API keys, recovery codes, provider credentials, captured content, or database files in output.
 
 Read-only inspection is the default. Run mutations only when the user asks for that specific operation.

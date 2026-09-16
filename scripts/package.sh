@@ -18,6 +18,7 @@ mkdir -p "$release"
 for binary in "$root"/dist/cross/pocket-ai-gateway-*; do
   name=$(basename "$binary")
   package="pocket-ai-gateway-${version#v}-${name#pocket-ai-gateway-}"
+  cp "$binary" "$release/$package"
   staging=$(mktemp -d)
   cp "$binary" "$staging/"
   cp "$root/README.md" "$root/LICENSE" "$root/THIRD_PARTY_NOTICES.md" "$staging/"

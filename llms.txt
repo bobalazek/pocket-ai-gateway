@@ -36,6 +36,7 @@ The URL path selects the client protocol. Headers never switch a request between
 - `pocket-ai-gateway backup --output <file.pagbak>`
 - `pocket-ai-gateway restore-backup --archive <file.pagbak>`
 - `pocket-ai-gateway owner-reset --data-dir <directory>`
+- `pocket-ai-gateway update --data-dir <directory>` (signed Linux release dry-run; add `--apply` only while the service is stopped)
 - `pocket-ai-gateway version`
 
 The server listens on `127.0.0.1:8080` and stores data in `pocket_gateway_data` unless flags or environment variables override those process settings.

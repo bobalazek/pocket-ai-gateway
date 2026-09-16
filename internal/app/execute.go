@@ -22,6 +22,7 @@ import (
 	"github.com/bobalazek/pocket-ai-gateway/internal/features/providers"
 	"github.com/bobalazek/pocket-ai-gateway/internal/features/usage"
 	"github.com/bobalazek/pocket-ai-gateway/internal/gateway"
+	"github.com/bobalazek/pocket-ai-gateway/internal/selfupdate"
 	"github.com/bobalazek/pocket-ai-gateway/internal/server"
 	"github.com/bobalazek/pocket-ai-gateway/internal/storage"
 )
@@ -48,6 +49,22 @@ func Execute(ctx context.Context, version string, args []string, getenv func(str
 		}
 		if err := serve(ctx, version, cfg, stdout); err != nil {
 			fmt.Fprintf(stderr, "server error: %v\n", err)
+			return 1
+		}
+		return 0
+	case "update":
+		options, err := parseUpdate(version, args[1:], getenv, stderr)
+		if err != nil {
+			fmt.Fprintf(stderr, "configuration error: %v\n", err)
+			return 2
+		}
+		result, err := selfupdate.Run(ctx, options)
+		if err != nil {
+			fmt.Fprintf(stderr, "update error: %v\n", err)
+			return 1
+		}
+		if err := json.NewEncoder(stdout).Encode(result); err != nil {
+			fmt.Fprintf(stderr, "update output error: %v\n", err)
 			return 1
 		}
 		return 0
@@ -327,7 +344,32 @@ func writeProtectedCode(dataDir, name, code string) (err error) {
 }
 
 func printUsage(output io.Writer) {
-	fmt.Fprintln(output, "Usage: pocket-ai-gateway <serve|backup|restore-backup|snapshot|restore|owner-reset|version>")
+	fmt.Fprintln(output, "Usage: pocket-ai-gateway <serve|update|backup|restore-backup|snapshot|restore|owner-reset|version>")
+}
+
+func parseUpdate(version string, args []string, getenv func(string) string, output io.Writer) (selfupdate.Options, error) {
+	flags := flag.NewFlagSet("update", flag.ContinueOnError)
+	flags.SetOutput(output)
+	manifestURL := flags.String("manifest-url", valueOr(getenv("POCKET_AI_GATEWAY_UPDATE_MANIFEST_URL"), "https://github.com/bobalazek/pocket-ai-gateway/releases/latest/download/release-manifest.json"), "signed release manifest URL")
+	signatureURL := flags.String("signature-url", strings.TrimSpace(getenv("POCKET_AI_GATEWAY_UPDATE_SIGNATURE_URL")), "detached release signature URL (defaults to manifest URL plus .sig)")
+	trustedKey := flags.String("trusted-public-key", strings.TrimSpace(getenv("POCKET_AI_GATEWAY_UPDATE_PUBLIC_KEY")), "base64 Ed25519 release public key")
+	dataDir := flags.String("data-dir", valueOr(getenv("POCKET_AI_GATEWAY_DATA_DIR"), defaultDataDir), "directory for local gateway data")
+	apply := flags.Bool("apply", false, "install the verified update after the default dry run")
+	allowDowngrade := flags.Bool("allow-downgrade", false, "allow an explicitly selected older or equal signed release")
+	if err := flags.Parse(args); err != nil {
+		return selfupdate.Options{}, err
+	}
+	if flags.NArg() != 0 {
+		return selfupdate.Options{}, fmt.Errorf("unexpected argument %q", flags.Arg(0))
+	}
+	if strings.TrimSpace(*trustedKey) == "" {
+		return selfupdate.Options{}, errors.New("trusted release public key is required")
+	}
+	absoluteDataDir, err := filepath.Abs(strings.TrimSpace(*dataDir))
+	if err != nil || strings.TrimSpace(*dataDir) == "" {
+		return selfupdate.Options{}, errors.New("data directory cannot be empty")
+	}
+	return selfupdate.Options{CurrentVersion: version, ManifestURL: strings.TrimSpace(*manifestURL), SignatureURL: strings.TrimSpace(*signatureURL), TrustedPublicKey: strings.TrimSpace(*trustedKey), DataDir: absoluteDataDir, Apply: *apply, AllowDowngrade: *allowDowngrade}, nil
 }
 
 func parseDataDirCommand(name string, args []string, getenv func(string) string, output io.Writer) (string, error) {

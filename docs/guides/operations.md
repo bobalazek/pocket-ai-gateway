@@ -68,6 +68,8 @@ Retention removes expired gateway-owned Responses and stored Chat Completions, o
 
 If startup fails after a migration, stop the service and use the previous binary with a restored pre-upgrade backup in a new directory. Never run an older binary directly against a newer schema.
 
+For a standalone Linux installation owned by the service account, the optional `update` command automates the same safety sequence. It defaults to dry-run, requires the configured Ed25519 release public key, and verifies the detached manifest signature, platform, artifact size, SHA-256, and embedded version. Applying requires the service to be stopped. It snapshots both databases and `master.key`, swaps the executable on the same filesystem, probes the new binary through `/readyz`, and rolls back binary and data after a failed probe. The successful result prints the uniquely named `.previous-*` binary and snapshot paths. Docker deployments continue to replace a pinned image.
+
 ## Disk and backpressure
 
 Keep free space for both databases, WAL files, one temporary backup, and migration snapshots. SQLite write failures stop the affected request before provider dispatch where possible. A provider response accepted before a persistence failure remains conservatively reserved and is recovered as unknown. The durable outbox is bounded; readiness and authenticated diagnostics expose pending projection events.
