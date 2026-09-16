@@ -53,8 +53,8 @@ func main() {
 		}
 		connection, err := providerService.CreateConnection(ctx, owner, connectionInput)
 		must(err)
-		if adapter == "openai" {
-			_, err = store.SystemDB().ExecContext(ctx, "UPDATE provider_connections SET preset='openai' WHERE id=?", connection.ID)
+		if adapter == "openai" || adapter == "gemini" {
+			_, err = store.SystemDB().ExecContext(ctx, "UPDATE provider_connections SET preset=? WHERE id=?", adapter, connection.ID)
 			must(err)
 		} else if adapter == "anthropic" {
 			_, err = store.SystemDB().ExecContext(ctx, "UPDATE provider_connections SET base_url=?,allow_private_network=1 WHERE id=?", base+"/anthropic/v1", connection.ID)
@@ -67,6 +67,9 @@ func main() {
 		}
 		if adapter == "openai" {
 			capabilities = append(capabilities, "moderations", "count_tokens", "images", "audio_speech", "audio_transcription", "audio_translation")
+		}
+		if adapter == "gemini" {
+			capabilities = append(capabilities, "interactions")
 		}
 		upstreamID := adapter + "-upstream"
 		if adapter == "openai" {
@@ -283,6 +286,15 @@ func upstreamHandler(response http.ResponseWriter, request *http.Request) {
 		}
 		io.WriteString(response, `{"id":"msg_1","type":"message","role":"assistant","model":"anthropic-upstream","container":null,"content":[{"type":"text","text":"Hello","citations":null}],"stop_details":null,"stop_reason":"end_turn","stop_sequence":null,"usage":{"cache_creation":null,"cache_creation_input_tokens":null,"cache_read_input_tokens":null,"inference_geo":null,"input_tokens":2,"output_tokens":1,"output_tokens_details":null,"server_tool_use":null,"service_tier":"standard"}}`)
 	case "gemini":
+		if request.Method == http.MethodPost && strings.HasSuffix(request.URL.Path, "/interactions") {
+			if !bytes.Contains(body, []byte(`"model":"gemini-upstream"`)) || !bytes.Contains(body, []byte(`"store":false`)) {
+				response.WriteHeader(http.StatusBadRequest)
+				io.WriteString(response, `{"error":{"code":400,"message":"interaction fixture request mismatch","status":"INVALID_ARGUMENT"}}`)
+				return
+			}
+			io.WriteString(response, `{"id":"interaction_1","object":"interaction","status":"completed","model":"gemini-upstream","steps":[{"type":"model_output","content":[{"type":"text","text":"Hello"}]}],"usage":{"total_input_tokens":3,"total_output_tokens":2,"total_cached_tokens":1,"total_tokens":5}}`)
+			return
+		}
 		io.WriteString(response, `{"responseId":"gemini_1","candidates":[{"index":0,"content":{"role":"model","parts":[{"text":"Hello"}]},"finishReason":"STOP"}],"usageMetadata":{"promptTokenCount":2,"candidatesTokenCount":1,"totalTokenCount":3}}`)
 	}
 }

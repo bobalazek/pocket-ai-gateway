@@ -72,6 +72,14 @@ func (handler *Handler) forwardAuthorized(response http.ResponseWriter, request 
 		handler.writeError(response, dialect, http.StatusBadRequest, "invalid_request", "model is required")
 		return
 	}
+	geminiInteraction := dialect == "gemini" && upstreamPath == "interactions"
+	interactionMaxOutputTokens := int64(0)
+	if geminiInteraction {
+		if interactionMaxOutputTokens, err = validateGeminiInteractionRequest(envelope); err != nil {
+			handler.writeError(response, dialect, http.StatusBadRequest, "INVALID_ARGUMENT", err.Error())
+			return
+		}
+	}
 	promptCache := promptCacheRequest{}
 	anthropicWebSearch := anthropicWebSearchRequest{}
 	anthropicWebFetch := anthropicWebFetchRequest{}
@@ -242,6 +250,8 @@ func (handler *Handler) forwardAuthorized(response http.ResponseWriter, request 
 			batchItems = openAIBatchItems
 		}
 		outputEstimate = 0
+	} else if geminiInteraction {
+		outputEstimate = interactionMaxOutputTokens
 	} else if dialect == "gemini" {
 		var object map[string]any
 		_ = json.Unmarshal(body, &object)
@@ -312,7 +322,14 @@ func (handler *Handler) forwardAuthorized(response http.ResponseWriter, request 
 				return false, "cache_price_contract_unavailable"
 			}
 		}
-		if !hasCapability(target.Capabilities, scope) || !hasCapability(target.UpstreamCapabilities, scope) {
+		if geminiInteraction {
+			if !native || target.Preset != "gemini" {
+				return false, "interactions_native_gemini_required"
+			}
+			if !hasCapability(target.Capabilities, "interactions:generate") || !hasCapability(target.UpstreamCapabilities, "interactions:generate") {
+				return false, "unsupported_capability"
+			}
+		} else if !hasCapability(target.Capabilities, scope) || !hasCapability(target.UpstreamCapabilities, scope) {
 			return false, "unsupported_capability"
 		}
 		if imageGenerationInput.stream && (target.Adapter != "openai" || target.Preset != "openai" || !openAIImageStreamModel(target.UpstreamID)) {
@@ -376,6 +393,11 @@ func (handler *Handler) forwardAuthorized(response http.ResponseWriter, request 
 		_ = json.Unmarshal(body, &targetEnvelope)
 		if multipart, ok := multipartRequest(request); native && ok {
 			targetBody, err = rewriteMultipartModel(multipart, target.UpstreamID)
+		} else if native && geminiInteraction {
+			targetPath = "interactions"
+			targetEnvelope["model"], _ = json.Marshal(target.UpstreamID)
+			targetEnvelope["store"] = []byte("false")
+			targetBody, err = json.Marshal(targetEnvelope)
 		} else if native && dialect == "gemini" {
 			targetPath = "models/" + url.PathEscape(target.UpstreamID) + ":" + clientOperation
 			if stream {
@@ -439,6 +461,16 @@ func (handler *Handler) forwardAuthorized(response http.ResponseWriter, request 
 			semanticResponseError = errors.Is(copyErr, errAnthropicStreamInvalid) || errors.Is(copyErr, protocol.ErrInvalidOpenAICompletion) || errors.Is(copyErr, protocol.ErrInvalidOpenAIImageStream)
 		} else {
 			result, raw, copyErr = handler.dispatchTranslated(attemptWriter, request, target, targetPath, targetBody, dialect, publicID, stream, releaseDispatch)
+		}
+		if native && geminiInteraction && copyErr == nil && result >= 200 && result < 300 {
+			raw, copyErr = validateGeminiInteractionResponse(raw, publicID)
+			semanticResponseError = copyErr != nil
+			if copyErr != nil {
+				attemptWriter.Reset()
+			} else {
+				attemptWriter.body.Reset()
+				_, copyErr = attemptWriter.Write(raw)
+			}
 		}
 		if openAIBatch && copyErr == nil && result >= 200 && result < 300 && !json.Valid(attemptWriter.body.Bytes()) {
 			copyErr = errors.New("provider returned invalid JSON")

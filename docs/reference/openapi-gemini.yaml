@@ -1,8 +1,35 @@
 openapi: 3.1.0
-info: { title: Pocket AI Gateway Gemini-Compatible API, version: 0.4.0 }
+info: { title: Pocket AI Gateway Gemini-Compatible API, version: 0.5.0 }
 servers: [{ url: /api/gemini/v1beta }]
 security: [{ apiKey: [] }]
 paths:
+  /interactions:
+    post:
+      operationId: createGeminiInteraction
+      summary: Create a bounded stateless text Interaction
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [model, input]
+              properties:
+                model: { type: string }
+                input: { type: string, minLength: 1 }
+                store: { type: boolean, const: false, default: false }
+                stream: { type: boolean, const: false, default: false }
+                background: { type: boolean, const: false, default: false }
+                tools: { type: array, maxItems: 0 }
+                generation_config:
+                  type: object
+                  additionalProperties: false
+                  properties:
+                    max_output_tokens: { type: integer, minimum: 1 }
+      responses:
+        "200": { description: Native completed or incomplete Interaction with the public model alias and provider usage }
+        default: { description: Gemini-compatible error }
   /models:
     get: { operationId: listGeminiModels, responses: { "200": { description: Authorized public models }, default: { description: Gemini-compatible error } } }
   /models/{model}:

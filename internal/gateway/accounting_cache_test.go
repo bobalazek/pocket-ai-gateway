@@ -18,6 +18,7 @@ func TestParseUsageDetailsNormalizesCacheReads(t *testing.T) {
 		{"DeepSeek hit and miss", "openai", `{"usage":{"prompt_tokens":12,"completion_tokens":2,"prompt_cache_hit_tokens":7,"prompt_cache_miss_tokens":5}}`, 12, 2, 7},
 		{"DeepSeek miss derives hit", "openai", `{"usage":{"prompt_tokens":12,"completion_tokens":2,"prompt_cache_miss_tokens":5}}`, 12, 2, 7},
 		{"Gemini", "gemini", `{"usageMetadata":{"promptTokenCount":9,"candidatesTokenCount":2,"cachedContentTokenCount":5}}`, 9, 2, 5},
+		{"Gemini Interaction", "gemini", `{"usage":{"total_input_tokens":9,"total_output_tokens":2,"total_cached_tokens":5,"total_thought_tokens":4,"total_tool_use_tokens":0,"total_tokens":15}}`, 9, 6, 5},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
@@ -35,6 +36,8 @@ func TestParseUsageDetailsRejectsInvalidCacheReads(t *testing.T) {
 		{"openai", `{"usage":{"prompt_tokens":10,"completion_tokens":2,"input_tokens_details":{"cached_tokens":11}}}`},
 		{"openai", `{"usage":{"prompt_tokens":10,"completion_tokens":2,"prompt_cache_hit_tokens":4,"prompt_cache_miss_tokens":5}}`},
 		{"gemini", `{"usageMetadata":{"promptTokenCount":9,"candidatesTokenCount":2,"cachedContentTokenCount":null}}`},
+		{"gemini", `{"usage":{"total_input_tokens":9,"total_output_tokens":2,"total_cached_tokens":10,"total_tokens":11}}`},
+		{"gemini", `{"usage":{"total_input_tokens":9,"total_output_tokens":3,"total_cached_tokens":2,"total_tokens":11}}`},
 	} {
 		parsed := parseUsageDetails(test.dialect, []byte(test.raw))
 		if parsed.inputTokens != nil || parsed.outputTokens != nil || parsed.cacheReadInputTokens != nil {

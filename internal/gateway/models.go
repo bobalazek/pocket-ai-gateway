@@ -103,7 +103,7 @@ func modelVisibleInDialect(dialect string, model providers.PublicModel, target p
 	operations := map[string][]struct{ scope, operation string }{
 		"openai":    {{"completions:generate", "completions"}, {"embeddings:generate", "embeddings"}, {"moderations:classify", "moderations"}, {"tokens:count", "responses/input_tokens"}, {"images:generate", "images/generations"}, {"images:edit", "images/edits"}, {"images:variation", "images/variations"}, {"audio:speech", "audio/speech"}, {"audio:transcribe", "audio/transcriptions"}, {"audio:translate", "audio/translations"}},
 		"anthropic": {{"tokens:count", "messages/count_tokens"}},
-		"gemini":    {{"embeddings:generate", "embedContent"}, {"tokens:count", "countTokens"}},
+		"gemini":    {{"embeddings:generate", "embedContent"}, {"tokens:count", "countTokens"}, {"interactions:generate", "interactions"}},
 	}[dialect]
 	for _, candidate := range operations {
 		if hasCapability(model.Capabilities, candidate.scope) && hasCapability(target.UpstreamCapabilities, candidate.scope) && providers.PresetSupports(target.Preset, candidate.operation) {
@@ -200,6 +200,8 @@ func geminiMethods(capabilities []string) []string {
 			out = append(out, "countTokens")
 		case "embeddings":
 			out = append(out, "embedContent")
+		case "interactions":
+			out = append(out, "interactions")
 		}
 	}
 	return out

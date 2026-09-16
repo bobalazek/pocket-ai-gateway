@@ -805,6 +805,16 @@ describe("official SDK compatibility through the Go gateway", () => {
     expect(result.text).toBe("Hello");
   });
 
+  it("decodes a stateless Google Gen AI Interaction", async () => {
+    const result = await gemini().interactions.create({ model: "target-gemini", input: "Hi", store: false });
+    expect(result).toMatchObject({
+      model: "target-gemini",
+      output_text: "Hello",
+      steps: [{ type: "model_output", content: [{ type: "text", text: "Hello" }] }],
+      usage: { total_input_tokens: 3, total_output_tokens: 2, total_cached_tokens: 1, total_tokens: 5 },
+    });
+  });
+
   it.each(models)("decodes stateless OpenAI Responses through %s", async (model) => {
     const result = await openAI().responses.create({ model, input: "Hi", store: false });
     expect(result.output_text).toBe("Hello");

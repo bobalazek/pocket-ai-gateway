@@ -72,6 +72,7 @@ Base URL: `/api/gemini/v1beta`.
 | Resource or operation | Status | Boundary |
 | --- | --- | --- |
 | `GET /models`, `GET /models/{model}` | Implemented, gateway-owned | Native Gemini model envelope over visible public models |
+| `POST /interactions` | Constrained, native Gemini preset only | Synchronous stateless text input with explicit public/upstream `interactions`, `chat:generate`, forced `store:false`, optional output bound, terminal usage validation, public-model normalization, and no tools, media, state, background, stream, translation, or post-dispatch fallback |
 | `POST /models/{model}:generateContent` | Implemented | JSON shared-subset translation across capable families |
 | `POST /models/{model}:streamGenerateContent?alt=sse` | Implemented | Native Gemini response envelopes; bounded incremental parser |
 | `POST /models/{model}:countTokens` | Native target only | No invented tokenizer result |
