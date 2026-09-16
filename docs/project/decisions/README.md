@@ -52,6 +52,7 @@ Each record states status/source, context, decision, and consequences. A recomme
 | ADR-044 | [Atomic Vector Store creation with Files](2026-09-16-vector-store-create-with-files.md) | Accepted bounded Phase 8 contract extending ADR-039 and ADR-043 |
 | ADR-045 | [Bounded DOCX parsing for Vector Stores](2026-09-16-vector-store-docx-parsing.md) | Accepted bounded Phase 8 contract extending ADR-041 and ADR-042 |
 | ADR-046 | [Bounded PPTX parsing for Vector Stores](2026-09-16-vector-store-pptx-parsing.md) | Accepted bounded Phase 8 contract extending ADR-041, ADR-042, and ADR-045 |
+| ADR-047 | [Bounded UTF-16 text decoding for Vector Stores](2026-09-16-vector-store-utf16-text.md) | Accepted bounded Phase 8 contract extending ADR-041 and ADR-042 |
 
 Historical: [initial proposal](2026-09-14-initial-proposal.md), superseded by the records above where they differ. Its A/P/D/M identifiers are historical references only; current documents use ADR IDs.
 

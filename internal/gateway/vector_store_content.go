@@ -4,12 +4,14 @@ import (
 	"archive/zip"
 	"bytes"
 	"database/sql"
+	"encoding/binary"
 	"encoding/xml"
 	"errors"
 	"io"
 	"net/http"
 	"path"
 	"strings"
+	"unicode/utf16"
 	"unicode/utf8"
 )
 
@@ -332,9 +334,9 @@ func vectorStoreOOXMLElement(name xml.Name, local, namespace, strictNamespace st
 }
 
 func vectorStoreTextChunks(content []byte) ([]vectorStoreContent, error) {
-	content = bytes.TrimPrefix(content, []byte{0xef, 0xbb, 0xbf})
-	if !utf8.Valid(content) || bytes.IndexByte(content, 0) >= 0 {
-		return nil, errors.New("parsed content currently supports UTF-8 text files")
+	content, err := vectorStoreUTF8Text(content)
+	if err != nil {
+		return nil, err
 	}
 	chunks := make([]vectorStoreContent, 0, (len(content)+maxVectorStoreContentChunkBytes-1)/maxVectorStoreContentChunkBytes)
 	for len(content) > 0 {
@@ -351,4 +353,49 @@ func vectorStoreTextChunks(content []byte) ([]vectorStoreContent, error) {
 		content = content[end:]
 	}
 	return chunks, nil
+}
+
+func vectorStoreUTF8Text(content []byte) ([]byte, error) {
+	if bytes.HasPrefix(content, []byte{0xff, 0xfe}) || bytes.HasPrefix(content, []byte{0xfe, 0xff}) {
+		if len(content)%2 != 0 {
+			return nil, errors.New("UTF-16 text has an incomplete code unit")
+		}
+		var order binary.ByteOrder = binary.BigEndian
+		if content[0] == 0xff {
+			order = binary.LittleEndian
+		}
+		var text strings.Builder
+		text.Grow(min(len(content), maxVectorStoreOOXMLBytes))
+		for offset := 2; offset < len(content); offset += 2 {
+			unit := order.Uint16(content[offset : offset+2])
+			character := rune(unit)
+			if utf16.IsSurrogate(character) {
+				if unit < 0xd800 || unit > 0xdbff || offset+3 >= len(content) {
+					return nil, errors.New("UTF-16 text contains an invalid surrogate pair")
+				}
+				next := order.Uint16(content[offset+2 : offset+4])
+				if next < 0xdc00 || next > 0xdfff {
+					return nil, errors.New("UTF-16 text contains an invalid surrogate pair")
+				}
+				character = utf16.DecodeRune(character, rune(next))
+				offset += 2
+			}
+			if character == 0 {
+				return nil, errors.New("parsed text cannot contain NUL characters")
+			}
+			if text.Len()+utf8.RuneLen(character) > maxVectorStoreOOXMLBytes {
+				return nil, errors.New("parsed text exceeds 16 MiB")
+			}
+			text.WriteRune(character)
+		}
+		return []byte(text.String()), nil
+	}
+	content = bytes.TrimPrefix(content, []byte{0xef, 0xbb, 0xbf})
+	if !utf8.Valid(content) {
+		return nil, errors.New("parsed text must be UTF-8 or BOM-marked UTF-16")
+	}
+	if bytes.IndexByte(content, 0) >= 0 {
+		return nil, errors.New("parsed text cannot contain NUL characters")
+	}
+	return content, nil
 }

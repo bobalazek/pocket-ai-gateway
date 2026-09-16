@@ -3,10 +3,12 @@ package gateway
 import (
 	"archive/zip"
 	"bytes"
+	"encoding/binary"
 	"encoding/json"
 	"net/http"
 	"strings"
 	"testing"
+	"unicode/utf16"
 	"unicode/utf8"
 
 	"github.com/bobalazek/pocket-ai-gateway/internal/features/keys"
@@ -128,6 +130,24 @@ func TestVectorStoreTextChunksPreserveUTF8WithinBounds(t *testing.T) {
 	}
 }
 
+func TestVectorStoreTextChunksDecodeUTF16(t *testing.T) {
+	want := "Café 🙂\n"
+	for name, order := range map[string]binary.ByteOrder{"little-endian": binary.LittleEndian, "big-endian": binary.BigEndian} {
+		t.Run(name, func(t *testing.T) {
+			chunks, err := vectorStoreTextChunks(vectorStoreTestUTF16(want, order))
+			if err != nil || len(chunks) != 1 || chunks[0].Text != want {
+				t.Fatalf("chunks=%#v error=%v", chunks, err)
+			}
+		})
+	}
+	if _, err := vectorStoreTextChunks([]byte{0xff, 0xfe, 0x00, 0xd8}); err == nil {
+		t.Fatal("unpaired UTF-16 surrogate was accepted")
+	}
+	if _, err := vectorStoreTextChunks([]byte{0xff, 0xfe, 0x41}); err == nil {
+		t.Fatal("incomplete UTF-16 code unit was accepted")
+	}
+}
+
 func TestVectorStoreDOCXContentExtraction(t *testing.T) {
 	document := vectorStoreTestDOCX(t)
 	chunks, err := vectorStoreContentChunks("NOTES.DOCX", document)
@@ -153,61 +173,47 @@ func TestVectorStorePPTXContentExtraction(t *testing.T) {
 	}
 }
 
-func TestOpenAIVectorStoreDOCXContentAndSearch(t *testing.T) {
-	ctx, store, owner, keyService, providerService, usageService := gatewayFixture(t)
-	defer store.Close()
-	_, secret, err := keyService.Create(ctx, owner.ID, keys.Input{Label: "DOCX search", Scopes: []string{"files:manage", "vector_stores:manage"}})
-	if err != nil {
-		t.Fatal(err)
+func TestOpenAIVectorStoreParsedContentAndSearch(t *testing.T) {
+	tests := []struct {
+		name, filename, want, query string
+		content                     func(*testing.T) []byte
+	}{
+		{name: "UTF-16", filename: "notes.txt", want: "Café gateway\n", query: "gateway", content: func(t *testing.T) []byte { return vectorStoreTestUTF16("Café gateway\n", binary.LittleEndian) }},
+		{name: "DOCX", filename: "notes.docx", want: "First\tcell\nSecond\n", query: "second", content: vectorStoreTestDOCX},
+		{name: "PPTX", filename: "slides.pptx", want: "Opening\nDetails\tline\n", query: "details", content: vectorStoreTestPPTX},
 	}
-	mux := http.NewServeMux()
-	NewWithMasterKey(store.SystemDB(), keyService, providerService, usageService, bytes.Repeat([]byte{6}, 32)).Register(mux)
-	uploaded := performFileUpload(t, mux, secret, "notes.docx", vectorStoreTestDOCX(t), map[string]string{"purpose": "user_data"}, nil)
-	var file openAIFile
-	if uploaded.Code != http.StatusOK || json.Unmarshal(uploaded.Body.Bytes(), &file) != nil {
-		t.Fatalf("upload status=%d body=%s", uploaded.Code, uploaded.Body.String())
-	}
-	created := performVectorStoreRequest(t, mux, http.MethodPost, "/api/openai/v1/vector_stores", secret, `{"name":"DOCX","file_ids":["`+file.ID+`"]}`)
-	var item vectorStore
-	if created.Code != http.StatusOK || json.Unmarshal(created.Body.Bytes(), &item) != nil {
-		t.Fatalf("create status=%d body=%s", created.Code, created.Body.String())
-	}
-	content := performVectorStoreRequest(t, mux, http.MethodGet, "/api/openai/v1/vector_stores/"+item.ID+"/files/"+file.ID+"/content", secret, "")
-	if content.Code != http.StatusOK || !strings.Contains(content.Body.String(), `"text":"First\tcell\nSecond\n"`) {
-		t.Fatalf("content status=%d body=%s", content.Code, content.Body.String())
-	}
-	searched := performVectorStoreRequest(t, mux, http.MethodPost, "/api/openai/v1/vector_stores/"+item.ID+"/search", secret, `{"query":"second"}`)
-	if searched.Code != http.StatusOK || !strings.Contains(searched.Body.String(), `"file_id":"`+file.ID+`"`) {
-		t.Fatalf("search status=%d body=%s", searched.Code, searched.Body.String())
-	}
-}
-
-func TestOpenAIVectorStorePPTXContentAndSearch(t *testing.T) {
-	ctx, store, owner, keyService, providerService, usageService := gatewayFixture(t)
-	defer store.Close()
-	_, secret, err := keyService.Create(ctx, owner.ID, keys.Input{Label: "PPTX search", Scopes: []string{"files:manage", "vector_stores:manage"}})
-	if err != nil {
-		t.Fatal(err)
-	}
-	mux := http.NewServeMux()
-	NewWithMasterKey(store.SystemDB(), keyService, providerService, usageService, bytes.Repeat([]byte{6}, 32)).Register(mux)
-	uploaded := performFileUpload(t, mux, secret, "slides.pptx", vectorStoreTestPPTX(t), map[string]string{"purpose": "user_data"}, nil)
-	var file openAIFile
-	if uploaded.Code != http.StatusOK || json.Unmarshal(uploaded.Body.Bytes(), &file) != nil {
-		t.Fatalf("upload status=%d body=%s", uploaded.Code, uploaded.Body.String())
-	}
-	created := performVectorStoreRequest(t, mux, http.MethodPost, "/api/openai/v1/vector_stores", secret, `{"name":"PPTX","file_ids":["`+file.ID+`"]}`)
-	var item vectorStore
-	if created.Code != http.StatusOK || json.Unmarshal(created.Body.Bytes(), &item) != nil {
-		t.Fatalf("create status=%d body=%s", created.Code, created.Body.String())
-	}
-	content := performVectorStoreRequest(t, mux, http.MethodGet, "/api/openai/v1/vector_stores/"+item.ID+"/files/"+file.ID+"/content", secret, "")
-	if content.Code != http.StatusOK || !strings.Contains(content.Body.String(), `"text":"Opening\nDetails\tline\n"`) {
-		t.Fatalf("content status=%d body=%s", content.Code, content.Body.String())
-	}
-	searched := performVectorStoreRequest(t, mux, http.MethodPost, "/api/openai/v1/vector_stores/"+item.ID+"/search", secret, `{"query":"details"}`)
-	if searched.Code != http.StatusOK || !strings.Contains(searched.Body.String(), `"file_id":"`+file.ID+`"`) {
-		t.Fatalf("search status=%d body=%s", searched.Code, searched.Body.String())
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			ctx, store, owner, keyService, providerService, usageService := gatewayFixture(t)
+			defer store.Close()
+			_, secret, err := keyService.Create(ctx, owner.ID, keys.Input{Label: test.name + " search", Scopes: []string{"files:manage", "vector_stores:manage"}})
+			if err != nil {
+				t.Fatal(err)
+			}
+			mux := http.NewServeMux()
+			NewWithMasterKey(store.SystemDB(), keyService, providerService, usageService, bytes.Repeat([]byte{6}, 32)).Register(mux)
+			uploaded := performFileUpload(t, mux, secret, test.filename, test.content(t), map[string]string{"purpose": "user_data"}, nil)
+			var file openAIFile
+			if uploaded.Code != http.StatusOK || json.Unmarshal(uploaded.Body.Bytes(), &file) != nil {
+				t.Fatalf("upload status=%d body=%s", uploaded.Code, uploaded.Body.String())
+			}
+			created := performVectorStoreRequest(t, mux, http.MethodPost, "/api/openai/v1/vector_stores", secret, `{"name":"`+test.name+`","file_ids":["`+file.ID+`"]}`)
+			var item vectorStore
+			if created.Code != http.StatusOK || json.Unmarshal(created.Body.Bytes(), &item) != nil {
+				t.Fatalf("create status=%d body=%s", created.Code, created.Body.String())
+			}
+			content := performVectorStoreRequest(t, mux, http.MethodGet, "/api/openai/v1/vector_stores/"+item.ID+"/files/"+file.ID+"/content", secret, "")
+			var page struct {
+				Data []vectorStoreContent `json:"data"`
+			}
+			if content.Code != http.StatusOK || json.Unmarshal(content.Body.Bytes(), &page) != nil || len(page.Data) != 1 || page.Data[0].Text != test.want {
+				t.Fatalf("content status=%d body=%s", content.Code, content.Body.String())
+			}
+			searched := performVectorStoreRequest(t, mux, http.MethodPost, "/api/openai/v1/vector_stores/"+item.ID+"/search", secret, `{"query":"`+test.query+`"}`)
+			if searched.Code != http.StatusOK || !strings.Contains(searched.Body.String(), `"file_id":"`+file.ID+`"`) {
+				t.Fatalf("search status=%d body=%s", searched.Code, searched.Body.String())
+			}
+		})
 	}
 }
 
@@ -224,6 +230,20 @@ func vectorStoreTestDOCX(t *testing.T) []byte {
 		t.Fatal(err)
 	}
 	return document.Bytes()
+}
+
+func vectorStoreTestUTF16(text string, order binary.ByteOrder) []byte {
+	units := utf16.Encode([]rune(text))
+	content := make([]byte, 2+len(units)*2)
+	if order == binary.LittleEndian {
+		copy(content, []byte{0xff, 0xfe})
+	} else {
+		copy(content, []byte{0xfe, 0xff})
+	}
+	for index, unit := range units {
+		order.PutUint16(content[2+index*2:], unit)
+	}
+	return content
 }
 
 func vectorStoreTestPPTX(t *testing.T) []byte {
