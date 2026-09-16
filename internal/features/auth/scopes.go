@@ -1,12 +1,37 @@
 package auth
 
-var inferenceScopes = map[string]struct{}{
-	"chat:generate": {}, "messages:batches": {}, "messages:web_search": {}, "messages:web_fetch": {}, "responses:generate": {}, "responses:web_search": {}, "embeddings:generate": {},
-	"models:read": {}, "tokens:count": {}, "moderations:classify": {}, "images:generate": {}, "images:edit": {}, "images:variation": {}, "audio:speech": {}, "audio:transcribe": {}, "audio:translate": {},
-	"files:manage": {}, "batches:manage": {},
+type InferenceScope struct {
+	ID     string `json:"id"`
+	Policy string `json:"policy,omitempty"`
+}
+
+var inferenceScopes = []InferenceScope{
+	{ID: "chat:generate"},
+	{ID: "completions:generate", Policy: "Required for legacy OpenAI Completions."},
+	{ID: "messages:batches", Policy: "Anthropic Message Batches also require chat:generate."},
+	{ID: "messages:web_search", Policy: "Anthropic web search also requires chat:generate."},
+	{ID: "messages:web_fetch", Policy: "Anthropic web fetch also requires chat:generate."},
+	{ID: "responses:generate"},
+	{ID: "responses:web_search", Policy: "OpenAI Responses web search also requires responses:generate."},
+	{ID: "embeddings:generate"},
+	{ID: "moderations:classify"},
+	{ID: "images:generate"},
+	{ID: "images:edit"},
+	{ID: "images:variation"},
+	{ID: "audio:speech"},
+	{ID: "audio:transcribe"},
+	{ID: "audio:translate"},
+	{ID: "batches:manage"},
+	{ID: "files:manage"},
+	{ID: "models:read"},
+	{ID: "tokens:count"},
 }
 
 func ValidInferenceScope(scope string) bool {
-	_, ok := inferenceScopes[scope]
-	return ok
+	for _, candidate := range inferenceScopes {
+		if candidate.ID == scope {
+			return true
+		}
+	}
+	return false
 }

@@ -6,7 +6,8 @@ import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { InferenceScopeHelp } from "@/features/auth/components/inference-scope-help";
+import { InferenceScopeOptions } from "@/features/auth/components/inference-scope-options";
+import type { GatewayInferenceScope } from "@/features/auth/types/auth.types";
 import { useGrantEditor } from "@/features/users/hooks/use-users";
 import type { ManagedUser } from "@/features/users/types/users.types";
 
@@ -15,7 +16,7 @@ type Props = {
   currentID?: string;
   currentRole?: string;
   issuing: boolean;
-  allowedScopes: string[];
+  allowedScopes: GatewayInferenceScope[];
   onStatus: (user: ManagedUser, status: "active" | "suspended") => Promise<void>;
   onCode: (user: ManagedUser, purpose: "activation" | "recovery") => Promise<void>;
   onTransfer: (user: ManagedUser) => Promise<void>;
@@ -30,9 +31,9 @@ export function UserRow({ user, currentID, currentRole, issuing, allowedScopes, 
   </div>{editable && <GrantEditor user={user} allowedScopes={allowedScopes} onSaved={onSaved} onError={onError}/>}</Card>;
 }
 
-function GrantEditor({ user, allowedScopes, onSaved, onError }: { user: ManagedUser; allowedScopes: string[]; onSaved: () => Promise<void>; onError: (error: unknown) => void }) {
+function GrantEditor({ user, allowedScopes, onSaved, onError }: { user: ManagedUser; allowedScopes: GatewayInferenceScope[]; onSaved: () => Promise<void>; onError: (error: unknown) => void }) {
   const save = useGrantEditor(user, onSaved, onError);
-  return <details className="grant-editor"><summary>Edit inference grants</summary><form onSubmit={save}><fieldset className="scope-grid"><legend>Maximum operation scopes</legend>{allowedScopes.map((scope) => <label key={scope}><input type="checkbox" name="scopes" value={scope} defaultChecked={user.grants.scopes.includes(scope)} /> <span>{scope}</span></label>)}</fieldset><InferenceScopeHelp /><GrantFields user={user}/><Button type="submit">Save grants</Button></form></details>;
+  return <details className="grant-editor"><summary>Edit inference grants</summary><form onSubmit={save}><fieldset className="scope-grid"><legend>Maximum operation scopes</legend><InferenceScopeOptions scopes={allowedScopes} selected={user.grants.scopes} /></fieldset><GrantFields user={user}/><Button type="submit">Save grants</Button></form></details>;
 }
 
 function GrantFields({ user }: { user: ManagedUser }) {

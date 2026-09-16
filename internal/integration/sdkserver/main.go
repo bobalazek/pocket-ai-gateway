@@ -77,6 +77,10 @@ func main() {
 		_, err = providerService.CreatePublicModel(ctx, owner, "target-"+adapter, "Target "+adapter, "", upstreamModel.ID, capabilities)
 		must(err)
 		if adapter == "openai" {
+			completionModel, createErr := providerService.CreateUpstreamModel(ctx, owner, connection.ID, "gpt-3.5-turbo-instruct", []string{"completions"})
+			must(createErr)
+			_, createErr = providerService.CreatePublicModel(ctx, owner, "target-openai-completion", "Target OpenAI completion", "", completionModel.ID, completionModel.Capabilities)
+			must(createErr)
 			embeddingModel, createErr := providerService.CreateUpstreamModel(ctx, owner, connection.ID, "text-embedding-3-small", []string{"embeddings"})
 			must(createErr)
 			_, createErr = providerService.CreatePublicModel(ctx, owner, "target-openai-embedding", "Target OpenAI embedding", "", embeddingModel.ID, embeddingModel.Capabilities)
@@ -97,7 +101,7 @@ func main() {
 		connections = append(connections, connection.ID)
 	}
 	keyService := keys.New(store.SystemDB())
-	_, secret, err := keyService.Create(ctx, owner.ID, keys.Input{Label: "Official SDK matrix", Scopes: []string{"chat:generate", "messages:batches", "messages:web_search", "messages:web_fetch", "responses:generate", "responses:web_search", "embeddings:generate", "moderations:classify", "images:generate", "images:edit", "images:variation", "audio:speech", "audio:transcribe", "audio:translate", "models:read", "tokens:count", "files:manage", "batches:manage"}, ModelPatterns: []string{"target-*"}, ConnectionIDs: connections})
+	_, secret, err := keyService.Create(ctx, owner.ID, keys.Input{Label: "Official SDK matrix", Scopes: []string{"chat:generate", "completions:generate", "messages:batches", "messages:web_search", "messages:web_fetch", "responses:generate", "responses:web_search", "embeddings:generate", "moderations:classify", "images:generate", "images:edit", "images:variation", "audio:speech", "audio:transcribe", "audio:translate", "models:read", "tokens:count", "files:manage", "batches:manage"}, ModelPatterns: []string{"target-*"}, ConnectionIDs: connections})
 	must(err)
 	_, otherSecret, err := keyService.Create(ctx, owner.ID, keys.Input{Label: "Official SDK ownership boundary", Scopes: []string{"files:manage", "batches:manage", "responses:generate"}, ModelPatterns: []string{"target-*"}, ConnectionIDs: connections})
 	must(err)
@@ -151,6 +155,13 @@ func upstreamHandler(response http.ResponseWriter, request *http.Request) {
 			io.WriteString(response, "event: response.output_text.delta\ndata: {\"type\":\"response.output_text.delta\",\"item_id\":\"msg_1\",\"output_index\":0,\"content_index\":0,\"delta\":\"Hello\"}\n\nevent: response.completed\ndata: {\"type\":\"response.completed\",\"response\":{\"id\":\"resp_1\",\"object\":\"response\",\"status\":\"completed\",\"output\":[{\"id\":\"msg_1\",\"type\":\"message\",\"role\":\"assistant\",\"status\":\"completed\",\"content\":[{\"type\":\"output_text\",\"text\":\"Hello\",\"annotations\":[]}]}],\"usage\":{\"input_tokens\":2,\"output_tokens\":1,\"total_tokens\":3}}}\n\n")
 			return
 		}
+		if target == "openai" && strings.HasSuffix(request.URL.Path, "/v1/completions") {
+			io.WriteString(response, "data: {\"id\":\"cmpl_stream\",\"object\":\"text_completion\",\"created\":1764967971,\"model\":\"gpt-3.5-turbo-instruct\",\"choices\":[{\"text\":\"Legacy \",\"index\":0,\"logprobs\":null,\"finish_reason\":null}],\"usage\":null}\n\n"+
+				"data: {\"id\":\"cmpl_stream\",\"object\":\"text_completion\",\"created\":1764967971,\"model\":\"gpt-3.5-turbo-instruct\",\"choices\":[{\"text\":\"completion\",\"index\":0,\"logprobs\":null,\"finish_reason\":\"stop\"}],\"usage\":null}\n\n"+
+				"data: {\"id\":\"cmpl_stream\",\"object\":\"text_completion\",\"created\":1764967971,\"model\":\"gpt-3.5-turbo-instruct\",\"choices\":[],\"usage\":{\"prompt_tokens\":3,\"completion_tokens\":2,\"total_tokens\":5}}\n\n"+
+				"data: [DONE]\n\n")
+			return
+		}
 		if target == "anthropic" && bytes.Contains(body, []byte(`"type":"web_fetch_20250910"`)) {
 			io.WriteString(response, "event: message_start\ndata: {\"type\":\"message_start\",\"message\":{\"id\":\"msg_fetch_stream\",\"type\":\"message\",\"role\":\"assistant\",\"model\":\"anthropic-upstream\",\"content\":[],\"container\":null,\"stop_details\":null,\"stop_reason\":null,\"stop_sequence\":null,\"usage\":{\"cache_creation\":null,\"cache_creation_input_tokens\":null,\"cache_read_input_tokens\":null,\"inference_geo\":null,\"input_tokens\":9,\"output_tokens\":0,\"output_tokens_details\":null,\"server_tool_use\":null,\"service_tier\":\"standard\"}}}\n\n"+
 				"event: content_block_start\ndata: {\"type\":\"content_block_start\",\"index\":0,\"content_block\":{\"type\":\"server_tool_use\",\"id\":\"srvtoolu_fetch_1\",\"name\":\"web_fetch\",\"caller\":{\"type\":\"direct\"},\"input\":{}}}\n\n"+
@@ -191,6 +202,10 @@ func upstreamHandler(response http.ResponseWriter, request *http.Request) {
 	}
 	switch target {
 	case "openai":
+		if strings.HasSuffix(request.URL.Path, "/v1/completions") {
+			io.WriteString(response, `{"id":"cmpl_1","object":"text_completion","created":1764967971,"model":"gpt-3.5-turbo-instruct","choices":[{"text":"Legacy completion","index":0,"logprobs":null,"finish_reason":"stop"}],"usage":{"prompt_tokens":3,"completion_tokens":2,"total_tokens":5}}`)
+			return
+		}
 		if strings.HasSuffix(request.URL.Path, "/embeddings") {
 			io.WriteString(response, `{"object":"list","data":[{"object":"embedding","embedding":[0.1,0.2],"index":0},{"object":"embedding","embedding":[0.3,0.4],"index":1}],"model":"text-embedding-3-small","usage":{"prompt_tokens":2,"total_tokens":2}}`)
 			return

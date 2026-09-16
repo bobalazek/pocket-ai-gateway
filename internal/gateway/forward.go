@@ -162,6 +162,14 @@ func (handler *Handler) forwardAuthorized(response http.ResponseWriter, request 
 			return
 		}
 	}
+	completion := protocol.OpenAICompletionRequest{PromptCount: 1, Candidates: 1}
+	if upstreamPath == "completions" {
+		completion, err = protocol.ValidateOpenAICompletion(envelope)
+		if err != nil {
+			handler.writeError(response, dialect, http.StatusBadRequest, "invalid_request", err.Error())
+			return
+		}
+	}
 	embeddingItems := int64(0)
 	if upstreamPath == "embeddings" {
 		embeddingItems, err = validateEmbedding(envelope)
@@ -187,6 +195,14 @@ func (handler *Handler) forwardAuthorized(response http.ResponseWriter, request 
 		inputEstimate += anthropicWebFetch.maxUses * anthropicWebFetch.maxContentTokens
 	}
 	outputEstimate := maximumOutput(envelope)
+	outputBounded := outputEstimate > 0
+	if upstreamPath == "completions" {
+		outputEstimate, outputBounded, err = completionOutputReservation(outputEstimate, completion)
+		if err != nil {
+			handler.writeError(response, dialect, http.StatusBadRequest, "invalid_request", err.Error())
+			return
+		}
+	}
 	batchItems := int64(0)
 	if messageBatchSize, ok := request.Context().Value(messageBatchItemContextKey{}).(int64); ok {
 		batchItems = messageBatchSize
@@ -232,11 +248,13 @@ func (handler *Handler) forwardAuthorized(response http.ResponseWriter, request 
 			}
 		}
 	}
-	outputBounded := outputEstimate > 0
+	if upstreamPath != "completions" {
+		outputBounded = outputEstimate > 0
+	}
 	if dialect == "responses_compact" {
 		outputEstimate, outputBounded = inputEstimate, true
 	}
-	generation := scope == "chat:generate" || scope == "responses:generate" || scope == "images:generate" || scope == "images:edit" || scope == "images:variation" || scope == "audio:speech" || scope == "audio:transcribe" || scope == "audio:translate"
+	generation := scope == "chat:generate" || scope == "completions:generate" || scope == "responses:generate" || scope == "images:generate" || scope == "images:edit" || scope == "images:variation" || scope == "audio:speech" || scope == "audio:transcribe" || scope == "audio:translate"
 	if generation && outputEstimate == 0 && !opaqueMedia {
 		outputEstimate = 4096
 	}
@@ -411,7 +429,7 @@ func (handler *Handler) forwardAuthorized(response http.ResponseWriter, request 
 		semanticResponseError := false
 		if native {
 			result, raw, copyErr = handler.dispatch(attemptWriter, request, target, targetPath, targetBody, stream, dialect, publicID, (anthropicWebSearch.enabled || anthropicWebFetch.enabled) && stream, releaseDispatch)
-			semanticResponseError = errors.Is(copyErr, errAnthropicStreamInvalid)
+			semanticResponseError = errors.Is(copyErr, errAnthropicStreamInvalid) || errors.Is(copyErr, protocol.ErrInvalidOpenAICompletion)
 		} else {
 			result, raw, copyErr = handler.dispatchTranslated(attemptWriter, request, target, targetPath, targetBody, dialect, publicID, stream, releaseDispatch)
 		}

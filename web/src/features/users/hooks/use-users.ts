@@ -2,8 +2,7 @@
 
 import { useEffect, useRef, useState, type FormEvent } from "react";
 
-import { useGatewayUser } from "@/components/setup-gate";
-import { inferenceScopes } from "@/features/auth/constants/inference-scopes.constants";
+import { useGatewayInferenceScopes, useGatewayUser } from "@/components/setup-gate";
 import type { ManagedUser, OneTimeCode } from "@/features/users/types/users.types";
 import { pocketAIGatewayAdmin } from "@/lib/pocket-ai-gateway-admin.client";
 import { GatewayAPIError } from "@/lib/pocket-ai-gateway-admin.client";
@@ -12,6 +11,7 @@ export const splitList = (value: FormDataEntryValue | null) => String(value ?? "
 
 export function useUsers() {
   const current = useGatewayUser();
+  const inferenceScopes = useGatewayInferenceScopes();
   const [users, setUsers] = useState<ManagedUser[]>([]);
 	const [nextCursor, setNextCursor] = useState("");
 	const [oneTimeCode, setOneTimeCode] = useState<OneTimeCode | null>(null);
@@ -65,7 +65,7 @@ export function useUsers() {
     try { await pocketAIGatewayAdmin.users.transferOwner(user.id, user.revision); window.location.replace("/_/login/"); } catch (failure) { showError(failure); }
   }
 
-  const permittedScopes = current?.grants.unrestricted ? [...inferenceScopes] : current?.grants.scopes ?? [];
+  const permittedScopes = inferenceScopes.filter((scope) => current?.grants.unrestricted || current?.grants.scopes.includes(scope.id));
   return { current, users, nextCursor, oneTimeCode, error, issuing, loadingPage, permittedScopes, create, setStatus, issueCode, transfer, refresh, showError, loadPage };
 }
 

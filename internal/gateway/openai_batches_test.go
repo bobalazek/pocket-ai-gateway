@@ -133,6 +133,82 @@ func TestOpenAIChatBatchUsesSharedDispatchAndAccounting(t *testing.T) {
 	}
 }
 
+func TestOpenAICompletionBatchUsesSharedDispatchAndReauthorization(t *testing.T) {
+	var calls atomic.Int64
+	upstream := httptest.NewServer(http.HandlerFunc(func(response http.ResponseWriter, request *http.Request) {
+		calls.Add(1)
+		var body map[string]json.RawMessage
+		if request.URL.Path != "/v1/completions" || json.NewDecoder(request.Body).Decode(&body) != nil || string(body["model"]) != `"completion-upstream"` || string(body["prompt"]) != `"Complete"` || string(body["stream"]) != `false` {
+			http.Error(response, "invalid normalized request", http.StatusBadRequest)
+			return
+		}
+		response.Header().Set("Content-Type", "application/json")
+		_, _ = io.WriteString(response, `{"id":"cmpl_provider","object":"text_completion","created":1,"model":"completion-upstream","choices":[{"text":"done","index":0,"logprobs":null,"finish_reason":"stop"}],"usage":{"prompt_tokens":4,"completion_tokens":2,"total_tokens":6,"prompt_tokens_details":{"cached_tokens":1},"completion_tokens_details":{"reasoning_tokens":1}}}`)
+	}))
+	defer upstream.Close()
+
+	ctx, store, owner, keyService, providerService, usageService := gatewayFixture(t)
+	defer store.Close()
+	connection, model := publishModel(t, ctx, providerService, owner, "openai", upstream.URL+"/v1", "completion-upstream", []string{"completions"})
+	key, secret, err := keyService.Create(ctx, owner.ID, keys.Input{Label: "Completion Batch", Scopes: []string{"batches:manage", "files:manage", "completions:generate"}, ModelPatterns: []string{model.ID}, ConnectionIDs: []string{connection.ID}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	handler := NewWithMasterKey(store.SystemDB(), keyService, providerService, usageService, bytes.Repeat([]byte{17}, 32))
+	mux := http.NewServeMux()
+	handler.Register(mux)
+	input := `{"custom_id":"completion","method":"POST","url":"/v1/completions","body":{"model":"` + model.ID + `","prompt":"Complete","max_tokens":8}}` + "\n"
+	uploaded := performFileUpload(t, mux, secret, "completion-batch.jsonl", []byte(input), map[string]string{"purpose": "batch"}, nil)
+	var file openAIFile
+	if uploaded.Code != http.StatusOK || json.Unmarshal(uploaded.Body.Bytes(), &file) != nil {
+		t.Fatalf("upload=%d %s", uploaded.Code, uploaded.Body.String())
+	}
+	createBatch := func() openAIBatchJob {
+		created := performOpenAIBatchRequest(t, mux, http.MethodPost, "/api/openai/v1/batches", secret, `{"input_file_id":"`+file.ID+`","endpoint":"/v1/completions","completion_window":"24h"}`)
+		if created.Code != http.StatusOK {
+			t.Fatalf("create=%d %s", created.Code, created.Body.String())
+		}
+		job, ok := handler.claimOpenAIBatch(ctx)
+		if !ok || job.endpoint != "/v1/completions" {
+			t.Fatalf("claimed=%v endpoint=%q", ok, job.endpoint)
+		}
+		return job
+	}
+
+	job := createBatch()
+	handler.runOpenAIBatch(ctx, job)
+	batch, err := handler.loadOpenAIBatch(ctx, job.keyID, job.batchID)
+	if err != nil || batch.status != "completed" || !batch.usageKnown || batch.inputTokens != 4 || batch.outputTokens != 2 || batch.cachedTokens != 1 || batch.reasoningTokens != 1 || !batch.outputFileID.Valid {
+		t.Fatalf("batch=%#v err=%v", batch, err)
+	}
+	_, output, err := handler.loadOpenAIFileContent(ctx, job.keyID, batch.outputFileID.String)
+	if err != nil || !bytes.Contains(output, []byte(`"object":"text_completion"`)) || !bytes.Contains(output, []byte(`"model":"`+model.ID+`"`)) || bytes.Contains(output, []byte(`"model":"completion-upstream"`)) {
+		t.Fatalf("output=%s err=%v", output, err)
+	}
+	requests, _, err := usageService.ListRequests(ctx, owner, usage.UsageQuery{})
+	if err != nil || len(requests) != 1 || requests[0].Operation != "completions" || requests[0].Dialect != "openai" || requests[0].ModelID != model.ID || requests[0].State != "succeeded" || len(requests[0].Attempts) != 1 {
+		t.Fatalf("requests=%#v err=%v", requests, err)
+	}
+	attempt := requests[0].Attempts[0]
+	if attempt.TargetOperation != "completions" || attempt.UpstreamID != "completion-upstream" || attempt.UsageStatus != "provider_reported" || attempt.InputTokens == nil || *attempt.InputTokens != 4 || attempt.OutputTokens == nil || *attempt.OutputTokens != 2 {
+		t.Fatalf("attempt=%#v", attempt)
+	}
+
+	revokedJob := createBatch()
+	if err = keyService.Revoke(ctx, owner.ID, key.ID, key.Revision); err != nil {
+		t.Fatal(err)
+	}
+	handler.runOpenAIBatch(ctx, revokedJob)
+	revoked, err := handler.loadOpenAIBatch(ctx, revokedJob.keyID, revokedJob.batchID)
+	if err != nil || revoked.status != "completed" || revoked.requestFailed != 1 || !revoked.errorFileID.Valid || calls.Load() != 1 {
+		t.Fatalf("revoked batch=%#v calls=%d err=%v", revoked, calls.Load(), err)
+	}
+	_, failure, err := handler.loadOpenAIFileContent(ctx, revokedJob.keyID, revoked.errorFileID.String)
+	if err != nil || !bytes.Contains(failure, []byte(`"code":"permission_denied"`)) {
+		t.Fatalf("revoked output=%s err=%v", failure, err)
+	}
+}
+
 func TestOpenAIEmbeddingBatchUsesSharedDispatchAndAccounting(t *testing.T) {
 	upstream := httptest.NewServer(http.HandlerFunc(func(response http.ResponseWriter, request *http.Request) {
 		if request.URL.Path != "/v1/embeddings" {
@@ -616,6 +692,7 @@ func TestOpenAIBatchValidationScopesAndOwnership(t *testing.T) {
 	secret := makeKey("All", []string{"batches:manage", "files:manage", "responses:generate"})
 	other := makeKey("Other", []string{"batches:manage", "files:manage", "responses:generate"})
 	noChat := makeKey("No Chat", []string{"batches:manage", "files:manage", "responses:generate"})
+	noCompletions := makeKey("No Completions", []string{"batches:manage", "files:manage", "responses:generate"})
 	noEmbeddings := makeKey("No Embeddings", []string{"batches:manage", "files:manage", "responses:generate"})
 	noModerations := makeKey("No Moderations", []string{"batches:manage", "files:manage", "responses:generate"})
 	noImages := makeKey("No Images", []string{"batches:manage", "files:manage", "responses:generate"})
@@ -637,6 +714,9 @@ func TestOpenAIBatchValidationScopesAndOwnership(t *testing.T) {
 	validFile := fileFor(secret, validLine+"\n")
 	if denied := performOpenAIBatchRequest(t, mux, http.MethodPost, "/api/openai/v1/batches", noChat, `{"input_file_id":"`+validFile+`","endpoint":"/v1/chat/completions","completion_window":"24h"}`); denied.Code != http.StatusForbidden {
 		t.Fatalf("missing chat scope status=%d body=%s", denied.Code, denied.Body.String())
+	}
+	if denied := performOpenAIBatchRequest(t, mux, http.MethodPost, "/api/openai/v1/batches", noCompletions, `{"input_file_id":"`+validFile+`","endpoint":"/v1/completions","completion_window":"24h"}`); denied.Code != http.StatusForbidden {
+		t.Fatalf("missing completions scope status=%d body=%s", denied.Code, denied.Body.String())
 	}
 	if denied := performOpenAIBatchRequest(t, mux, http.MethodPost, "/api/openai/v1/batches", noEmbeddings, `{"input_file_id":"`+validFile+`","endpoint":"/v1/embeddings","completion_window":"24h"}`); denied.Code != http.StatusForbidden {
 		t.Fatalf("missing embeddings scope status=%d body=%s", denied.Code, denied.Body.String())
