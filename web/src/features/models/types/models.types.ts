@@ -7,4 +7,5 @@ export type RoutePlan = { model_id: string; strategy: RouteStrategy; free_only: 
 export type CatalogCandidate = { provider: string; model_id: string; label: string; capabilities: string[]; capability_details: CapabilityDetail[]; input_nanos_per_million?: number; output_nanos_per_million?: number; free: boolean; source: string; source_version: string; discovered_at: string };
 export type RoutePreviewInput = { operation: string; streaming: boolean; estimated_input_tokens: number; estimated_output_tokens: number };
 export type CatalogState = { source_url: string; source_version: string; last_checked_at: string | null; last_error: string; refresh_enabled: boolean; refresh_interval_hours: number };
+export type CatalogPage = { data: CatalogCandidate[]; state: CatalogState; next_cursor: string; has_more: boolean };
 export type CatalogModel = Pick<PublicModel, "id" | "label" | "description" | "adapter" | "adapter_label" | "capabilities" | "capability_details">;

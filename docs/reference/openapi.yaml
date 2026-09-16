@@ -634,8 +634,10 @@ paths:
   /admin/catalog:
     get:
       operationId: getCatalog
+      parameters: [{ $ref: "#/components/parameters/Cursor" }]
       responses:
-        "200": { description: Catalog candidates and refresh state, content: { application/json: { schema: { type: object, required: [data, state], properties: { data: { type: array, maxItems: 5000, items: { $ref: "#/components/schemas/CatalogCandidate" } }, state: { $ref: "#/components/schemas/CatalogState" } } } } } }
+        "200": { description: Catalog candidates and refresh state, content: { application/json: { schema: { allOf: [{ $ref: "#/components/schemas/Page" }, { type: object, required: [state], properties: { data: { type: array, maxItems: 50, items: { $ref: "#/components/schemas/CatalogCandidate" } }, state: { $ref: "#/components/schemas/CatalogState" } } }] } } } }
+        "400": { $ref: "#/components/responses/BadRequest" }
         "401": { $ref: "#/components/responses/Unauthorized" }
         "403": { $ref: "#/components/responses/Forbidden" }
         "503": { $ref: "#/components/responses/ServiceUnavailable" }

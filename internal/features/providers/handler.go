@@ -282,12 +282,12 @@ func (handler *Handler) getCatalog(response http.ResponseWriter, request *http.R
 	if !ok {
 		return
 	}
-	items, state, err := handler.service.Catalog(request.Context(), current.User)
+	items, state, next, err := handler.service.Catalog(request.Context(), current.User, request.URL.Query().Get("cursor"))
 	if err != nil {
 		handler.writeError(response, err)
 		return
 	}
-	auth.WriteJSON(response, http.StatusOK, map[string]any{"data": items, "state": state})
+	auth.WriteJSON(response, http.StatusOK, map[string]any{"data": items, "state": state, "next_cursor": next, "has_more": next != ""})
 }
 
 func (handler *Handler) configureCatalog(response http.ResponseWriter, request *http.Request) {

@@ -371,7 +371,7 @@ func TestCatalogSourceChangeClearsCandidates(t *testing.T) {
 	if _, err = store.SystemDB().ExecContext(ctx, "INSERT INTO catalog_candidates (provider,model_id,label,capabilities_json,free,source,source_version,discovered_at) VALUES ('openrouter','free/test','Test','[\"chat\"]',1,?,'v1',?)", first, now); err != nil {
 		t.Fatal(err)
 	}
-	candidates, _, err := service.Catalog(ctx, owner)
+	candidates, _, _, err := service.Catalog(ctx, owner, "")
 	if err != nil || len(candidates) != 1 || len(candidates[0].CapabilityDetails) != 1 || candidates[0].CapabilityDetails[0].Label != "Chat" {
 		t.Fatalf("catalog candidates=%#v err=%v", candidates, err)
 	}
