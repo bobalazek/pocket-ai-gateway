@@ -183,7 +183,7 @@ func upstreamHandler(response http.ResponseWriter, request *http.Request) {
 			return
 		}
 		if strings.HasSuffix(request.URL.Path, "/images/edits") {
-			io.WriteString(response, `{"created":1,"data":[{"b64_json":"ZWRpdA=="}]}`)
+			io.WriteString(response, `{"created":1764967971,"data":[{"b64_json":"ZWRpdA=="}],"usage":{"input_tokens":3,"input_tokens_details":{"image_tokens":2,"text_tokens":1},"output_tokens":2,"total_tokens":5}}`)
 			return
 		}
 		if strings.HasSuffix(request.URL.Path, "/images/variations") {

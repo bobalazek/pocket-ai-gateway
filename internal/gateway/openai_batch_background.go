@@ -220,7 +220,7 @@ func (handler *Handler) runOpenAIBatch(ctx context.Context, job openAIBatchJob) 
 	if completedOutcome && recorder.status >= 200 && recorder.status < 300 && json.Valid(recorder.body.Bytes()) {
 		var publicModel string
 		_ = json.Unmarshal(envelope["model"], &publicModel)
-		if job.endpoint == "/v1/images/generations" {
+		if job.endpoint == "/v1/images/generations" || job.endpoint == "/v1/images/edits" {
 			line, state = openAIBatchSuccessLine(job.resultID, job.customID, recorder.status, recorder.requestID, recorder.body.Bytes()), "succeeded"
 		} else if publicBody, rewriteErr := rewriteResponseModel(recorder.body.Bytes(), publicModel); rewriteErr == nil {
 			line, state = openAIBatchSuccessLine(job.resultID, job.customID, recorder.status, recorder.requestID, publicBody), "succeeded"

@@ -2,9 +2,12 @@ package gateway
 
 import (
 	"bytes"
+	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
+	"net/url"
 	"slices"
 	"strconv"
 	"strings"
@@ -179,6 +182,31 @@ func validateResponseInputTokens(raw []byte) (int64, error) {
 }
 
 func validateImageGeneration(envelope map[string]json.RawMessage) error {
+	return validateImageJSON(envelope, "generation")
+}
+
+func validateImageEditBatch(envelope map[string]json.RawMessage) error {
+	if err := validateImageJSON(envelope, "edits"); err != nil {
+		return err
+	}
+	var images []json.RawMessage
+	if json.Unmarshal(envelope["images"], &images) != nil || len(images) < 1 || len(images) > 16 {
+		return errors.New("images must contain 1-16 image_url references")
+	}
+	for _, image := range images {
+		if err := validateBatchImageReference(image); err != nil {
+			return err
+		}
+	}
+	if raw := bytes.TrimSpace(envelope["mask"]); len(raw) > 0 && !bytes.Equal(raw, []byte("null")) {
+		if err := validateBatchImageReference(raw); err != nil {
+			return fmt.Errorf("mask: %w", err)
+		}
+	}
+	return nil
+}
+
+func validateImageJSON(envelope map[string]json.RawMessage, operation string) error {
 	var prompt string
 	if json.Unmarshal(envelope["prompt"], &prompt) != nil || strings.TrimSpace(prompt) == "" || len([]rune(prompt)) > 32_000 {
 		return errors.New("prompt must contain 1-32000 characters")
@@ -194,10 +222,39 @@ func validateImageGeneration(envelope map[string]json.RawMessage) error {
 		}
 	}
 	if raw := bytes.TrimSpace(envelope["stream"]); len(raw) > 0 && !bytes.Equal(raw, []byte("null")) && !bytes.Equal(raw, []byte("false")) {
-		return errors.New("streaming image generation is not supported")
+		return fmt.Errorf("streaming image %s are not supported", operation)
 	}
 	if raw := bytes.TrimSpace(envelope["partial_images"]); len(raw) > 0 && !bytes.Equal(raw, []byte("null")) {
-		return errors.New("partial_images requires streaming image generation")
+		return fmt.Errorf("partial_images requires streaming image %s", operation)
+	}
+	return nil
+}
+
+func validateBatchImageReference(raw json.RawMessage) error {
+	var reference map[string]json.RawMessage
+	if json.Unmarshal(raw, &reference) != nil || len(reference) != 1 {
+		return errors.New("each image reference must contain only image_url")
+	}
+	if _, exists := reference["file_id"]; exists {
+		return errors.New("file_id image references are not supported")
+	}
+	var value string
+	if json.Unmarshal(reference["image_url"], &value) != nil || value == "" || len(value) > 20_971_520 {
+		return errors.New("image_url must be a bounded HTTPS or base64 image URL")
+	}
+	for _, prefix := range []string{"data:image/png;base64,", "data:image/jpeg;base64,", "data:image/webp;base64,"} {
+		if strings.HasPrefix(value, prefix) {
+			decoder := base64.NewDecoder(base64.StdEncoding.Strict(), strings.NewReader(strings.TrimPrefix(value, prefix)))
+			size, err := io.Copy(io.Discard, io.LimitReader(decoder, maxInferenceBody+1))
+			if err != nil || size < 1 || size > maxInferenceBody {
+				return errors.New("image_url contains invalid or oversized base64 image data")
+			}
+			return nil
+		}
+	}
+	parsed, err := url.Parse(value)
+	if err != nil || parsed.Scheme != "https" || parsed.Host == "" || parsed.User != nil {
+		return errors.New("image_url must be a bounded HTTPS or base64 image URL")
 	}
 	return nil
 }

@@ -146,7 +146,7 @@ describe("official SDK compatibility through the Go gateway", () => {
     await expect(client.uploads.parts.create(cancelled.id, { data: await toFile(Buffer.from("x"), "rejected") })).rejects.toMatchObject({ status: 400 });
   });
 
-  it("runs gateway-owned OpenAI Responses, Chat Completions, Embeddings, Moderation, and Image Generation batches", async () => {
+  it("runs gateway-owned OpenAI Responses, Chat Completions, Embeddings, Moderation, and Image batches", async () => {
     const client = openAI();
     const upload = async (content: string, name: string) => client.files.create({
       file: await toFile(Buffer.from(content), name, { type: "application/jsonl" }),
@@ -343,6 +343,41 @@ describe("official SDK compatibility through the Go gateway", () => {
       error: null,
     }]);
     expect((imageLines[0]?.response as { body?: Record<string, unknown> })?.body).not.toHaveProperty("model");
+
+    const imageEditInput = await upload(
+      '{"custom_id":"image-edit-success","method":"POST","url":"/v1/images/edits","body":{"model":"target-openai-edit","images":[{"image_url":"https://example.com/source.png"},{"image_url":"data:image/png;base64,iVBORw0KGgo="}],"prompt":"Add a hat","n":1}}\n',
+      "image-edit-batch.jsonl",
+    );
+    const imageEditCreated = await client.batches.create({
+      input_file_id: imageEditInput.id,
+      endpoint: "/v1/images/edits",
+      completion_window: "24h",
+    });
+    expect(imageEditCreated).toMatchObject({ endpoint: "/v1/images/edits", model: "target-openai-edit" });
+    const imageEditCompleted = await waitForTerminal(imageEditCreated.id);
+    expect(imageEditCompleted).toMatchObject({
+      endpoint: "/v1/images/edits",
+      model: "target-openai-edit",
+      status: "completed",
+      request_counts: { total: 1, completed: 1, failed: 0 },
+      usage: { input_tokens: 3, output_tokens: 2, total_tokens: 5 },
+    });
+    if (!imageEditCompleted.output_file_id) throw new Error("Image Edit Batch output File is missing");
+    const imageEditLines = await readJSONLines(imageEditCompleted.output_file_id);
+    expect(imageEditLines).toMatchObject([{
+      custom_id: "image-edit-success",
+      response: {
+        status_code: 200,
+        request_id: expect.stringMatching(/^req_/),
+        body: {
+          created: 1764967971,
+          data: [{ b64_json: "ZWRpdA==" }],
+          usage: { input_tokens: 3, output_tokens: 2, total_tokens: 5 },
+        },
+      },
+      error: null,
+    }]);
+    expect((imageEditLines[0]?.response as { body?: Record<string, unknown> })?.body).not.toHaveProperty("model");
 
     const blockerInput = await upload(
       '{"custom_id":"blocker","method":"POST","url":"/v1/responses","body":{"model":"target-openai","input":"Cancel me blocker","max_output_tokens":8}}\n',
