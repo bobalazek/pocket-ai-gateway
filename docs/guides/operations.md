@@ -33,6 +33,45 @@ The command snapshots each live SQLite database with `VACUUM INTO`, records a sh
 
 The owner can configure scheduled local or S3-compatible backups in **Settings**. S3 uses HTTPS except for loopback testing, AWS Signature Version 4, bounded retries, and environment variable names for credentials. Archives are encrypted before upload. The first scheduled attempt happens when the service starts; later checks run every 15 minutes and honor the configured interval. Local retention never deletes the newest configured number of completed `.pagbak` files.
 
+Docker Compose keeps the default backup directory in its own named volume. Copy important archives off the Docker host or use the S3-compatible destination; a second volume on the same host is not a disaster-recovery copy. Run `./scripts/compose-e2e.sh` after deployment changes to rehearse onboarding, backup, clean-volume restore, readiness, login, and restart persistence with disposable volumes.
+
+Export an archive from the Compose backup volume:
+
+```sh
+mkdir -p gateway-recovery
+docker compose cp --archive gateway:/data_backups/<archive>.pagbak ./gateway-recovery/
+```
+
+Restore it with the same pinned image and backup key into a clean host directory owned by the image's nonroot UID/GID (`65532`):
+
+```sh
+rm -rf gateway-restored
+sudo install -d -m 0700 -o 65532 -g 65532 gateway-restored
+docker run --rm \
+  --env POCKET_AI_GATEWAY_BACKUP_KEY \
+  --volume "$PWD/gateway-recovery:/recovery:ro" \
+  --volume "$PWD/gateway-restored:/restore" \
+  pocket-ai-gateway:local \
+  restore-backup --archive /recovery/<archive>.pagbak --data-dir /restore/data
+```
+
+After verifying the restored directory, switch `/data` with a Compose override:
+
+```yaml
+# compose.restored.yaml
+services:
+  gateway:
+    volumes:
+      - ./gateway-restored/data:/data
+```
+
+```sh
+docker compose stop gateway
+docker compose -f compose.yaml -f compose.restored.yaml up -d gateway
+```
+
+Keep the old named data volume until sign-in, providers, history, usage, and `/readyz` have been checked.
+
 ## Restore
 
 Restore is offline and always targets an absent directory:

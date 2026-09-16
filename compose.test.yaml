@@ -1,0 +1,39 @@
+x-gateway: &gateway
+  image: pocket-ai-gateway:e2e
+  build:
+    context: .
+    args:
+      VERSION: e2e
+  read_only: true
+  tmpfs:
+    - /tmp
+  init: true
+
+services:
+  gateway:
+    <<: *gateway
+    environment:
+      POCKET_AI_GATEWAY_BACKUP_KEY: AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=
+      POCKET_AI_GATEWAY_PUBLIC_URL: http://127.0.0.1:${POCKET_AI_GATEWAY_E2E_PORT:-18082}
+    ports:
+      - "127.0.0.1:${POCKET_AI_GATEWAY_E2E_PORT:-18082}:8080"
+    volumes:
+      - gateway-data:/data
+      - gateway-backups:/data_backups
+
+  restored:
+    <<: *gateway
+    environment:
+      POCKET_AI_GATEWAY_BACKUP_KEY: AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=
+      POCKET_AI_GATEWAY_DATA_DIR: /data/restored
+      POCKET_AI_GATEWAY_PUBLIC_URL: http://127.0.0.1:${POCKET_AI_GATEWAY_E2E_RESTORE_PORT:-18083}
+    ports:
+      - "127.0.0.1:${POCKET_AI_GATEWAY_E2E_RESTORE_PORT:-18083}:8080"
+    volumes:
+      - gateway-restore:/data
+      - gateway-backups:/data_backups:ro
+
+volumes:
+  gateway-data:
+  gateway-backups:
+  gateway-restore:

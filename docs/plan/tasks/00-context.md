@@ -4,7 +4,7 @@ Read once before implementing the first task. This repository currently contains
 
 The user's constraint is one executable/server with embedded dashboard and local SQLite storage, optionally packaged in Docker. Product scope is [PRD](../../project/prd.md); architectural defaults and open decisions are in [decisions](../../project/decisions/README.md); phase status/coverage is [roadmap](../README.md).
 
-Use Go net/http, explicit dependency construction, two stores through database/sql + sqlc with local SQLite by default and certified optional remote libSQL/Turso, and a statically exported Next.js/TypeScript dashboard. Application configuration and authoritative accounting belong in the system store; rich history belongs in the data store. End users need no Node.js server, Redis, or external database. Use maintained security/SQLite dependencies where necessary; add nothing solely for future flexibility.
+Use Go net/http, explicit dependency construction, two local SQLite stores through database/sql + sqlc, and a statically exported Next.js/TypeScript dashboard. Application configuration and authoritative accounting belong in the system store; rich history belongs in the data store. Optional remote libSQL/Turso remains future certified work. End users need no Node.js server, Redis, or external database. Use maintained security/SQLite dependencies where necessary; add nothing solely for future flexibility.
 
 The [data model](../../architecture/data-model.md) owns table structure; [API contract](../../reference/api.md) owns wire behavior; [dashboard](../../design/dashboard.md) owns interface structure; [operations](../../guides/operations.md) owns recovery procedures.
 

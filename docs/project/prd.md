@@ -4,7 +4,7 @@ Version 0.3 · September 14, 2026 · Build specification incorporating owner dec
 
 ## 1. Product brief
 
-Pocket AI Gateway is an MIT-licensed, self-hosted AI gateway for developers and small teams who want to share provider connections while controlling access, usage, routing, and cost. One Go executable contains the HTTP server and a statically exported Next.js dashboard. Mutable state defaults to two local SQLite databases; remote libSQL/Turso storage is an optional deployment mode.
+Pocket AI Gateway is an MIT-licensed, self-hosted AI gateway for developers and small teams who want to share provider connections while controlling access, usage, routing, and cost. One Go executable contains the HTTP server and a statically exported Next.js dashboard. Mutable state uses two local SQLite databases in v0.1; remote libSQL/Turso storage is a planned optional mode that is not yet advertised or certified.
 
 An operator starts the server, claims it, adds providers, publishes stable model names, creates users and scoped application keys, and connects applications through OpenAI, Anthropic, or native Gemini API formats. The gateway translates requests and responses to the selected capable provider. The dashboard explains every attempt and how much usage/cost is known, estimated, or unresolved.
 
@@ -19,12 +19,12 @@ PocketBase is the experience reference: embedded database, authentication, dashb
 | Foundation | Internal builds of runtime, storage, identity, and policy. Not a usable public gateway. |
 | First usable alpha | Phases 1–5: users/admins, scoped keys, configurable persistent controls, OpenAI/Anthropic/Gemini native and translated generation, tools, streaming, embeddings, translated stateless Responses, history/dashboard, offline recovery. |
 | Feature-complete beta | Phase 6: initial provider presets, editable catalog, all initial routing strategies, and their dashboard surfaces. |
-| v0.1 stable | Phase 7: beta plus remote-store certification, delayed usage pricing, local/S3 encrypted backups, restore, security/compatibility verification, Docker/platform distributions, documentation, and MIT notices. |
-| Follow-up | Phase 8: additional provider certifications/native adapters and optional self-update; separately scoped advanced features. |
+| v0.1 stable | Phase 7: beta plus delayed usage pricing, local SQLite authority, local/S3 encrypted backups, restore, security/compatibility verification, Docker/platform distributions, documentation, and MIT notices. |
+| Follow-up | Phase 8 delivered bounded provider/API expansion and optional self-update, then closed with live-provider, remote-database, and additional vendor-resource certification deferred. |
 
 Multiple local users are included. Organizations, workspaces, subscriptions, enterprise SSO, clustering, Redis/PostgreSQL requirements, model hosting, agent/tool execution, MCP servers, vector storage, semantic caching, and a consumer chat product are excluded from v0.1.
 
-Full fidelity of the three client protocols is the product goal. v0.1 covers the generation, tool, stream, counting, and embedding operations specified below; provider-specific features require tested mappings or explicit unsupported-capability errors. Native Anthropic Messages prompt-cache controls and bounded basic web search, bounded gateway-owned Anthropic Message Batches, bounded native OpenAI legacy Completions, bounded gateway-owned OpenAI Responses, Chat Completions, legacy Completions, Embeddings, Moderations, Image Generations, and Image Edits Batches, OpenAI Vector Store/file-attachment/parsed-content/backend-search lifecycles, bounded gateway-owned Responses file search, and bounded native OpenAI Responses web search are implemented. Phase 8 contains the remaining API-parity work: broader state/resource ownership, remaining Vector Store formats and semantic ranking, remaining OpenAI/Gemini and provider-owned batch operations, provider-owned cache resources and other caching surfaces, remaining hosted tools, multimedia/realtime, and related provider-specific surfaces. Do not advertise whole-API parity until that inventory is complete and tested.
+Full fidelity of the three client protocols is the product goal. v0.1 covers the generation, tool, stream, counting, and embedding operations specified below; provider-specific features require tested mappings or explicit unsupported-capability errors. Native Anthropic Messages prompt-cache controls and bounded basic web search, bounded gateway-owned Anthropic Message Batches, bounded native OpenAI legacy Completions, bounded gateway-owned OpenAI Responses, Chat Completions, legacy Completions, Embeddings, Moderations, Image Generations, and Image Edits Batches, OpenAI Vector Store/file-attachment/parsed-content/backend-search lifecycles, bounded gateway-owned Responses file search, and bounded native OpenAI Responses web search are implemented. The parity inventory records broader state/resource ownership, remaining Vector Store formats and semantic ranking, remaining OpenAI/Gemini and provider-owned batch operations, provider-owned cache resources and other caching surfaces, remaining hosted tools, multimedia/realtime, and related provider-specific surfaces as deferred post-v0.1 work. Do not advertise whole-API parity until that inventory is complete and tested.
 
 Image input and strict structured output are required on capable, tested route combinations. Provider-affine reasoning/signature data must be preserved or rejected explicitly; it must never be silently dropped. Durable background Responses are a distinct delivery mode from streaming and use the gateway-owned contract in ADR-015.
 
@@ -182,7 +182,7 @@ Default system.db owns identity/configuration, atomic admission and authoritativ
 
 Support explicit optional remote libSQL/Turso backends per store after transaction, migration, failure, and backup certification. Default local mode remains offline-capable. A remote authoritative store outage stops admission; never fall back to stale local balances. No multi-writer/cluster promise.
 
-**Acceptance:** a data-store outage cannot reset limits or lose authoritative accepted usage; outbox saturation is bounded and visible; local and remote backend contract tests pass; a paired backup restores consistent store generations.
+**Acceptance:** a local data-store failure cannot reset limits or lose authoritative accepted usage; outbox saturation is bounded and visible; local backend contract tests pass; a paired backup restores consistent store generations. Any future remote backend must additionally pass its transaction, outage, unknown-commit, migration, and paired-restore contract before it is advertised.
 
 ### COST-02 — Delayed pricing and historical recalculation
 
@@ -249,6 +249,6 @@ Measure gateway overhead separately from upstream latency. Record hardware/files
 
 ## 6. Definition of done
 
-v0.1 is complete when a person can download one executable or run its Docker image, securely create users/admins, connect the initial providers, publish models, issue scoped keys, use the documented OpenAI/Anthropic/Gemini interfaces, enforce persistent configurable quotas/spending controls, reprice historical usage, understand routing/tool activity, choose local or certified remote storage, and back up locally or to S3, restore, upgrade, and roll back.
+v0.1 is complete when a person can download one executable or run its Docker image, securely create users/admins, connect the initial providers, publish models, issue scoped keys, use the documented OpenAI/Anthropic/Gemini interfaces, enforce persistent configurable quotas/spending controls, reprice historical usage, understand routing/tool activity, use the local SQLite authority, and back up locally or to S3, restore, upgrade, and roll back. Remote libSQL/Turso support remains optional and must be certified before it is advertised.
 
 Release is blocked by authorization bypass, secret exposure, known data-loss behavior, quota races, unsafe retries, unsupported compatibility claims, or an untested restore path. The [roadmap](../plan/README.md) defines evidence for each phase and the final release.

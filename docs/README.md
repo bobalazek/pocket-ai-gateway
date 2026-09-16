@@ -31,4 +31,4 @@ The layout follows the nearby personal SaaS template's docs/project conventions:
 
 The supplied AI-Gateway-PRD.md was treated as reference material. Its single-administrator scope and narrower limits were superseded by the user's request for users, broader quotas, and routing strategies. The original file in Downloads was left untouched. There is no second, competing PRD in this repository.
 
-Phases 1–7 are complete. Provider/API expansion remains a scoped work package.
+Phases 1–7 are complete. Phase 8 is closed for this release with optional provider/API and remote-storage expansion explicitly deferred.

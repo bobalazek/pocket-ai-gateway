@@ -1,22 +1,15 @@
 services:
   gateway:
+    image: pocket-ai-gateway:local
     build:
       context: .
       args:
         VERSION: local
-    command:
-      - serve
-      - --listen
-      - 0.0.0.0:8080
-      - --data-dir
-      - /data
-      - --public-url
-      - http://localhost:8080
-      - --allow-insecure-http
     ports:
       - "127.0.0.1:8080:8080"
     volumes:
       - pocket-gateway-data:/data
+      - pocket-gateway-backups:/data_backups
       - pocket-gateway-backups:/backups
     environment:
       POCKET_AI_GATEWAY_BACKUP_KEY: ${POCKET_AI_GATEWAY_BACKUP_KEY:-}

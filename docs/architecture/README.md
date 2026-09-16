@@ -32,7 +32,7 @@ The diagram describes responsibilities, not independently deployed services. The
 | Server/router | Go net/http and ServeMux | Required routes do not need a framework |
 | Logs | log/slog | Structured logs without another runtime system |
 | CLI | flag.FlagSet per implemented command | Add a CLI framework only if nested command/help handling becomes cumbersome |
-| Storage | database/sql + reviewed local SQLite / optional remote libSQL or Turso drivers | Local by default; certify each backend/engine |
+| Storage | database/sql + reviewed local SQLite | Local authority in v0.1; optional remote libSQL/Turso drivers require future certification |
 | SQL | sqlc-generated typed queries from explicit SQL | Precise transactions with less scan boilerplate; no GORM/auto-migrate |
 | Migrations | Embedded ordered SQL/checksums per store | Transactional per store; paired recovery, no cross-store atomicity claim |
 | Passwords | Argon2id from a maintained Go crypto package | Human-password hashing must not be invented |
