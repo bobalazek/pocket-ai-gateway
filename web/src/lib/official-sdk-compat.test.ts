@@ -122,6 +122,30 @@ describe("official SDK compatibility through the Go gateway", () => {
     await expect(client.files.retrieve(created[0].id)).rejects.toMatchObject({ status: 404 });
   });
 
+  it("assembles gateway-owned OpenAI Uploads in the requested Part order", async () => {
+    const client = openAI();
+    const upload = await client.uploads.create({
+      bytes: 11,
+      filename: "assembled.jsonl",
+      mime_type: "application/jsonl",
+      purpose: "batch",
+      expires_after: { anchor: "created_at", seconds: 3600 },
+    });
+    const last = await client.uploads.parts.create(upload.id, { data: await toFile(Buffer.from("world"), "last") });
+    const first = await client.uploads.parts.create(upload.id, { data: await toFile(Buffer.from("hello "), "first") });
+    const completed = await client.uploads.complete(upload.id, { part_ids: [first.id, last.id] });
+
+    expect(completed).toMatchObject({ id: upload.id, object: "upload", bytes: 11, status: "completed" });
+    expect(completed.file).toMatchObject({ object: "file", filename: "assembled.jsonl", purpose: "batch", status: "processed" });
+    if (!completed.file) throw new Error("Completed Upload File is missing");
+    expect(Buffer.from(await (await client.files.content(completed.file.id)).arrayBuffer())).toEqual(Buffer.from("hello world"));
+    await expect(openAI(otherApiKey).uploads.cancel(upload.id)).rejects.toMatchObject({ status: 404 });
+
+    const cancelled = await client.uploads.create({ bytes: 1, filename: "cancelled.jsonl", mime_type: "application/jsonl", purpose: "batch" });
+    expect(await client.uploads.cancel(cancelled.id)).toMatchObject({ id: cancelled.id, status: "cancelled" });
+    await expect(client.uploads.parts.create(cancelled.id, { data: await toFile(Buffer.from("x"), "rejected") })).rejects.toMatchObject({ status: 400 });
+  });
+
   it("runs gateway-owned OpenAI Responses batches", async () => {
     const client = openAI();
     const upload = async (content: string, name: string) => client.files.create({

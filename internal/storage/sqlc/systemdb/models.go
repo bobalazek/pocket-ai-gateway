@@ -309,6 +309,32 @@ type OpenaiFile struct {
 	ExpiresAt   int64  `json:"expires_at"`
 }
 
+type OpenaiUpload struct {
+	ID                string         `json:"id"`
+	OwnerUserID       string         `json:"owner_user_id"`
+	KeyID             string         `json:"key_id"`
+	Filename          string         `json:"filename"`
+	Purpose           string         `json:"purpose"`
+	MimeType          string         `json:"mime_type"`
+	ExpectedBytes     int64          `json:"expected_bytes"`
+	FileExpirySeconds int64          `json:"file_expiry_seconds"`
+	Status            string         `json:"status"`
+	FileID            sql.NullString `json:"file_id"`
+	CreatedAt         int64          `json:"created_at"`
+	ExpiresAt         int64          `json:"expires_at"`
+	CompletedAt       sql.NullInt64  `json:"completed_at"`
+	CancelledAt       sql.NullInt64  `json:"cancelled_at"`
+}
+
+type OpenaiUploadPart struct {
+	ID         string `json:"id"`
+	UploadID   string `json:"upload_id"`
+	Bytes      int64  `json:"bytes"`
+	Ciphertext []byte `json:"ciphertext"`
+	Nonce      []byte `json:"nonce"`
+	CreatedAt  int64  `json:"created_at"`
+}
+
 type OperationSetting struct {
 	Singleton            int64  `json:"singleton"`
 	BackupEnabled        int64  `json:"backup_enabled"`

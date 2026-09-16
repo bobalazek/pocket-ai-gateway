@@ -182,7 +182,7 @@ func serve(ctx context.Context, version string, cfg Config, logOutput io.Writer)
 	authService := auth.New(stores.SystemDB())
 	usageService := usage.New(stores.SystemDB())
 	var encryptedRows int
-	if err := stores.SystemDB().QueryRowContext(ctx, "SELECT (SELECT COUNT(*) FROM provider_credentials WHERE ciphertext IS NOT NULL) + (SELECT COUNT(*) FROM openai_files) + (SELECT COUNT(*) FROM openai_batch_items WHERE request_ciphertext IS NOT NULL OR result_ciphertext IS NOT NULL)").Scan(&encryptedRows); err != nil {
+	if err := stores.SystemDB().QueryRowContext(ctx, "SELECT (SELECT COUNT(*) FROM provider_credentials WHERE ciphertext IS NOT NULL) + (SELECT COUNT(*) FROM openai_files) + (SELECT COUNT(*) FROM openai_batch_items WHERE request_ciphertext IS NOT NULL OR result_ciphertext IS NOT NULL) + (SELECT COUNT(*) FROM openai_upload_parts WHERE ciphertext IS NOT NULL)").Scan(&encryptedRows); err != nil {
 		return fmt.Errorf("inspect encrypted storage: %w", err)
 	}
 	masterKey, err := providers.LoadOrCreateMasterKey(stores.DataDir(), encryptedRows > 0)

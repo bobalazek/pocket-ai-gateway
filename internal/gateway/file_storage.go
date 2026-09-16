@@ -38,15 +38,6 @@ func (handler *Handler) loadOpenAIFileContent(ctx context.Context, keyID, id str
 }
 
 func (handler *Handler) insertGeneratedOpenAIFile(ctx context.Context, tx *sql.Tx, ownerID, keyID, filename string, content []byte, expiresAt time.Time) (openAIFile, error) {
-	token, err := credentials.RandomToken(18)
-	if err != nil {
-		return openAIFile{}, err
-	}
-	id := "file_" + token
-	ciphertext, nonce, err := credentials.Seal(handler.masterKey, content, fileAdditionalData(id, keyID, "batch_output", int64(len(content))))
-	if err != nil {
-		return openAIFile{}, err
-	}
 	now := time.Now()
 	if minimum := now.Add(time.Hour); expiresAt.Before(minimum) {
 		expiresAt = minimum
@@ -54,7 +45,20 @@ func (handler *Handler) insertGeneratedOpenAIFile(ctx context.Context, tx *sql.T
 	if maximum := now.Add(defaultFileExpiry); expiresAt.After(maximum) {
 		expiresAt = maximum
 	}
-	item := openAIFile{ID: id, Object: "file", Bytes: int64(len(content)), CreatedAt: now.Unix(), ExpiresAt: expiresAt.Unix(), Filename: filename, Purpose: "batch_output", Status: "processed"}
+	return handler.insertOpenAIFile(ctx, tx, ownerID, keyID, filename, "batch_output", content, now, expiresAt)
+}
+
+func (handler *Handler) insertOpenAIFile(ctx context.Context, tx *sql.Tx, ownerID, keyID, filename, purpose string, content []byte, now, expiresAt time.Time) (openAIFile, error) {
+	token, err := credentials.RandomToken(18)
+	if err != nil {
+		return openAIFile{}, err
+	}
+	id := "file_" + token
+	ciphertext, nonce, err := credentials.Seal(handler.masterKey, content, fileAdditionalData(id, keyID, purpose, int64(len(content))))
+	if err != nil {
+		return openAIFile{}, err
+	}
+	item := openAIFile{ID: id, Object: "file", Bytes: int64(len(content)), CreatedAt: now.Unix(), ExpiresAt: expiresAt.Unix(), Filename: filename, Purpose: purpose, Status: "processed"}
 	_, err = tx.ExecContext(ctx, `INSERT INTO openai_files(id,owner_user_id,key_id,filename,purpose,bytes,ciphertext,nonce,created_at,expires_at) VALUES(?,?,?,?,?,?,?,?,?,?)`, item.ID, ownerID, keyID, item.Filename, item.Purpose, item.Bytes, ciphertext, nonce, now.UnixMilli(), expiresAt.UnixMilli())
 	return item, err
 }
