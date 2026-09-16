@@ -252,6 +252,7 @@ func TestGatewayFileReferencesAreRejectedBeforeInferenceDispatch(t *testing.T) {
 	New(store.SystemDB(), keyService, providerService, usageService).Register(mux)
 	requests := []struct{ path, body string }{
 		{"/api/openai/v1/responses", `{"model":"` + model.ID + `","store":false,"input":[{"type":"input_file","file_id":"file_local"}]}`},
+		{"/api/openai/v1/responses", `{"model":"` + model.ID + `","store":false,"input":[{"type":"file_search_call","id":"fs_local","status":"completed","queries":["secret"],"results":[{"file_id":"file_local","attributes":{"secret":"local-only"}}]}]}`},
 		{"/api/openai/v1/chat/completions", `{"model":"` + model.ID + `","messages":[{"role":"user","content":[{"type":"file","file":{"file_id":"file_local"}}]}]}`},
 	}
 	for _, test := range requests {
@@ -265,6 +266,12 @@ func TestGatewayFileReferencesAreRejectedBeforeInferenceDispatch(t *testing.T) {
 	}
 	if containsLocalFileReference(json.RawMessage(`[{"type":"function","parameters":{"properties":{"file_id":{"type":"string"}}}}]`)) {
 		t.Fatal("function schema was mistaken for a local file reference")
+	}
+	if containsLocalFileReference(json.RawMessage(`[{"type":"file_search_call","id":"provider_call","queries":["docs"]}]`)) {
+		t.Fatal("provider file-search call without local results was mistaken for a local reference")
+	}
+	if err := validateCompactInput(json.RawMessage(`[{"type":"file_search_call","id":"fs_local","results":[{"file_id":"file_local","attributes":{"secret":"local-only"}}]}]`)); err == nil {
+		t.Fatal("gateway file-search replay was accepted by compact input validation")
 	}
 }
 

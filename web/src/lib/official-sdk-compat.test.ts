@@ -227,12 +227,40 @@ describe("official SDK compatibility through the Go gateway", () => {
     const parsed = [];
     for await (const item of client.vectorStores.files.content(source.id, { vector_store_id: first.id })) parsed.push(item);
     expect(parsed).toEqual([{ type: "text", text: "vector store notes" }]);
-    const search = await client.vectorStores.search(first.id, {
+		const search = await client.vectorStores.search(first.id, {
       query: "vector notes",
       filters: { type: "eq", key: "suite", value: "updated" },
       max_num_results: 5,
       ranking_options: { ranker: "none", score_threshold: 0.1 },
     });
+    const fileSearchInput = {
+      model: "target-openai",
+      input: "Use the knowledge base",
+      max_output_tokens: 64,
+      tools: [{ type: "file_search" as const, vector_store_ids: [first.id], max_num_results: 3 }],
+    };
+    const response = await client.responses.create({ ...fileSearchInput, store: false, include: ["file_search_call.results" as const] });
+    const fileSearch = response.output.find((item) => item.type === "file_search_call");
+    expect(fileSearch).toMatchObject({
+      type: "file_search_call",
+      status: "completed",
+      queries: ["vector store"],
+      results: [{ file_id: source.id, filename: "vector-store.txt", text: "vector store notes" }],
+    });
+    expect(response.tool_choice).toBe("auto");
+    expect(response).toMatchObject({ model: "target-openai", output_text: "Found the gateway note", usage: { input_tokens: 10, output_tokens: 5, total_tokens: 15 } });
+    const storedFileSearch = await client.responses.create(fileSearchInput);
+    expect(storedFileSearch).toMatchObject({ store: true, background: false });
+    const storedCall = (await client.responses.retrieve(storedFileSearch.id)).output.find((item) => item.type === "file_search_call");
+    expect(storedCall).toMatchObject({ status: "completed" });
+    expect(storedCall).not.toHaveProperty("results");
+    let backgroundFileSearch = await client.responses.create({ ...fileSearchInput, background: true });
+    for (let attempt = 0; attempt < 50 && backgroundFileSearch.status !== "completed"; attempt++) {
+      await new Promise((resolve) => setTimeout(resolve, 20));
+      backgroundFileSearch = await client.responses.retrieve(backgroundFileSearch.id);
+    }
+    expect(backgroundFileSearch).toMatchObject({ status: "completed", store: true, background: true });
+    expect(backgroundFileSearch.output.find((item) => item.type === "file_search_call")).toMatchObject({ status: "completed" });
     expect(search.object).toBe("vector_store.search_results.page");
     expect(search.data[0]).toMatchObject({ file_id: source.id, filename: "vector-store.txt", attributes: { suite: "updated" } });
     expect(search.data[0]?.score).toBeGreaterThan(0);

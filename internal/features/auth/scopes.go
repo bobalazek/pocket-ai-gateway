@@ -13,6 +13,7 @@ var inferenceScopes = []InferenceScope{
 	{ID: "messages:web_fetch", Policy: "Anthropic web fetch also requires chat:generate."},
 	{ID: "responses:generate"},
 	{ID: "responses:web_search", Policy: "OpenAI Responses web search also requires responses:generate."},
+	{ID: "responses:file_search", Policy: "OpenAI Responses file search also requires responses:generate."},
 	{ID: "embeddings:generate"},
 	{ID: "moderations:classify"},
 	{ID: "images:generate"},

@@ -3,6 +3,7 @@ package gateway
 import (
 	"context"
 	"crypto/sha256"
+	"database/sql"
 	"encoding/json"
 	"errors"
 	"io"
@@ -50,6 +51,10 @@ func (handler *Handler) forwardAuthorized(response http.ResponseWriter, request 
 	}
 	if dialect != "responses" && !(dialect == "anthropic" && upstreamPath == "messages") && containsHostedWebSearchTool(envelope["tools"]) {
 		handler.writeError(response, dialect, http.StatusBadRequest, "unsupported_feature", "web search is supported only by POST /api/openai/v1/responses or POST /api/anthropic/v1/messages")
+		return
+	}
+	if dialect != "responses" && containsHostedFileSearchTool(envelope["tools"]) {
+		handler.writeError(response, dialect, http.StatusBadRequest, "unsupported_feature", "file search is supported only by POST /api/openai/v1/responses")
 		return
 	}
 	if !(dialect == "anthropic" && upstreamPath == "messages") && containsAnthropicWebFetchTool(envelope["tools"]) {
@@ -123,6 +128,7 @@ func (handler *Handler) forwardAuthorized(response http.ResponseWriter, request 
 	}
 	storeResponse := false
 	webSearch := responseWebSearchRequest{}
+	fileSearch := responseFileSearchRequest{}
 	storedChat, _ := request.Context().Value(storedChatContextKey{}).(*storedChatRequest)
 	var attached *conversationAttachment
 	switch attachment := request.Context().Value(conversationAttachmentContextKey{}).(type) {
@@ -144,6 +150,20 @@ func (handler *Handler) forwardAuthorized(response http.ResponseWriter, request 
 		if webSearch.enabled && !principalHasScope(principal.Scopes, "responses:web_search") {
 			handler.writeError(response, dialect, http.StatusForbidden, "permission_denied", "Web search access is not permitted")
 			return
+		}
+		fileSearch, _ = validateResponseFileSearch(envelope)
+		if fileSearch.enabled && !principalHasScope(principal.Scopes, responseFileSearchScope) {
+			handler.writeError(response, dialect, http.StatusForbidden, "permission_denied", "File search access is not permitted")
+			return
+		}
+		if fileSearch.enabled {
+			if err := handler.validateResponseFileSearchStores(request.Context(), principal.KeyID, fileSearch); errors.Is(err, sql.ErrNoRows) {
+				handler.writeError(response, dialect, http.StatusNotFound, "not_found", "Vector Store not found")
+				return
+			} else if err != nil {
+				handler.writeError(response, dialect, http.StatusServiceUnavailable, "gateway_unavailable", "Vector Store search is unavailable")
+				return
+			}
 		}
 	}
 	hostedWebSearch := webSearch.enabled || anthropicWebSearch.enabled
@@ -208,6 +228,13 @@ func (handler *Handler) forwardAuthorized(response http.ResponseWriter, request 
 	}
 	outputEstimate := maximumOutput(envelope)
 	outputBounded := outputEstimate > 0
+	if fileSearch.enabled {
+		inputEstimate, err = responseFileSearchInputReservation(inputEstimate, outputEstimate, fileSearch)
+		if err != nil {
+			handler.writeError(response, dialect, http.StatusBadRequest, "invalid_request", err.Error())
+			return
+		}
+	}
 	if upstreamPath == "completions" {
 		outputEstimate, outputBounded, err = completionOutputReservation(outputEstimate, completion)
 		if err != nil {
@@ -305,6 +332,11 @@ func (handler *Handler) forwardAuthorized(response http.ResponseWriter, request 
 				return false, reason
 			}
 		}
+		if fileSearch.enabled {
+			if eligible, reason := fileSearchTargetEligibility(target); !eligible {
+				return false, reason
+			}
+		}
 		if anthropicWebSearch.enabled {
 			if eligible, reason := anthropicWebSearchTargetEligibility(target); !eligible {
 				return false, reason
@@ -356,7 +388,11 @@ func (handler *Handler) forwardAuthorized(response http.ResponseWriter, request 
 	}
 	overallTimeout := time.Duration(0)
 	for _, candidate := range plan.Targets {
-		overallTimeout += time.Duration(candidate.Target().TimeoutMS) * time.Millisecond
+		factor := int64(1)
+		if fileSearch.enabled {
+			factor += fileSearch.maxCalls
+		}
+		overallTimeout += time.Duration(int64(candidate.Target().TimeoutMS)*factor) * time.Millisecond
 	}
 	overallTimeout = min(max(overallTimeout, time.Second), 10*time.Minute)
 	sharedContext, cancelShared := context.WithTimeout(request.Context(), overallTimeout)
@@ -402,7 +438,7 @@ func (handler *Handler) forwardAuthorized(response http.ResponseWriter, request 
 			return
 		}
 		quotedPriceVersionID := routeTarget.PriceVersionID()
-		admission, admitErr := handler.usage.Admit(request.Context(), usage.AdmissionInput{RequestID: requestID, KeyID: principal.KeyID, ConnectionID: target.TargetConnectionID, ModelID: publicID, UpstreamModelRecordID: target.TargetModelID, UpstreamModelID: target.UpstreamID, ConnectionRevision: target.ConnectionRevision, ModelRevision: target.Revision, Operation: clientOperation, TargetOperation: targetPath, Scope: scope, Dialect: recordDialect, TargetDialect: target.Adapter, TranslationApplied: !native, RequestToolCount: requestToolCount, WebSearchMaxCalls: webSearchMaxCalls, SelectionReason: plan.SelectionReason, RejectedCandidatesJSON: string(rejected), RequiredPriceVersionID: quotedPriceVersionID, PriceQuoteAt: priceQuoteAt, QuotedPriceVersionID: &quotedPriceVersionID, RequireFreePrice: plan.FreeOnly, SnapshotPriceOnly: promptCache.enabled || hostedWebTool, BodyBytes: originalBodyBytes, BatchItems: batchItems, EstimatedInputTokens: inputEstimate, EstimatedOutputTokens: outputEstimate, EnforceInputBound: anthropicWebFetch.enabled, InputBounded: !anthropicWebFetch.enabled, EnforceOutputBound: generation, OutputBounded: !generation || outputBounded})
+		admission, admitErr := handler.usage.Admit(request.Context(), usage.AdmissionInput{RequestID: requestID, KeyID: principal.KeyID, ConnectionID: target.TargetConnectionID, ModelID: publicID, UpstreamModelRecordID: target.TargetModelID, UpstreamModelID: target.UpstreamID, ConnectionRevision: target.ConnectionRevision, ModelRevision: target.Revision, Operation: clientOperation, TargetOperation: targetPath, Scope: scope, Dialect: recordDialect, TargetDialect: target.Adapter, TranslationApplied: !native, RequestToolCount: requestToolCount, WebSearchMaxCalls: webSearchMaxCalls, SelectionReason: plan.SelectionReason, RejectedCandidatesJSON: string(rejected), RequiredPriceVersionID: quotedPriceVersionID, PriceQuoteAt: priceQuoteAt, QuotedPriceVersionID: &quotedPriceVersionID, RequireFreePrice: plan.FreeOnly, SnapshotPriceOnly: promptCache.enabled || hostedWebTool, BodyBytes: originalBodyBytes, BatchItems: batchItems, EstimatedInputTokens: inputEstimate, EstimatedOutputTokens: outputEstimate, EnforceInputBound: anthropicWebFetch.enabled || fileSearch.enabled, InputBounded: !anthropicWebFetch.enabled, EnforceOutputBound: generation, OutputBounded: !generation || outputBounded})
 		if admitErr != nil {
 			if requestID != "" {
 				_ = handler.usage.CloseFailedRequest(context.WithoutCancel(request.Context()), requestID)
@@ -435,7 +471,10 @@ func (handler *Handler) forwardAuthorized(response http.ResponseWriter, request 
 		var copyErr error
 		var countedInputTokens *int64
 		semanticResponseError := false
-		if native {
+		if fileSearch.enabled {
+			result, raw, copyErr = handler.dispatchResponseFileSearch(attemptWriter, request, target, targetBody, publicID, principal.KeyID, fileSearch, releaseDispatch)
+			semanticResponseError = copyErr != nil
+		} else if native {
 			result, raw, copyErr = handler.dispatch(attemptWriter, request, target, targetPath, targetBody, stream, dialect, publicID, (anthropicWebSearch.enabled || anthropicWebFetch.enabled) && stream, int(imageGenerationInput.partialImages), releaseDispatch)
 			semanticResponseError = errors.Is(copyErr, errAnthropicStreamInvalid) || errors.Is(copyErr, protocol.ErrInvalidOpenAICompletion) || errors.Is(copyErr, protocol.ErrInvalidOpenAIImageStream)
 		} else {
@@ -548,6 +587,8 @@ func (handler *Handler) forwardAuthorized(response http.ResponseWriter, request 
 			}
 		}
 		dispatchErr := copyErr
+		var accountedFileSearchFailure *responseFileSearchAccountedError
+		fileSearchUsageKnown := errors.As(dispatchErr, &accountedFileSearchFailure)
 		accountDialect := recordDialect
 		if !native {
 			accountDialect = target.Adapter
@@ -581,6 +622,9 @@ func (handler *Handler) forwardAuthorized(response http.ResponseWriter, request 
 			}
 		}
 		success := copyErr == nil && result >= 200 && result < 300 && !webSearchTerminalFailure
+		if fileSearch.enabled && success {
+			fileSearchUsageKnown = true
+		}
 		if success && promptCache.enabled && (cacheCreationInputTokens == nil || cacheReadInputTokens == nil) {
 			inputTokens, outputTokens, cost = nil, nil, nil
 			cacheCreationInputTokens, cacheReadInputTokens = nil, nil
@@ -632,7 +676,7 @@ func (handler *Handler) forwardAuthorized(response http.ResponseWriter, request 
 			_ = handler.providers.RecordRouteOutcome(context.WithoutCancel(request.Context()), target, clientOperation, stream, success, attemptWriter.FirstByte(started), time.Since(started))
 		}
 		retryableDispatchError := !semanticResponseError && (native && dispatchErr != nil || errors.Is(dispatchErr, errUpstreamResponseInterrupted))
-		retry := !openAIBatch && !opaqueMedia && !promptCache.enabled && !hostedWebTool && !terminalStreamFailure && index+1 < len(plan.Targets) && (retryableDispatchError || retryableResult(result, copyErr)) && !attemptWriter.Committed()
+		retry := !openAIBatch && !opaqueMedia && !promptCache.enabled && !hostedWebTool && !fileSearch.enabled && !terminalStreamFailure && index+1 < len(plan.Targets) && (retryableDispatchError || retryableResult(result, copyErr)) && !attemptWriter.Committed()
 		state, status := "succeeded", "provider_reported"
 		if estimatedUsage {
 			status = "estimated"
@@ -663,7 +707,7 @@ func (handler *Handler) forwardAuthorized(response http.ResponseWriter, request 
 				toolCalls, toolStatus = 0, "none"
 			}
 			state = "failed"
-			if !terminalStreamFailure {
+			if !terminalStreamFailure && !fileSearchUsageKnown {
 				status = "unknown"
 				inputTokens, outputTokens, cost = nil, nil, nil
 				cacheCreationInputTokens, cacheReadInputTokens = nil, nil

@@ -79,6 +79,8 @@ func validateResponseWebSearch(envelope map[string]json.RawMessage) (responseWeb
 		switch kind {
 		case "function":
 			continue
+		case "file_search":
+			continue
 		case "web_search":
 			if result.enabled {
 				return result, errors.New("at most one web_search tool is supported")
@@ -88,7 +90,7 @@ func validateResponseWebSearch(envelope map[string]json.RawMessage) (responseWeb
 			}
 			result.enabled = true
 		default:
-			return result, errors.New("only function and web_search tools are supported by Responses")
+			return result, errors.New("only function, web_search, and file_search tools are supported by Responses")
 		}
 	}
 	if !result.enabled {

@@ -73,14 +73,32 @@ func (handler *Handler) enqueueResponse(response http.ResponseWriter, request *h
 		handler.writeError(response, "responses", http.StatusForbidden, "permission_denied", "Web search access is not permitted")
 		return
 	}
+	fileSearch, _ := validateResponseFileSearch(check)
+	if fileSearch.enabled && !principalHasScope(principal.Scopes, responseFileSearchScope) {
+		handler.writeError(response, "responses", http.StatusForbidden, "permission_denied", "File search access is not permitted")
+		return
+	}
+	if fileSearch.enabled {
+		if err := handler.validateResponseFileSearchStores(request.Context(), principal.KeyID, fileSearch); errors.Is(err, sql.ErrNoRows) {
+			handler.writeError(response, "responses", http.StatusNotFound, "not_found", "Vector Store not found")
+			return
+		} else if err != nil {
+			handler.writeError(response, "responses", http.StatusServiceUnavailable, "gateway_unavailable", "Vector Store search is unavailable")
+			return
+		}
+	}
 	if !handler.providers.HasAvailableRouteTarget(request.Context(), modelID, func(connectionID string) bool {
 		return principal.Allows("responses:generate", modelID, connectionID)
 	}, func(target providers.Target) bool {
-		if !webSearch.enabled {
-			return true
+		if webSearch.enabled {
+			eligible, _ := webSearchTargetEligibility(target)
+			return eligible
 		}
-		eligible, _ := webSearchTargetEligibility(target)
-		return eligible
+		if fileSearch.enabled {
+			eligible, _ := fileSearchTargetEligibility(target)
+			return eligible
+		}
+		return true
 	}) {
 		handler.writeError(response, "responses", http.StatusNotFound, "model_not_found", "Model is unavailable")
 		return
@@ -278,6 +296,11 @@ func (handler *Handler) runBackground(parent context.Context, job backgroundJob)
 		handler.failBackground(parent, job, "invalid_request", "The stored request is invalid.")
 		return
 	}
+	fileSearch, validateErr := validateResponseFileSearch(envelope)
+	if validateErr != nil {
+		handler.failBackground(parent, job, "invalid_request", "The stored request is invalid.")
+		return
+	}
 	principal, err := handler.keys.Principal(parent, job.keyID)
 	if err != nil || !principalHasScope(principal.Scopes, "responses:generate") {
 		handler.failBackground(parent, job, "permission_denied", "The API key or its grants are no longer active.")
@@ -286,6 +309,19 @@ func (handler *Handler) runBackground(parent context.Context, job backgroundJob)
 	if webSearch.enabled && !principalHasScope(principal.Scopes, "responses:web_search") {
 		handler.failBackground(parent, job, "permission_denied", "Web search access is no longer permitted.")
 		return
+	}
+	if fileSearch.enabled && !principalHasScope(principal.Scopes, responseFileSearchScope) {
+		handler.failBackground(parent, job, "permission_denied", "File search access is no longer permitted.")
+		return
+	}
+	if fileSearch.enabled {
+		if err := handler.validateResponseFileSearchStores(parent, job.keyID, fileSearch); errors.Is(err, sql.ErrNoRows) {
+			handler.failBackground(parent, job, "not_found", "A Vector Store is no longer available.")
+			return
+		} else if err != nil {
+			handler.failBackground(parent, job, "server_error", "Vector Store search is unavailable.")
+			return
+		}
 	}
 	if job.attachment != nil {
 		var revision int64

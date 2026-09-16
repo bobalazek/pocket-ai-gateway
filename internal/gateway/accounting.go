@@ -291,7 +291,7 @@ func parseToolMetadata(dialect string, raw []byte) (int64, string) {
 			}
 			for index, itemValue := range items {
 				item := objectMap(itemValue)
-				if stringValue(item["type"]) == "function_call" {
+				if kind := stringValue(item["type"]); kind == "function_call" || kind == "file_search_call" {
 					key := firstString(item, "id", "call_id")
 					if key == "" {
 						if outputIndex, ok := integer(value["output_index"]); ok {

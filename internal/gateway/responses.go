@@ -43,6 +43,24 @@ func (handler *Handler) responses(response http.ResponseWriter, request *http.Re
 		handler.writeError(response, "responses", http.StatusForbidden, "permission_denied", "Web search access is not permitted")
 		return
 	}
+	fileSearch, fileSearchErr := validateResponseFileSearch(envelope)
+	if fileSearchErr != nil {
+		handler.writeError(response, "responses", http.StatusBadRequest, "unsupported_feature", fileSearchErr.Error())
+		return
+	}
+	if fileSearch.enabled && !principalHasScope(principal.Scopes, responseFileSearchScope) {
+		handler.writeError(response, "responses", http.StatusForbidden, "permission_denied", "File search access is not permitted")
+		return
+	}
+	if fileSearch.enabled {
+		if err := handler.validateResponseFileSearchStores(request.Context(), principal.KeyID, fileSearch); errors.Is(err, sql.ErrNoRows) {
+			handler.writeError(response, "responses", http.StatusNotFound, "not_found", "Vector Store not found")
+			return
+		} else if err != nil {
+			handler.writeError(response, "responses", http.StatusServiceUnavailable, "gateway_unavailable", "Vector Store search is unavailable")
+			return
+		}
+	}
 	conversationID, conversationErr := responseConversationID(envelope["conversation"])
 	if conversationErr != nil {
 		handler.writeError(response, "responses", http.StatusBadRequest, "invalid_request", conversationErr.Error())
@@ -200,6 +218,9 @@ func validateCompactInput(raw json.RawMessage) error {
 		if _, ok := item.(map[string]any); !ok {
 			return errors.New("input array must contain only input-item objects")
 		}
+	}
+	if walkLocalFileReferences(items) {
+		return errors.New("gateway file references are not supported")
 	}
 	return rejectCompactReferences(items)
 }
