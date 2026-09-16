@@ -7,7 +7,6 @@ import (
 	"encoding/binary"
 	"encoding/json"
 	"errors"
-	"os"
 	"sort"
 	"strings"
 	"time"
@@ -412,7 +411,7 @@ func (service *Service) Route(ctx context.Context, publicID string, options Rout
 			}
 		}
 		if external.Valid {
-			item.target.Credential = os.Getenv(strings.TrimPrefix(external.String, "env:"))
+			item.target.Credential, item.target.BearerCredential, err = resolveExternalCredential(external.String)
 		} else if len(ciphertext) > 0 {
 			item.target.Credential, err = openSecret(service.key, item.ConnectionID, ciphertext, nonce)
 		}
@@ -599,7 +598,8 @@ func (service *Service) HasAvailableRouteTarget(ctx context.Context, publicID st
 		if eligible != nil && !eligible(Target{PublicModel: PublicModel{TargetConnectionID: id, Adapter: adapter, Capabilities: publicCapabilities, RoutingStrategy: routingStrategy, FreeOnly: freeOnly}, UpstreamCapabilities: upstreamCapabilities, Preset: preset}) {
 			continue
 		}
-		if preset == "ollama" || len(ciphertext) > 0 || external.Valid && os.Getenv(strings.TrimPrefix(external.String, "env:")) != "" {
+		credential, _, _ := resolveExternalCredential(external.String)
+		if preset == "ollama" || len(ciphertext) > 0 || external.Valid && credential != "" {
 			return true
 		}
 	}

@@ -33,7 +33,7 @@ export function ProviderForm({ presets, adapters, selected, selectedPreset, adap
             </select>
           </div>
         </div>
-        {selected && <p className="help-text">{selected.adapter_label} · {selected.operations.join(", ")} · <a href={selected.documentation_url} target="_blank" rel="noreferrer">Documentation</a> · reviewed {selected.reviewed_at}</p>}
+        {selected && <p className="help-text">{selected.adapter_label} · {selected.operations.join(", ")}{selected.authentication ? ` · ${selected.authentication}` : ""} · <a href={selected.documentation_url} target="_blank" rel="noreferrer">Documentation</a> · reviewed {selected.reviewed_at}</p>}
         <div className="inline-fields">
           <div className="field">
             <Label htmlFor="adapter">Adapter</Label>

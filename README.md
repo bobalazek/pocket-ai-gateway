@@ -101,6 +101,8 @@ Built-in provider presets cover OpenAI, Anthropic, Gemini, OpenRouter, Ollama, M
 
 A preset defines connection behavior and available operations. Actual capability still depends on the chosen upstream model. Live certification is tracked separately from deterministic protocol tests, so the project does not claim a provider works until the tested release records it.
 
+Provider secrets can be encrypted locally or read from environment and mounted-file references. Bearer references let Azure Entra and Google Cloud identity agents rotate short-lived tokens without restarting the gateway.
+
 ## Dashboard and operations
 
 The embedded dashboard provides:

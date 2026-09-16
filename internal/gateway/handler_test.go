@@ -22,17 +22,24 @@ import (
 )
 
 func TestProviderCredentialHeaders(t *testing.T) {
-	tests := []struct{ adapter, preset, header, want string }{
-		{"openai", "openai", "Authorization", "Bearer secret"},
-		{"anthropic", "anthropic", "x-api-key", "secret"},
-		{"gemini", "gemini", "x-goog-api-key", "secret"},
-		{"openai_compatible", "azure-openai", "api-key", "secret"},
+	tests := []struct {
+		adapter, preset, header, want string
+		bearer                        bool
+	}{
+		{adapter: "openai", preset: "openai", header: "Authorization", want: "Bearer secret"},
+		{adapter: "anthropic", preset: "anthropic", header: "x-api-key", want: "secret"},
+		{adapter: "gemini", preset: "gemini", header: "x-goog-api-key", want: "secret"},
+		{adapter: "openai_compatible", preset: "azure-openai", header: "api-key", want: "secret"},
+		{adapter: "openai_compatible", preset: "azure-openai", header: "Authorization", want: "Bearer secret", bearer: true},
 	}
 	for _, test := range tests {
 		request, _ := http.NewRequest(http.MethodPost, "https://example.test", nil)
-		setProviderCredential(request, test.adapter, test.preset, "secret")
+		setProviderCredential(request, test.adapter, test.preset, "secret", test.bearer)
 		if value := request.Header.Get(test.header); value != test.want {
 			t.Errorf("%s/%s %s=%q", test.adapter, test.preset, test.header, value)
+		}
+		if test.bearer && request.Header.Get("api-key") != "" {
+			t.Errorf("%s/%s bearer credential also set api-key", test.adapter, test.preset)
 		}
 	}
 }

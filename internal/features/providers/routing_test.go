@@ -181,6 +181,9 @@ func TestCatalogValidationAndPresets(t *testing.T) {
 		if len(preset.Capabilities) == 0 || preset.AdapterLabel == "" || preset.BaseURLRequired && preset.BaseURLExample == "" {
 			t.Errorf("%s preset has incomplete published metadata", preset.ID)
 		}
+		if (preset.ID == "azure-openai" || preset.ID == "bedrock" || preset.ID == "vertex") && (preset.Authentication == "" || preset.ReviewedAt != "2026-09-16") {
+			t.Errorf("%s cloud authentication metadata is incomplete", preset.ID)
+		}
 	}
 	if !containsString(availableCapabilities("anthropic", "anthropic"), "web_fetch") || containsString(availableCapabilities("custom", "anthropic"), "web_fetch") {
 		t.Fatal("provider capability policy was not applied by the backend")
@@ -217,6 +220,7 @@ func TestCatalogValidationAndPresets(t *testing.T) {
 	clouds := []ConnectionInput{
 		{Name: "Azure", Preset: "azure-openai", BaseURL: "https://gateway.openai.azure.com/openai/v1"},
 		{Name: "Bedrock", Preset: "bedrock", BaseURL: "https://bedrock-runtime.eu-central-1.amazonaws.com/openai/v1"},
+		{Name: "Bedrock Mantle", Preset: "bedrock", BaseURL: "https://bedrock-mantle.us-west-2.api.aws/openai/v1"},
 		{Name: "Vertex", Preset: "vertex", BaseURL: "https://europe-west1-aiplatform.googleapis.com/v1/projects/example/locations/europe-west1/endpoints/openapi"},
 	}
 	for _, cloud := range clouds {

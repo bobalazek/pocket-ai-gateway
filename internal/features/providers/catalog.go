@@ -30,6 +30,7 @@ type Preset struct {
 	BaseURLExample     string             `json:"base_url_example,omitempty"`
 	BaseURLRequired    bool               `json:"base_url_required"`
 	CredentialRequired bool               `json:"credential_required"`
+	Authentication     string             `json:"authentication,omitempty"`
 	PrivateNetwork     bool               `json:"private_network"`
 	Operations         []string           `json:"operations"`
 	Capabilities       []string           `json:"capabilities"`
@@ -52,9 +53,9 @@ var presets = []Preset{
 	{ID: "fireworks", Label: "Fireworks AI", Adapter: "openai_compatible", BaseURL: "https://api.fireworks.ai/inference/v1", CredentialRequired: true, Operations: []string{"chat/completions", "completions", "responses", "embeddings"}, DocumentationURL: "https://docs.fireworks.ai/tools-sdks/openai-compatibility", ReviewedAt: "2026-09-16"},
 	{ID: "cohere", Label: "Cohere", Adapter: "openai_compatible", BaseURL: "https://api.cohere.ai/compatibility/v1", CredentialRequired: true, Operations: []string{"chat/completions", "embeddings", "audio/transcriptions"}, DocumentationURL: "https://docs.cohere.com/docs/compatibility-api", ReviewedAt: "2026-09-16"},
 	{ID: "perplexity", Label: "Perplexity", Adapter: "openai_compatible", BaseURL: "https://api.perplexity.ai/v1", CredentialRequired: true, Operations: []string{"chat/completions", "responses", "embeddings"}, DocumentationURL: "https://docs.perplexity.ai/docs/agent-api/openai-compatibility", ReviewedAt: "2026-09-16"},
-	{ID: "azure-openai", Label: "Azure OpenAI", Adapter: "openai_compatible", BaseURLRequired: true, BaseURLExample: "https://your-resource.openai.azure.com/openai/v1", CredentialRequired: true, Operations: []string{"chat/completions", "responses"}, DocumentationURL: "https://learn.microsoft.com/en-us/azure/foundry/openai/api-version-lifecycle", ReviewedAt: "2026-09-15"},
-	{ID: "bedrock", Label: "Amazon Bedrock", Adapter: "openai_compatible", BaseURLRequired: true, BaseURLExample: "https://bedrock-runtime.us-east-1.amazonaws.com/openai/v1", CredentialRequired: true, Operations: []string{"chat/completions", "responses"}, DocumentationURL: "https://docs.aws.amazon.com/bedrock/latest/userguide/apis.html", ReviewedAt: "2026-09-15"},
-	{ID: "vertex", Label: "Google Vertex AI", Adapter: "openai_compatible", BaseURLRequired: true, BaseURLExample: "https://us-central1-aiplatform.googleapis.com/v1/projects/your-project/locations/us-central1/endpoints/openapi", CredentialRequired: true, Operations: []string{"chat/completions"}, DocumentationURL: "https://cloud.google.com/vertex-ai/generative-ai/docs/start/openai", ReviewedAt: "2026-09-15"},
+	{ID: "azure-openai", Label: "Azure OpenAI", Adapter: "openai_compatible", BaseURLRequired: true, BaseURLExample: "https://your-resource.openai.azure.com/openai/v1", CredentialRequired: true, Authentication: "API key, or a rotating Microsoft Entra bearer-token reference", Operations: []string{"chat/completions", "responses"}, DocumentationURL: "https://learn.microsoft.com/en-us/azure/foundry/openai/api-version-lifecycle", ReviewedAt: "2026-09-16"},
+	{ID: "bedrock", Label: "Amazon Bedrock", Adapter: "openai_compatible", BaseURLRequired: true, BaseURLExample: "https://bedrock-runtime.us-east-1.amazonaws.com/openai/v1", CredentialRequired: true, Authentication: "Amazon Bedrock bearer API key", Operations: []string{"chat/completions", "responses"}, DocumentationURL: "https://docs.aws.amazon.com/bedrock/latest/userguide/apis.html", ReviewedAt: "2026-09-16"},
+	{ID: "vertex", Label: "Google Vertex AI", Adapter: "openai_compatible", BaseURLRequired: true, BaseURLExample: "https://us-central1-aiplatform.googleapis.com/v1/projects/your-project/locations/us-central1/endpoints/openapi", CredentialRequired: true, Authentication: "Rotating Google Cloud bearer-token reference", Operations: []string{"chat/completions"}, DocumentationURL: "https://cloud.google.com/vertex-ai/generative-ai/docs/start/openai", ReviewedAt: "2026-09-16"},
 }
 
 type CatalogCandidate struct {
