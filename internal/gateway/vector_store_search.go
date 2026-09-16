@@ -2,9 +2,11 @@ package gateway
 
 import (
 	"bytes"
+	"context"
 	"database/sql"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"math"
 	"net/http"
 	"sort"
@@ -63,55 +65,10 @@ func (handler *Handler) searchVectorStore(response http.ResponseWriter, request 
 		return
 	}
 	storeID := request.PathValue("vector_store_id")
-	if _, err := handler.readVectorStore(request.Context(), principal.KeyID, storeID, false); errors.Is(err, sql.ErrNoRows) {
-		handler.writeError(response, "openai", http.StatusNotFound, "not_found", "Vector Store not found")
-		return
-	} else if err != nil {
-		handler.writeError(response, "openai", http.StatusServiceUnavailable, "gateway_unavailable", "Vector Store search is unavailable")
-		return
-	}
-	if !handler.acquireFileTransfer(response) {
-		return
-	}
-	defer handler.releaseFileTransfer()
-	files, err := handler.listVectorStoreSearchFiles(request, principal.KeyID, storeID, options.filter)
+	results, err := handler.searchVectorStores(request.Context(), principal.KeyID, []string{storeID}, options)
 	if err != nil {
-		handler.writeError(response, "openai", http.StatusServiceUnavailable, "gateway_unavailable", "Vector Store search is unavailable")
-		return
-	}
-	queryTerms := searchTermFrequency(strings.Join(options.queries, " "))
-	results := make([]vectorStoreSearchResult, 0, options.limit)
-	for _, file := range files {
-		storedFile, content, loadErr := handler.loadOpenAIFileContent(request.Context(), principal.KeyID, file.id)
-		if loadErr != nil {
-			handler.writeError(response, "openai", http.StatusServiceUnavailable, "gateway_unavailable", "Vector Store search is unavailable")
-			return
-		}
-		chunks, chunkErr := vectorStoreContentChunks(storedFile.Filename, content)
-		if chunkErr != nil {
-			handler.writeError(response, "openai", http.StatusBadRequest, "unsupported_feature", chunkErr.Error())
-			return
-		}
-		for ordinal, chunk := range chunks {
-			score := lexicalCosine(queryTerms, searchTermFrequency(chunk.Text))
-			if score <= 0 || score < options.threshold {
-				continue
-			}
-			results = append(results, vectorStoreSearchResult{FileID: file.id, Filename: file.filename, Score: score, Attributes: file.attributes, Content: []vectorStoreContent{chunk}, ordinal: ordinal})
-			sort.Slice(results, func(left, right int) bool { return betterVectorStoreResult(results[left], results[right]) })
-			if len(results) > options.limit {
-				results = results[:options.limit]
-			}
-		}
-	}
-	now := time.Now().UnixMilli()
-	updated, err := handler.database.ExecContext(request.Context(), `UPDATE openai_vector_stores SET last_active_at=?,expires_at=CASE WHEN expires_after_days IS NULL THEN NULL ELSE ?+expires_after_days*86400000 END WHERE id=? AND key_id=? AND (expires_at IS NULL OR expires_at>?)`, now, now, storeID, principal.KeyID, now)
-	if err != nil {
-		handler.writeError(response, "openai", http.StatusServiceUnavailable, "gateway_unavailable", "Vector Store search is unavailable")
-		return
-	}
-	if count, _ := updated.RowsAffected(); count != 1 {
-		handler.writeError(response, "openai", http.StatusNotFound, "not_found", "Vector Store not found")
+		status, code, message := vectorStoreSearchError(err)
+		handler.writeError(response, "openai", status, code, message)
 		return
 	}
 	response.Header().Set("Cache-Control", "no-store")
@@ -121,7 +78,101 @@ func (handler *Handler) searchVectorStore(response http.ResponseWriter, request 
 var (
 	errVectorStoreSearchRewrite  = errors.New("query rewriting is not supported by local Vector Store search")
 	errVectorStoreSemanticRanker = errors.New("embedding-backed Vector Store ranking is not supported")
+	errVectorStoreSearchNoStores = errors.New("at least one Vector Store is required")
+	errVectorStoreSearchBusy     = errors.New("another file operation is already in progress")
+	errVectorStoreSearchContent  = errors.New("vector store content cannot be searched")
 )
+
+func vectorStoreSearchError(err error) (int, string, string) {
+	switch {
+	case errors.Is(err, sql.ErrNoRows):
+		return http.StatusNotFound, "not_found", "Vector Store not found"
+	case errors.Is(err, errVectorStoreSearchBusy):
+		return http.StatusTooManyRequests, "rate_limit_exceeded", err.Error()
+	case errors.Is(err, errVectorStoreSearchContent):
+		return http.StatusBadRequest, "unsupported_feature", err.Error()
+	default:
+		return http.StatusServiceUnavailable, "gateway_unavailable", "Vector Store search is unavailable"
+	}
+}
+
+func (handler *Handler) searchVectorStores(ctx context.Context, keyID string, storeIDs []string, options vectorStoreSearchOptions) ([]vectorStoreSearchResult, error) {
+	if len(storeIDs) == 0 {
+		return nil, errVectorStoreSearchNoStores
+	}
+	uniqueStoreIDs := make([]string, 0, len(storeIDs))
+	seen := make(map[string]struct{}, len(storeIDs))
+	for _, storeID := range storeIDs {
+		if _, exists := seen[storeID]; exists {
+			continue
+		}
+		if _, err := handler.readVectorStore(ctx, keyID, storeID, false); err != nil {
+			return nil, err
+		}
+		seen[storeID] = struct{}{}
+		uniqueStoreIDs = append(uniqueStoreIDs, storeID)
+	}
+	select {
+	case handler.fileTransfers <- struct{}{}:
+	default:
+		return nil, errVectorStoreSearchBusy
+	}
+	defer handler.releaseFileTransfer()
+
+	queryTerms := searchTermFrequency(strings.Join(options.queries, " "))
+	results := make([]vectorStoreSearchResult, 0, options.limit)
+	for _, storeID := range uniqueStoreIDs {
+		files, err := handler.listVectorStoreSearchFiles(ctx, keyID, storeID, options.filter)
+		if err != nil {
+			return nil, err
+		}
+		for _, file := range files {
+			storedFile, content, err := handler.loadOpenAIFileContent(ctx, keyID, file.id)
+			if err != nil {
+				return nil, err
+			}
+			chunks, err := vectorStoreContentChunks(storedFile.Filename, content)
+			if err != nil {
+				return nil, fmt.Errorf("%w: %v", errVectorStoreSearchContent, err)
+			}
+			for ordinal, chunk := range chunks {
+				score := lexicalCosine(queryTerms, searchTermFrequency(chunk.Text))
+				if score <= 0 || score < options.threshold {
+					continue
+				}
+				results = append(results, vectorStoreSearchResult{FileID: file.id, Filename: file.filename, Score: score, Attributes: file.attributes, Content: []vectorStoreContent{chunk}, ordinal: ordinal})
+				sort.Slice(results, func(left, right int) bool { return betterVectorStoreResult(results[left], results[right]) })
+				if len(results) > options.limit {
+					results = results[:options.limit]
+				}
+			}
+		}
+	}
+
+	now := time.Now().UnixMilli()
+	tx, err := handler.database.BeginTx(ctx, nil)
+	if err != nil {
+		return nil, err
+	}
+	defer tx.Rollback()
+	for _, storeID := range uniqueStoreIDs {
+		updated, err := tx.ExecContext(ctx, `UPDATE openai_vector_stores SET last_active_at=?,expires_at=CASE WHEN expires_after_days IS NULL THEN NULL ELSE ?+expires_after_days*86400000 END WHERE id=? AND key_id=? AND (expires_at IS NULL OR expires_at>?)`, now, now, storeID, keyID, now)
+		if err != nil {
+			return nil, err
+		}
+		count, err := updated.RowsAffected()
+		if err != nil {
+			return nil, err
+		}
+		if count != 1 {
+			return nil, sql.ErrNoRows
+		}
+	}
+	if err := tx.Commit(); err != nil {
+		return nil, err
+	}
+	return results, nil
+}
 
 func parseVectorStoreSearch(body []byte) (vectorStoreSearchOptions, error) {
 	var fields map[string]json.RawMessage
@@ -271,8 +322,8 @@ func validVectorStoreFilterScalar(value any, allowBool bool) bool {
 	}
 }
 
-func (handler *Handler) listVectorStoreSearchFiles(request *http.Request, keyID, storeID string, filter *vectorStoreAttributeFilter) ([]vectorStoreSearchFile, error) {
-	rows, err := handler.database.QueryContext(request.Context(), `SELECT openai_vector_store_files.file_id,openai_files.filename,openai_vector_store_files.attributes_json
+func (handler *Handler) listVectorStoreSearchFiles(ctx context.Context, keyID, storeID string, filter *vectorStoreAttributeFilter) ([]vectorStoreSearchFile, error) {
+	rows, err := handler.database.QueryContext(ctx, `SELECT openai_vector_store_files.file_id,openai_files.filename,openai_vector_store_files.attributes_json
 		FROM openai_vector_store_files
 		JOIN openai_vector_stores ON openai_vector_stores.id=openai_vector_store_files.vector_store_id
 		JOIN openai_files ON openai_files.id=openai_vector_store_files.file_id

@@ -85,6 +85,16 @@ paths:
         references, preview or image-search tool variants, unlimited search-token return, translation, post-dispatch fallback, free-only/lowest-cost
         routing, and spend policies. The gateway always sends store:false upstream. Token usage and the
         completed web-search call count are recorded separately; provider search cost is unknown.
+        One file_search tool may search 1-10 same-key local Vector Stores with responses:file_search,
+        positive cumulative max_output_tokens, and 1-4 max_tool_calls. The gateway runs a private
+        function-tool loop on one native Responses target, sends only matched text upstream, restores
+        the public tool fields, emits official file_search_call items, and aggregates every provider
+        turn's usage, including completed turns before a later failure. Local File IDs and attachment
+        attributes remain inside the gateway, and gateway-generated file-search calls cannot be replayed
+        as new input. A turn that also emits a caller function returns both
+        calls without forwarding the unresolved function. Stateless, stored, and background JSON are supported; streaming,
+        Conversations, previous-response references, web-search combinations, semantic/hybrid rankers,
+        prompt templates/cache controls, translation, and post-dispatch fallback are rejected.
       requestBody:
         required: true
         content:
@@ -94,25 +104,26 @@ paths:
               required: [model]
               properties:
                 model: { type: string }
-                input: { oneOf: [{ type: string }, { type: array, items: { type: object } }, { type: "null" }], description: Web search rejects provider-owned response, Conversation, item, file, and container references }
+                input: { oneOf: [{ type: string }, { type: array, items: { type: object } }, { type: "null" }], description: Hosted search rejects provider-owned response, Conversation, item, file, and container references; gateway-generated file-search calls are also rejected }
                 instructions: { type: [string, "null"] }
-                conversation: { oneOf: [{ type: string }, { type: object, required: [id], properties: { id: { type: string } }, additionalProperties: false }, { type: "null" }], description: Rejected when web_search is present }
-                previous_response_id: { type: [string, "null"], description: Rejected when web_search is present }
+                conversation: { oneOf: [{ type: string }, { type: object, required: [id], properties: { id: { type: string } }, additionalProperties: false }, { type: "null" }], description: Rejected when web_search or file_search is present }
+                previous_response_id: { type: [string, "null"], description: Rejected when web_search or file_search is present }
                 tools:
                   type: [array, "null"]
-                  description: At most one WebSearchTool may accompany function tools
+                  description: Function tools may accompany at most one WebSearchTool or one FileSearchTool; the two hosted tools cannot be combined
                   items:
                     oneOf:
                       - { type: object, required: [type], properties: { type: { const: function } }, additionalProperties: true }
                       - { $ref: "#/components/schemas/WebSearchTool" }
+                      - { $ref: "#/components/schemas/FileSearchTool" }
                 include:
                   type: [array, "null"]
                   items: { type: string }
-                  description: With web search, the only accepted value is web_search_call.action.sources
+                  description: With hosted search, accepts only the matching web_search_call.action.sources or file_search_call.results value
                 tool_choice: { description: Native OpenAI tool selection; may be a string or typed object }
                 parallel_tool_calls: { type: [boolean, "null"] }
-                max_tool_calls: { type: [integer, "null"], minimum: 1, maximum: 4, description: Required when web_search is present }
-                max_output_tokens: { type: [integer, "null"], minimum: 1, description: Required when web_search is present }
+                max_tool_calls: { type: [integer, "null"], minimum: 1, maximum: 4, description: Required for web_search; optional with a default of one for file_search }
+                max_output_tokens: { type: [integer, "null"], minimum: 1, description: Required when web_search or file_search is present; for gateway-owned file search this is cumulative across provider turns }
                 temperature: { type: [number, "null"], minimum: 0, maximum: 2 }
                 top_p: { type: [number, "null"], minimum: 0, maximum: 1 }
                 text: { type: [object, "null"], additionalProperties: true }
@@ -120,7 +131,7 @@ paths:
                 truncation: { type: [string, "null"], enum: [auto, disabled, null] }
                 metadata: { type: [object, "null"], maxProperties: 16, propertyNames: { maxLength: 64 }, additionalProperties: { type: string, maxLength: 512 } }
                 store: { type: boolean, default: true }
-                stream: { type: [boolean, "null"], description: true is rejected when web_search is present }
+                stream: { type: [boolean, "null"], description: true is rejected when web_search or file_search is present }
                 background: { type: boolean, default: false }
               additionalProperties: true
       responses:
@@ -136,6 +147,7 @@ paths:
                     items:
                       anyOf:
                         - { $ref: "#/components/schemas/ResponseWebSearchCall" }
+                        - { $ref: "#/components/schemas/ResponseFileSearchCall" }
                         - { type: object, description: Another native Responses output item }
                   usage:
                     type: object
@@ -972,6 +984,46 @@ components:
                 country: { type: [string, "null"], minLength: 1, maxLength: 255 }
                 region: { type: [string, "null"], minLength: 1, maxLength: 255 }
                 timezone: { type: [string, "null"], minLength: 1, maxLength: 255 }
+            - { type: "null" }
+    FileSearchTool:
+      type: object
+      additionalProperties: false
+      required: [type, vector_store_ids]
+      properties:
+        type: { const: file_search }
+        vector_store_ids: { type: array, minItems: 1, maxItems: 10, uniqueItems: true, items: { type: string, minLength: 1 } }
+        max_num_results: { type: integer, minimum: 1, maximum: 50, default: 10 }
+        filters: { type: [object, "null"], description: Bounded Vector Store comparison or compound attribute filter }
+        ranking_options:
+          type: [object, "null"]
+          additionalProperties: false
+          properties:
+            ranker: { type: string, enum: [auto, default-2024-11-15], description: Rejected until embedding-backed ranking is implemented }
+            score_threshold: { type: number, minimum: 0, maximum: 1 }
+            hybrid_search: { type: object, description: Rejected until embedding-backed ranking is implemented }
+    ResponseFileSearchCall:
+      type: object
+      additionalProperties: false
+      required: [id, type, status, queries]
+      properties:
+        id: { type: string, pattern: "^fs_" }
+        type: { const: file_search_call }
+        status: { const: completed }
+        queries: { type: array, minItems: 1, maxItems: 16, items: { type: string } }
+        results:
+          description: Present only when file_search_call.results is requested through include
+          oneOf:
+            - type: array
+              items:
+                type: object
+                additionalProperties: false
+                required: [file_id, filename, score, text]
+                properties:
+                  attributes: { type: object, additionalProperties: true }
+                  file_id: { type: string, pattern: "^file_" }
+                  filename: { type: string }
+                  score: { type: number, minimum: 0, maximum: 1 }
+                  text: { type: string }
             - { type: "null" }
     ResponseWebSearchCall:
       type: object

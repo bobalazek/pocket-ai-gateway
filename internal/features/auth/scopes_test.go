@@ -43,3 +43,15 @@ func TestOpenAIVectorStoresScopeIsAnInferenceScope(t *testing.T) {
 		t.Fatal("vector_stores:manage was rejected")
 	}
 }
+
+func TestOpenAIResponsesFileSearchScopeIsAnInferenceScope(t *testing.T) {
+	if !ValidInferenceScope("responses:file_search") {
+		t.Fatal("responses:file_search was rejected")
+	}
+	for _, scope := range inferenceScopes {
+		if scope.ID == "responses:file_search" && scope.Policy != "" {
+			return
+		}
+	}
+	t.Fatal("responses:file_search policy is missing")
+}

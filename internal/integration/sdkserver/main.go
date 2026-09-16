@@ -106,7 +106,7 @@ func main() {
 		connections = append(connections, connection.ID)
 	}
 	keyService := keys.New(store.SystemDB())
-	_, secret, err := keyService.Create(ctx, owner.ID, keys.Input{Label: "Official SDK matrix", Scopes: []string{"chat:generate", "completions:generate", "messages:batches", "messages:web_search", "messages:web_fetch", "responses:generate", "responses:web_search", "embeddings:generate", "moderations:classify", "images:generate", "images:edit", "images:variation", "audio:speech", "audio:transcribe", "audio:translate", "models:read", "tokens:count", "files:manage", "batches:manage", "vector_stores:manage"}, ModelPatterns: []string{"target-*"}, ConnectionIDs: connections})
+	_, secret, err := keyService.Create(ctx, owner.ID, keys.Input{Label: "Official SDK matrix", Scopes: []string{"chat:generate", "completions:generate", "messages:batches", "messages:web_search", "messages:web_fetch", "responses:generate", "responses:web_search", "responses:file_search", "embeddings:generate", "moderations:classify", "images:generate", "images:edit", "images:variation", "audio:speech", "audio:transcribe", "audio:translate", "models:read", "tokens:count", "files:manage", "batches:manage", "vector_stores:manage"}, ModelPatterns: []string{"target-*"}, ConnectionIDs: connections})
 	must(err)
 	_, otherSecret, err := keyService.Create(ctx, owner.ID, keys.Input{Label: "Official SDK ownership boundary", Scopes: []string{"files:manage", "batches:manage", "responses:generate", "vector_stores:manage"}, ModelPatterns: []string{"target-*"}, ConnectionIDs: connections})
 	must(err)
@@ -258,6 +258,14 @@ func upstreamHandler(response http.ResponseWriter, request *http.Request) {
 			return
 		}
 		if strings.HasSuffix(request.URL.Path, "/responses") {
+			if bytes.Contains(body, []byte(`"name":"pocket_ai_gateway_file_search"`)) {
+				if !bytes.Contains(body, []byte(`"type":"function_call_output"`)) {
+					io.WriteString(response, `{"id":"resp_file_search","object":"response","status":"completed","model":"whisper-1","output":[{"id":"fc_file_search","type":"function_call","call_id":"call_file_search","status":"completed","name":"pocket_ai_gateway_file_search","arguments":"{\"queries\":[\"vector store\"]}"}],"usage":{"input_tokens":3,"output_tokens":2,"total_tokens":5}}`)
+					return
+				}
+				io.WriteString(response, `{"id":"resp_file_search_final","object":"response","status":"completed","model":"whisper-1","output":[{"id":"msg_file_search","type":"message","role":"assistant","status":"completed","content":[{"type":"output_text","text":"Found the gateway note","annotations":[]}]}],"usage":{"input_tokens":7,"output_tokens":3,"total_tokens":10}}`)
+				return
+			}
 			if bytes.Contains(body, []byte(`"type":"web_search"`)) {
 				if !bytes.Contains(body, []byte(`"store":false`)) {
 					response.WriteHeader(http.StatusBadRequest)

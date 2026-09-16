@@ -414,6 +414,13 @@ func walkLocalFileReferences(value any) bool {
 		}
 	case map[string]any:
 		kind, _ := value["type"].(string)
+		if kind == "file_search_call" {
+			id, _ := value["id"].(string)
+			_, hasResults := value["results"]
+			if strings.HasPrefix(id, "fs_") || hasResults {
+				return true
+			}
+		}
 		if kind == "input_file" || kind == "input_image" || kind == "computer_screenshot" {
 			if id, _ := value["file_id"].(string); strings.HasPrefix(id, "file_") {
 				return true

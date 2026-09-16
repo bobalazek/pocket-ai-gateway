@@ -350,12 +350,15 @@ func validateResponses(envelope map[string]json.RawMessage) (bool, error) {
 			return false, errors.New("tools must be an array")
 		}
 		for _, tool := range tools {
-			if kind, _ := tool["type"].(string); kind != "function" && kind != "web_search" {
-				return false, errors.New("only function and web_search tools are supported by Responses")
+			if kind, _ := tool["type"].(string); kind != "function" && kind != "web_search" && kind != "file_search" {
+				return false, errors.New("only function, web_search, and file_search tools are supported by Responses")
 			}
 		}
 	}
 	if _, err := validateResponseWebSearch(envelope); err != nil {
+		return false, err
+	}
+	if _, err := validateResponseFileSearch(envelope); err != nil {
 		return false, err
 	}
 	return stored, nil
