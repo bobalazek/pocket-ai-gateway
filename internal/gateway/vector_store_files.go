@@ -69,7 +69,7 @@ func (handler *Handler) createVectorStoreFile(response http.ResponseWriter, requ
 	tx, err := handler.database.BeginTx(request.Context(), nil)
 	if err == nil {
 		defer tx.Rollback()
-		err = attachVectorStoreFile(request.Context(), tx, principal.OwnerUserID, principal.KeyID, storeID, fileID, attributesJSON, chunking, now)
+		err = attachVectorStoreFile(request.Context(), tx, principal.OwnerUserID, principal.KeyID, storeID, fileID, "", attributesJSON, chunking, now)
 	}
 	if err == nil {
 		err = tx.Commit()
@@ -86,7 +86,7 @@ func (handler *Handler) createVectorStoreFile(response http.ResponseWriter, requ
 	writeJSON(response, item)
 }
 
-func attachVectorStoreFile(ctx context.Context, tx *sql.Tx, ownerID, keyID, storeID, fileID string, attributes, chunking []byte, now int64) error {
+func attachVectorStoreFile(ctx context.Context, tx *sql.Tx, ownerID, keyID, storeID, fileID, batchID string, attributes, chunking []byte, now int64) error {
 	var exists int
 	if err := tx.QueryRowContext(ctx, `SELECT 1 FROM openai_vector_stores WHERE id=? AND key_id=? AND (expires_at IS NULL OR expires_at>?)`, storeID, keyID, now).Scan(&exists); err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
@@ -110,7 +110,7 @@ func attachVectorStoreFile(ctx context.Context, tx *sql.Tx, ownerID, keyID, stor
 	if err = checkRetainedResourceCapacity(ctx, tx, ownerID, keyID, 1, int64(len(fileID)+len(attributes)+len(chunking))); err != nil {
 		return err
 	}
-	if _, err = tx.ExecContext(ctx, `INSERT INTO openai_vector_store_files(vector_store_id,file_id,attributes_json,chunking_strategy_json,created_at) VALUES(?,?,?,?,?)`, storeID, fileID, attributes, chunking, now); err != nil {
+	if _, err = tx.ExecContext(ctx, `INSERT INTO openai_vector_store_files(vector_store_id,file_id,attributes_json,chunking_strategy_json,created_at,file_batch_id) VALUES(?,?,?,?,?,NULLIF(?,''))`, storeID, fileID, attributes, chunking, now, batchID); err != nil {
 		return err
 	}
 	return touchVectorStore(ctx, tx, keyID, storeID, now)
@@ -310,6 +310,10 @@ func (handler *Handler) deleteVectorStoreFile(response http.ResponseWriter, requ
 }
 
 func (handler *Handler) listVectorStoreFiles(response http.ResponseWriter, request *http.Request) {
+	handler.listVectorStoreFilesPage(response, request, "")
+}
+
+func (handler *Handler) listVectorStoreFilesPage(response http.ResponseWriter, request *http.Request, batchID string) {
 	principal, ok := handler.vectorStorePrincipal(response, request)
 	if !ok {
 		return
@@ -350,6 +354,10 @@ func (handler *Handler) listVectorStoreFiles(response http.ResponseWriter, reque
 	}
 	predicate := `openai_vector_store_files.vector_store_id=? AND openai_files.key_id=? AND openai_files.expires_at>?`
 	arguments := []any{storeID, principal.KeyID, now}
+	if batchID != "" {
+		predicate += ` AND openai_vector_store_files.file_batch_id=?`
+		arguments = append(arguments, batchID)
+	}
 	cursor, comparison := after, ">"
 	if order == "DESC" {
 		comparison = "<"
@@ -364,7 +372,8 @@ func (handler *Handler) listVectorStoreFiles(response http.ResponseWriter, reque
 	}
 	if cursor != "" {
 		var createdAt int64
-		err = handler.database.QueryRowContext(request.Context(), `SELECT openai_vector_store_files.created_at FROM openai_vector_store_files JOIN openai_files ON openai_files.id=openai_vector_store_files.file_id WHERE `+predicate+` AND openai_vector_store_files.file_id=?`, storeID, principal.KeyID, now, cursor).Scan(&createdAt)
+		cursorArguments := append(append([]any(nil), arguments...), cursor)
+		err = handler.database.QueryRowContext(request.Context(), `SELECT openai_vector_store_files.created_at FROM openai_vector_store_files JOIN openai_files ON openai_files.id=openai_vector_store_files.file_id WHERE `+predicate+` AND openai_vector_store_files.file_id=?`, cursorArguments...).Scan(&createdAt)
 		if errors.Is(err, sql.ErrNoRows) {
 			handler.writeError(response, "openai", http.StatusBadRequest, "invalid_request", "cursor is not a valid Vector Store file cursor")
 			return

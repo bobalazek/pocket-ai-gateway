@@ -237,18 +237,41 @@ describe("official SDK compatibility through the Go gateway", () => {
     expect(search.data[0]).toMatchObject({ file_id: source.id, filename: "vector-store.txt", attributes: { suite: "updated" } });
     expect(search.data[0]?.score).toBeGreaterThan(0);
     expect(search.data[0]?.content).toEqual([{ type: "text", text: "vector store notes" }]);
+
+    const batchSources = await Promise.all([
+      client.files.create({ file: await toFile(Buffer.from("first batch note"), "batch-first.txt", { type: "text/plain" }), purpose: "user_data" }),
+      client.files.create({ file: await toFile(Buffer.from("second batch note"), "batch-second.txt", { type: "text/plain" }), purpose: "user_data" }),
+    ]);
+    const batch = await client.vectorStores.fileBatches.createAndPoll(first.id, {
+      file_ids: batchSources.map((file) => file.id),
+      attributes: { suite: "batch" },
+      chunking_strategy: { type: "auto" },
+    });
+    expect(batch).toMatchObject({
+      object: "vector_store.files_batch",
+      vector_store_id: first.id,
+      status: "completed",
+      file_counts: { in_progress: 0, completed: 2, failed: 0, cancelled: 0, total: 2 },
+    });
+    expect((await client.vectorStores.fileBatches.retrieve(batch.id, { vector_store_id: first.id })).id).toBe(batch.id);
+    const batchFiles = [];
+    for await (const file of client.vectorStores.fileBatches.listFiles(batch.id, { vector_store_id: first.id, order: "asc", limit: 1 })) batchFiles.push(file.id);
+    expect(batchFiles).toEqual(expect.arrayContaining(batchSources.map((file) => file.id)));
+    expect(await client.vectorStores.fileBatches.cancel(batch.id, { vector_store_id: first.id })).toMatchObject({ status: "completed" });
+    await expect(openAI(otherApiKey).vectorStores.fileBatches.retrieve(batch.id, { vector_store_id: first.id })).rejects.toMatchObject({ status: 404 });
     expect(await client.vectorStores.retrieve(first.id)).toMatchObject({
-      usage_bytes: source.bytes,
-      file_counts: { completed: 1, total: 1 },
+      usage_bytes: source.bytes + batchSources[0].bytes + batchSources[1].bytes,
+      file_counts: { completed: 3, total: 3 },
     });
     await expect(openAI(otherApiKey).vectorStores.retrieve(first.id)).rejects.toMatchObject({ status: 404 });
     await expect(openAI(otherApiKey).vectorStores.files.retrieve(source.id, { vector_store_id: first.id })).rejects.toMatchObject({ status: 404 });
     await expect(openAI(noFilesApiKey).vectorStores.list()).rejects.toMatchObject({ status: 403 });
     await expect(client.vectorStores.create({ file_ids: ["file_missing"] })).rejects.toMatchObject({ status: 400, code: "unsupported_feature" });
     expect(await client.vectorStores.files.delete(source.id, { vector_store_id: first.id })).toEqual({ id: source.id, object: "vector_store.file.deleted", deleted: true });
-    expect((await client.vectorStores.retrieve(first.id)).file_counts.total).toBe(0);
+    expect((await client.vectorStores.retrieve(first.id)).file_counts.total).toBe(2);
     await client.files.delete(source.id);
     expect(await client.vectorStores.delete(first.id)).toEqual({ id: first.id, object: "vector_store.deleted", deleted: true });
+    await Promise.all(batchSources.map((file) => client.files.delete(file.id)));
     expect(await client.vectorStores.delete(second.id)).toEqual({ id: second.id, object: "vector_store.deleted", deleted: true });
   });
 
