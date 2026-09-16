@@ -11,30 +11,32 @@ A built-in preset means its endpoint and advertised operations were checked agai
 
 | Provider | Base URL | Adapter | Advertised operations | Documentation reviewed | Live certification |
 | --- | --- | --- | --- | --- | --- |
-| OpenAI | `https://api.openai.com/v1` | OpenAI | Chat, legacy Completions, Responses, input-token counting, embeddings, moderations, image generation, speech | 2026-09-16 | Credentials required |
-| Anthropic | `https://api.anthropic.com/v1` | Anthropic | Messages, token counting | 2026-09-15 | Credentials required |
-| Google Gemini | `https://generativelanguage.googleapis.com/v1beta` | Gemini | Generation, streaming, token counting, embeddings | 2026-09-15 | Credentials required |
-| OpenRouter | `https://openrouter.ai/api/v1` | OpenAI compatible | Chat | 2026-09-15 | Credentials required |
-| Ollama | `http://127.0.0.1:11434/v1` | OpenAI compatible | Chat, embeddings | 2026-09-15 | Local model required |
-| Mistral AI | `https://api.mistral.ai/v1` | OpenAI compatible | Chat, embeddings | 2026-09-16 | Credentials required |
-| Groq | `https://api.groq.com/openai/v1` | OpenAI compatible | Chat, Responses, speech, transcription, translation | 2026-09-16 | Credentials required |
-| DeepSeek | `https://api.deepseek.com` | OpenAI compatible | Chat, Responses | 2026-09-16 | Credentials required |
-| xAI | `https://api.x.ai/v1` | OpenAI compatible | Chat, Responses, embeddings | 2026-09-16 | Credentials required |
-| Together AI | `https://api.together.ai/v1` | OpenAI compatible | Chat, legacy Completions, embeddings, image generation, speech, transcription, translation | 2026-09-16 | Credentials required |
-| Fireworks AI | `https://api.fireworks.ai/inference/v1` | OpenAI compatible | Chat, legacy Completions, Responses, embeddings | 2026-09-16 | Credentials required |
-| Cohere | `https://api.cohere.ai/compatibility/v1` | OpenAI compatible | Chat, embeddings, transcription | 2026-09-16 | Credentials required |
-| Perplexity | `https://api.perplexity.ai/v1` | OpenAI compatible | Chat, Responses, embeddings | 2026-09-16 | Credentials required |
-| Azure OpenAI | Installation resource URL ending in `/openai/v1` | OpenAI compatible | Chat, Responses | 2026-09-16 | Live credential required |
-| Amazon Bedrock | Regional runtime `/openai/v1` or Mantle `/v1` or `/openai/v1` URL | OpenAI compatible | Chat, Responses | 2026-09-16 | Live credential required |
-| Google Vertex AI | Project/location URL ending in `/endpoints/openapi` | OpenAI compatible | Chat | 2026-09-16 | Live credential required |
+| OpenAI | `https://api.openai.com/v1` | OpenAI | Chat, legacy Completions, Responses, input-token counting, embeddings, moderations, image generation, speech | 2026-09-16 | Not run — credentials required |
+| Anthropic | `https://api.anthropic.com/v1` | Anthropic | Messages, token counting | 2026-09-15 | Not run — credentials required |
+| Google Gemini | `https://generativelanguage.googleapis.com/v1beta` | Gemini | Generation, streaming, token counting, embeddings | 2026-09-15 | Not run — credentials required |
+| OpenRouter | `https://openrouter.ai/api/v1` | OpenAI compatible | Chat, Responses, embeddings, speech | 2026-09-16 | Not run — credentials required |
+| Z.AI | `https://api.z.ai/api/paas/v4` | OpenAI compatible | Chat, image generation | 2026-09-16 | Not run — credentials required |
+| MiniMax | `https://api.minimax.io/v1` | OpenAI compatible | Chat, Responses, input-token counting | 2026-09-16 | Not run — credentials required |
+| Ollama | `http://127.0.0.1:11434/v1` | OpenAI compatible | Chat, embeddings | 2026-09-15 | Not run — local model required |
+| Mistral AI | `https://api.mistral.ai/v1` | OpenAI compatible | Chat, embeddings, transcription | 2026-09-16 | Not run — credentials required |
+| Groq | `https://api.groq.com/openai/v1` | OpenAI compatible | Chat, Responses, speech, transcription, translation | 2026-09-16 | Not run — credentials required |
+| DeepSeek | `https://api.deepseek.com` | OpenAI compatible | Chat, Responses | 2026-09-16 | Not run — credentials required |
+| xAI | `https://api.x.ai/v1` | OpenAI compatible | Chat, Responses, embeddings | 2026-09-16 | Not run — credentials required |
+| Together AI | `https://api.together.ai/v1` | OpenAI compatible | Chat, legacy Completions, embeddings, image generation, speech, transcription, translation | 2026-09-16 | Not run — credentials required |
+| Fireworks AI | `https://api.fireworks.ai/inference/v1` | OpenAI compatible | Chat, legacy Completions, Responses, embeddings | 2026-09-16 | Not run — credentials required |
+| Cohere | `https://api.cohere.ai/compatibility/v1` | OpenAI compatible | Chat, embeddings | 2026-09-16 | Not run — credentials required |
+| Perplexity | `https://api.perplexity.ai/v1` | OpenAI compatible | Chat, Responses, embeddings | 2026-09-16 | Not run — credentials required |
+| Azure OpenAI | Installation resource URL ending in `/openai/v1` | OpenAI compatible | Chat, Responses | 2026-09-16 | Not run — live credential required |
+| Amazon Bedrock | Regional runtime `/openai/v1` or Mantle `/v1` or `/openai/v1` URL | OpenAI compatible | Chat, Responses | 2026-09-16 | Not run — live credential required |
+| Google Vertex AI | Project/location URL ending in `/endpoints/openapi` | OpenAI compatible | Chat | 2026-09-16 | Not run — live credential required |
 
-Official references: [OpenAI](https://developers.openai.com/api/reference/overview), [Anthropic](https://platform.claude.com/docs/en/api/overview), [Gemini](https://ai.google.dev/api), [OpenRouter](https://openrouter.ai/docs/api/reference/overview), [Ollama](https://docs.ollama.com/api/openai-compatibility), [Mistral](https://docs.mistral.ai/api), [Groq](https://console.groq.com/docs/openai), [DeepSeek](https://api-docs.deepseek.com), [xAI](https://docs.x.ai/developers/rest-api-reference/inference), [Together](https://docs.together.ai/docs/inference/openai-compatibility), [Fireworks](https://docs.fireworks.ai/tools-sdks/openai-compatibility), [Cohere](https://docs.cohere.com/docs/compatibility-api), [Perplexity](https://docs.perplexity.ai/docs/agent-api/openai-compatibility), [Azure OpenAI](https://learn.microsoft.com/en-us/azure/foundry/openai/api-version-lifecycle), [Amazon Bedrock](https://docs.aws.amazon.com/bedrock/latest/userguide/apis.html), and [Vertex AI](https://cloud.google.com/vertex-ai/generative-ai/docs/start/openai).
+Official references: [OpenAI](https://developers.openai.com/api/reference/overview), [Anthropic](https://platform.claude.com/docs/en/api/overview), [Gemini](https://ai.google.dev/api), [OpenRouter](https://openrouter.ai/docs/api/reference/overview), [Z.AI](https://docs.z.ai/api-reference/introduction), [MiniMax](https://platform.minimax.io/docs/api-reference/text-openai-api), [Ollama](https://docs.ollama.com/api/openai-compatibility), [Mistral](https://docs.mistral.ai/api), [Groq](https://console.groq.com/docs/openai), [DeepSeek](https://api-docs.deepseek.com), [xAI](https://docs.x.ai/developers/rest-api-reference/inference), [Together](https://docs.together.ai/docs/inference/openai-compatibility), [Fireworks](https://docs.fireworks.ai/tools-sdks/openai-compatibility), [Cohere](https://docs.cohere.com/docs/compatibility-api), [Perplexity](https://docs.perplexity.ai/docs/agent-api/openai-compatibility), [Azure OpenAI](https://learn.microsoft.com/en-us/azure/foundry/openai/api-version-lifecycle), [Amazon Bedrock](https://docs.aws.amazon.com/bedrock/latest/userguide/apis.html), and [Vertex AI](https://cloud.google.com/vertex-ai/generative-ai/docs/start/openai).
 
 ## Deterministic evidence
 
 Ordinary verification covers:
 
-- immutable preset-to-adapter and preset-to-base-URL mappings;
+- immutable preset-to-adapter and preset-to-base-URL mappings, plus named preset dispatch tests for path, authentication, model rewrite, and response forwarding across every newly advertised operation; Chat fixtures also verify cache-aware token accounting, while resource-specific cloud presets retain endpoint and header unit coverage;
 - bearer, forced OAuth bearer, `api-key`, `x-api-key`, and `x-goog-api-key` credential replacement, including rotating environment and mounted-file sources;
 - OpenAI Chat, native legacy Completions, stateless/stored/background Responses including bounded native web search, input-token counting, embeddings, moderations, bounded JSON/SSE image generation, buffered speech, and streaming against local upstreams;
 - native Anthropic Messages/token counting and Gemini generation/counting/embeddings;
@@ -42,6 +44,8 @@ Ordinary verification covers:
 - key grants, limits, request accounting, fallback attempts, cancellation, response bounds, and safe provider errors.
 
 Run the complete evidence set with `./scripts/verify.sh`.
+
+The Z.AI preset uses the international endpoint; China-region Zhipu accounts use a different host and should use a custom connection. Z.AI transcription is not advertised until its streaming event contract has a verified parser. MiniMax likewise defaults to the international endpoint. OpenRouter image generation and transcription are not advertised because their current `/images` and JSON/base64 transcription contracts differ from the gateway's OpenAI-compatible paths and multipart contract. MiniMax's Anthropic-compatible endpoint is not advertised because it uses bearer authentication rather than the stored-key header used by the native Anthropic adapter. Mistral transcription is non-streaming because its SSE event names differ from OpenAI's; its duration-based usage and cost remain unknown until the gateway has a duration price contract. Perplexity Chat uses its canonical `/v1/sonar` endpoint, while Responses and embeddings retain their `/v1` OpenAI-compatible paths. Provider-specific OpenAI reasoning fields such as `reasoning_content` and `reasoning_details` pass through to native OpenAI clients; cross-protocol translation rejects them instead of silently discarding them.
 
 ## Adding a live result
 

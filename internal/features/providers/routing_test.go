@@ -157,6 +157,9 @@ func TestCatalogValidationAndPresets(t *testing.T) {
 		t.Fatalf("preset=%#v err=%v", input, err)
 	}
 	expected := map[string]string{
+		"openrouter": "https://openrouter.ai/api/v1",
+		"zai":        "https://api.z.ai/api/paas/v4",
+		"minimax":    "https://api.minimax.io/v1",
 		"mistral":    "https://api.mistral.ai/v1",
 		"groq":       "https://api.groq.com/openai/v1",
 		"deepseek":   "https://api.deepseek.com",
@@ -167,13 +170,16 @@ func TestCatalogValidationAndPresets(t *testing.T) {
 		"perplexity": "https://api.perplexity.ai/v1",
 	}
 	expectedOperations := map[string][]string{
-		"mistral":    {"chat/completions", "embeddings"},
+		"openrouter": {"chat/completions", "responses", "embeddings", "audio/speech"},
+		"zai":        {"chat/completions", "images/generations"},
+		"minimax":    {"chat/completions", "responses", "responses/input_tokens"},
+		"mistral":    {"chat/completions", "embeddings", "audio/transcriptions"},
 		"groq":       {"chat/completions", "responses", "audio/speech", "audio/transcriptions", "audio/translations"},
 		"deepseek":   {"chat/completions", "responses"},
 		"xai":        {"chat/completions", "responses", "embeddings"},
 		"together":   {"chat/completions", "completions", "embeddings", "images/generations", "audio/speech", "audio/transcriptions", "audio/translations"},
 		"fireworks":  {"chat/completions", "completions", "responses", "embeddings"},
-		"cohere":     {"chat/completions", "embeddings", "audio/transcriptions"},
+		"cohere":     {"chat/completions", "embeddings"},
 		"perplexity": {"chat/completions", "responses", "embeddings"},
 	}
 	available := Presets()
@@ -243,7 +249,7 @@ func TestCatalogValidationAndPresets(t *testing.T) {
 			t.Errorf("%s accepted malformed cloud endpoint %s", invalid.Preset, invalid.BaseURL)
 		}
 	}
-	if !PresetSupports("fireworks", "responses") || !PresetSupports("fireworks", "embeddings") || PresetSupports("together", "responses") || !PresetSupports("together", "images/generations") || !PresetSupports("cohere", "audio/transcriptions") || !PresetSupports("perplexity", "embeddings") || !PresetSupports("gemini", "models/test:generateContent") || !PresetSupports("gemini", "interactions") || !PresetSupports("custom", "anything") {
+	if !PresetSupports("openrouter", "responses") || !PresetSupports("openrouter", "audio/speech") || PresetSupports("openrouter", "audio/transcriptions") || !PresetSupports("zai", "images/generations") || PresetSupports("zai", "audio/transcriptions") || !PresetSupports("minimax", "responses") || !PresetSupports("minimax", "responses/input_tokens") || !PresetSupports("mistral", "audio/transcriptions") || !PresetSupports("fireworks", "responses") || !PresetSupports("fireworks", "embeddings") || PresetSupports("together", "responses") || !PresetSupports("together", "images/generations") || PresetSupports("cohere", "audio/transcriptions") || !PresetSupports("perplexity", "embeddings") || !PresetSupports("gemini", "models/test:generateContent") || !PresetSupports("gemini", "interactions") || !PresetSupports("custom", "anything") {
 		t.Fatal("preset operation limits are not enforced")
 	}
 	if !PresetSupports("openai", "completions") || !PresetSupports("openai", "moderations") || !PresetSupports("openai", "responses/input_tokens") || !PresetSupports("openai", "images/generations") || !PresetSupports("openai", "images/edits") || !PresetSupports("openai", "images/variations") || !PresetSupports("openai", "audio/speech") || !PresetSupports("openai", "audio/transcriptions") || !PresetSupports("openai", "audio/translations") || PresetSupports("anthropic", "completions") || PresetSupports("anthropic", "moderations") || !PresetSupportsCapabilities("openai", []string{"completions", "moderations", "count_tokens", "images", "image_edit", "image_variation", "audio_speech", "audio_transcription", "audio_translation"}) {
@@ -265,6 +271,18 @@ func TestRoutingPolicyIsDerivedByTheBackend(t *testing.T) {
 	chat := routingPolicy([]string{"chat"})
 	if len(chat.AllowedStrategies) != len(routeStrategyOrder) || chat.MaxTargetsByStrategy["fixed"] != 1 || chat.MaxTargetsByStrategy["weighted"] != 32 || !chat.FreeOnlyAllowed || chat.FreeOnlyLabel == "" || chat.PriorityField.Label == "" || chat.PriorityField.Minimum != 1 || chat.PriorityField.Maximum != 1000 || chat.WeightField.Label == "" || chat.WeightField.Minimum != 1 || chat.WeightField.Maximum != 10000 {
 		t.Fatalf("chat routing policy = %#v", chat)
+	}
+}
+
+func TestMistralTranscriptionRejectsUntranslatedStreaming(t *testing.T) {
+	target := Target{PublicModel: PublicModel{Adapter: "openai_compatible", Capabilities: []string{"audio_transcription"}}, UpstreamCapabilities: []string{"audio_transcription"}, Preset: "mistral"}
+	input := StaticEligibilityInput{Dialect: "openai", Capability: "audio_transcription", Operation: "audio/transcriptions", OpaqueMedia: true}
+	if eligible, reason := StaticTargetEligibility(target, input); !eligible || reason != "" {
+		t.Fatalf("non-streaming transcription rejected: eligible=%v reason=%q", eligible, reason)
+	}
+	input.Streaming = true
+	if eligible, reason := StaticTargetEligibility(target, input); eligible || reason != "preset_streaming_unsupported" {
+		t.Fatalf("streaming transcription eligibility=%v reason=%q", eligible, reason)
 	}
 }
 
@@ -312,12 +330,12 @@ func TestPresetLimitsUpstreamModelCapabilities(t *testing.T) {
 		t.Fatal(err)
 	}
 	service := New(store.SystemDB(), make([]byte, 32))
-	connection, err := service.CreateConnection(ctx, owner, ConnectionInput{Name: "OpenRouter", Preset: "openrouter", Enabled: true})
+	connection, err := service.CreateConnection(ctx, owner, ConnectionInput{Name: "MiniMax", Preset: "minimax", Enabled: true})
 	if err != nil {
 		t.Fatal(err)
 	}
 	if _, err = service.CreateUpstreamModel(ctx, owner, connection.ID, "model", []string{"embeddings"}); err == nil {
-		t.Fatal("chat-only preset accepted embeddings")
+		t.Fatal("preset accepted an unadvertised embedding operation")
 	}
 	if _, err = service.CreateUpstreamModel(ctx, owner, connection.ID, "model", []string{"chat"}); err != nil {
 		t.Fatal(err)

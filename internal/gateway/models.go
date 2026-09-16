@@ -97,7 +97,7 @@ func modelVisibleInDialect(dialect string, model providers.PublicModel, target p
 		operation := map[string]string{"openai": "chat/completions", "openai_compatible": "chat/completions", "anthropic": "messages", "gemini": "generateContent"}[target.Adapter]
 		return providers.PresetSupports(target.Preset, operation)
 	}
-	if !nativeAdapter(dialect, target.Adapter) {
+	if !providers.NativeTarget(dialect, target.Adapter) {
 		return false
 	}
 	operations := map[string][]struct{ scope, operation string }{

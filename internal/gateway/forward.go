@@ -326,7 +326,7 @@ func (handler *Handler) forwardAuthorized(response http.ResponseWriter, request 
 		requiredCapability = "interactions"
 	}
 	plan, err := handler.providers.Route(request.Context(), publicID, providers.RouteOptions{Operation: clientOperation, Streaming: stream, EstimatedInputTokens: inputEstimate, EstimatedOutputTokens: outputEstimate, QuoteAt: priceQuoteAt, Seed: string(seed[:]), AllowsConnection: func(connectionID string) bool { return principal.Allows(scope, publicID, connectionID) }, Eligibility: func(target providers.Target) (bool, string) {
-		native := nativeTarget(dialect, target.Adapter)
+		native := providers.NativeTarget(dialect, target.Adapter)
 		if webSearch.enabled {
 			if eligible, reason := webSearchTargetEligibility(target); !eligible {
 				return false, reason
@@ -402,7 +402,7 @@ func (handler *Handler) forwardAuthorized(response http.ResponseWriter, request 
 	requestID := ""
 	for index, routeTarget := range plan.Targets {
 		target := routeTarget.Target()
-		native := nativeTarget(dialect, target.Adapter)
+		native := providers.NativeTarget(dialect, target.Adapter)
 		targetPath, targetBody := upstreamPath, body
 		var targetEnvelope map[string]json.RawMessage
 		_ = json.Unmarshal(body, &targetEnvelope)
@@ -437,6 +437,7 @@ func (handler *Handler) forwardAuthorized(response http.ResponseWriter, request 
 			handler.writeError(response, dialect, http.StatusBadRequest, "unsupported_feature", err.Error())
 			return
 		}
+		targetPath = providers.PresetOperationPath(target.Preset, targetPath)
 		quotedPriceVersionID := routeTarget.PriceVersionID()
 		admission, admitErr := handler.usage.Admit(request.Context(), usage.AdmissionInput{RequestID: requestID, KeyID: principal.KeyID, ConnectionID: target.TargetConnectionID, ModelID: publicID, UpstreamModelRecordID: target.TargetModelID, UpstreamModelID: target.UpstreamID, ConnectionRevision: target.ConnectionRevision, ModelRevision: target.Revision, Operation: clientOperation, TargetOperation: targetPath, Scope: scope, Dialect: recordDialect, TargetDialect: target.Adapter, TranslationApplied: !native, RequestToolCount: requestToolCount, WebSearchMaxCalls: webSearchMaxCalls, SelectionReason: plan.SelectionReason, RejectedCandidatesJSON: string(rejected), RequiredPriceVersionID: quotedPriceVersionID, PriceQuoteAt: priceQuoteAt, QuotedPriceVersionID: &quotedPriceVersionID, RequireFreePrice: plan.FreeOnly, SnapshotPriceOnly: promptCache.enabled || hostedWebTool, BodyBytes: originalBodyBytes, BatchItems: batchItems, EstimatedInputTokens: inputEstimate, EstimatedOutputTokens: outputEstimate, EnforceInputBound: anthropicWebFetch.enabled || fileSearch.enabled, InputBounded: !anthropicWebFetch.enabled, EnforceOutputBound: generation, OutputBounded: !generation || outputBounded})
 		if admitErr != nil {
@@ -607,6 +608,9 @@ func (handler *Handler) forwardAuthorized(response http.ResponseWriter, request 
 		if countedInputTokens != nil {
 			zero := int64(0)
 			inputTokens, outputTokens = countedInputTokens, &zero
+		}
+		if target.Preset == "mistral" && targetPath == "audio/transcriptions" {
+			inputTokens, outputTokens, cost = nil, nil, nil
 		}
 		toolCalls, toolStatus := parseToolMetadata(accountDialect, accountRaw)
 		if webSearchCallCount != nil {
@@ -819,9 +823,6 @@ func (handler *Handler) forwardAuthorized(response http.ResponseWriter, request 
 	}
 }
 
-func nativeTarget(dialect, adapter string) bool {
-	return nativeAdapter(dialect, adapter) || (dialect == "responses" || dialect == "responses_compact") && (adapter == "openai" || adapter == "openai_compatible")
-}
 func retryableResult(status int, err error) bool {
 	if status >= 200 && status < 300 {
 		return false

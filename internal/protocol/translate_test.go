@@ -109,6 +109,12 @@ func TestTranslatedStreamRejectsMalformedOrTruncatedOutput(t *testing.T) {
 			t.Fatalf("source %q was accepted", source)
 		}
 	}
+	for _, field := range []string{"reasoning", "reasoning_content", "reasoning_details"} {
+		source := `data: {"choices":[{"delta":{"content":"answer","` + field + `":"private"}}]}` + "\n\n"
+		if _, _, err := TranslateStream(httptest.NewRecorder(), strings.NewReader(source), "gemini", "openai_compatible", "assistant"); err == nil || !strings.Contains(err.Error(), "provider-affine") {
+			t.Errorf("%s stream content was silently dropped: %v", field, err)
+		}
+	}
 }
 
 func TestCrossProtocolResponseMappingsPreserveRefusals(t *testing.T) {
@@ -121,6 +127,15 @@ func TestCrossProtocolResponseMappingsPreserveRefusals(t *testing.T) {
 		body, err := TranslateResponse(test.client, test.target, "assistant", []byte(test.body))
 		if err != nil || !strings.Contains(string(body), test.want) {
 			t.Errorf("%s<-%s body=%s err=%v", test.client, test.target, body, err)
+		}
+	}
+}
+
+func TestCrossProtocolResponseRejectsProviderReasoningFields(t *testing.T) {
+	for _, field := range []string{"reasoning", "reasoning_content", "reasoning_details"} {
+		body := `{"choices":[{"message":{"content":"answer","` + field + `":"private"},"finish_reason":"stop"}],"usage":{"prompt_tokens":1,"completion_tokens":1}}`
+		if _, err := TranslateResponse("anthropic", "openai_compatible", "assistant", []byte(body)); err == nil || !strings.Contains(err.Error(), "cannot be translated") {
+			t.Errorf("%s was silently dropped: %v", field, err)
 		}
 	}
 }

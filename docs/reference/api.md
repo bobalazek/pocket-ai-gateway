@@ -58,7 +58,7 @@ Compatible responses keep their native usage fields. After admission, every forw
 | POST /api/openai/v1/images/edits | Native non-streaming multipart GPT Image edits; 1-16 validated PNG/JPEG/WebP inputs under 50 MB each, optional same-size PNG mask under 4 MB, 64 MiB aggregate body, 16 MiB response, explicit public model, prompt, and `images:edit`; DALL-E 2 edits, automatic fallback, strict token/spend/free-only policies, and lowest-cost routing are unsupported |
 | POST /api/openai/v1/images/variations | Native multipart variation from one square PNG under 4 MB; explicit public model and `images:variation`; OpenAI preset restricted to upstream `dall-e-2`, custom compatible endpoints operator-declared; 64 MiB body and 16 MiB response bounds; no automatic fallback, strict token/spend/free-only policies, or lowest-cost routing |
 | POST /api/openai/v1/audio/speech | Native built-in-voice text-to-speech with buffered audio up to 16 MiB; explicit public model and `audio:speech`; no custom voice references, SSE, automatic fallback, strict token/spend/free-only policies, or lowest-cost routing |
-| POST /api/openai/v1/audio/transcriptions | Native multipart audio transcription; one supported audio file up to 25 MB, 16 MiB non-streaming response limit, explicit public model and `audio:transcribe`; provider fields and streaming pass through; no automatic fallback, strict token/spend/free-only policies, or lowest-cost routing |
+| POST /api/openai/v1/audio/transcriptions | Native multipart audio transcription; one supported audio file up to 25 MB, 16 MiB non-streaming response limit, explicit public model and `audio:transcribe`; provider fields pass through, while streaming requires a preset with the OpenAI terminal event contract; no automatic fallback, strict token/spend/free-only policies, or lowest-cost routing |
 | POST /api/openai/v1/audio/translations | Native multipart audio-to-English translation; one supported audio file up to 25 MB, 16 MiB response limit, explicit public model and `audio:translate`; the OpenAI preset requires upstream `whisper-1`, while custom compatible endpoints are operator-declared; provider fields pass through; no streaming, automatic fallback, strict token/spend/free-only policies, or lowest-cost routing |
 | GET/DELETE /api/openai/v1/responses/{id} | Creating-key retrieval and deletion of gateway-owned stored Responses |
 | POST /api/openai/v1/responses/{id}/cancel | Cancels a queued or in-progress background Response |
@@ -241,15 +241,18 @@ Setup, user/grant mutations, imports, and multi-policy updates transact with the
 | OpenAI | Native Chat, legacy Completions, Responses, bounded hosted web search, and embeddings |
 | Anthropic | Native Messages/count_tokens and shared-subset translation |
 | Google Gemini | Native client/upstream API plus shared-subset cross-format translation |
-| OpenRouter | OpenAI-compatible preset; downstream-provider guarantees require separately configured OpenRouter controls |
+| OpenRouter | OpenAI-compatible Chat, Responses, embeddings, and speech preset; downstream-provider guarantees require separately configured OpenRouter controls |
+| Z.AI | OpenAI-compatible Chat and image-generation preset using the international API endpoint |
+| MiniMax | OpenAI-compatible Chat, Responses, and Responses input-token counting preset using the international API endpoint |
 | Ollama | OpenAI-compatible local preset with explicit private-network access and no credential requirement |
 | Generic OpenAI-compatible | Configurable endpoint with explicitly selected capabilities |
 | Azure OpenAI | OpenAI-compatible v1 preset with a validated resource URL; encrypted API keys use `api-key`, while rotating Entra tokens use a bearer external reference |
 | Amazon Bedrock | OpenAI-compatible runtime or Mantle resource URL with a Bedrock bearer API key; SigV4 is outside this preset |
 | Google Vertex AI | OpenAI-compatible regional or global resource URL with a rotating Google Cloud bearer-token reference |
-| Mistral, Groq, DeepSeek, xAI, Together, Fireworks, Cohere, Perplexity | Built-in OpenAI-compatible presets pin reviewed endpoints and advertised operations; deterministic adapter conformance is tested, while live certification is tracked separately |
+| Mistral | OpenAI-compatible Chat, embeddings, and non-streaming transcription; duration-based transcription usage and cost remain unknown |
+| Groq, DeepSeek, xAI, Together, Fireworks, Cohere, Perplexity | Built-in OpenAI-compatible presets pin reviewed endpoints and advertised operations; deterministic adapter conformance is tested, while live certification is tracked separately |
 
-Gemini, OpenRouter, and Ollama document compatible surfaces, but expose different features. Their inclusion is a testing commitment, not an assumption of native parity. [Gemini compatibility](https://ai.google.dev/gemini-api/docs/openai), [OpenRouter quickstart](https://openrouter.ai/docs/quickstart), [Ollama compatibility](https://docs.ollama.com/api/openai-compatibility)
+Gemini, OpenRouter, Z.AI, MiniMax, and Ollama document compatible surfaces, but expose different features. Their inclusion is a testing commitment, not an assumption of native parity. [Gemini compatibility](https://ai.google.dev/gemini-api/docs/openai), [OpenRouter quickstart](https://openrouter.ai/docs/quickstart), [Z.AI OpenAI compatibility](https://docs.z.ai/guides/develop/openai/python), [MiniMax OpenAI SDK](https://platform.minimax.io/docs/api-reference/text-openai-api), [Ollama compatibility](https://docs.ollama.com/api/openai-compatibility)
 
 Do not hardcode a “latest” model in a protocol adapter. Bundle small versioned catalog entries/presets with provenance, allow operator overrides, and treat remote discovery as untrusted candidate metadata.
 

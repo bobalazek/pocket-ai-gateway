@@ -129,7 +129,7 @@ type StaticEligibilityInput struct {
 }
 
 func StaticTargetEligibility(target Target, input StaticEligibilityInput) (bool, string) {
-	native := nativeTarget(input.Dialect, target.Adapter)
+	native := NativeTarget(input.Dialect, target.Adapter)
 	if input.Operation == "interactions" {
 		if !native || target.Preset != "gemini" {
 			return false, "interactions_native_gemini_required"
@@ -152,6 +152,9 @@ func StaticTargetEligibility(target Target, input StaticEligibilityInput) (bool,
 	}
 	if input.Dialect == "anthropic" && input.Streaming && !native {
 		return false, "anthropic_stream_usage_unavailable"
+	}
+	if target.Preset == "mistral" && input.Operation == "audio/transcriptions" && input.Streaming {
+		return false, "preset_streaming_unsupported"
 	}
 	if input.Dialect == "responses_compact" && target.Preset != "openai" {
 		return false, "preset_operation_unsupported"
@@ -183,7 +186,7 @@ func PreviewRouteEligibility(operation string, streaming bool) func(Target) (boo
 			return false, reason
 		}
 		targetOperation := operation
-		if !nativeTarget(dialect, target.Adapter) {
+		if !NativeTarget(dialect, target.Adapter) {
 			targetOperation = map[string]string{"anthropic": "messages", "gemini": "generateContent", "openai": "chat/completions", "openai_compatible": "chat/completions"}[target.Adapter]
 		}
 		if targetOperation == "" || !PresetSupports(target.Preset, targetOperation) {
@@ -193,7 +196,7 @@ func PreviewRouteEligibility(operation string, streaming bool) func(Target) (boo
 	}
 }
 
-func nativeTarget(dialect, adapter string) bool {
+func NativeTarget(dialect, adapter string) bool {
 	return dialect == adapter || dialect == "openai" && adapter == "openai_compatible" || (dialect == "responses" || dialect == "responses_compact") && (adapter == "openai" || adapter == "openai_compatible")
 }
 
