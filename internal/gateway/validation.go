@@ -213,10 +213,6 @@ func validateImageGeneration(envelope map[string]json.RawMessage) (imageGenerati
 	return imageGenerationRequest{stream: stream, partialImages: partialImages}, nil
 }
 
-func openAIImageStreamModel(model string) bool {
-	return strings.HasPrefix(model, "gpt-image-") || model == "chatgpt-image-latest"
-}
-
 func validateImageEditBatch(envelope map[string]json.RawMessage) error {
 	if err := validateImageJSON(envelope); err != nil {
 		return err

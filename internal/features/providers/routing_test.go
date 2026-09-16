@@ -44,9 +44,13 @@ func TestRouteStrategiesFreePolicyAndCircuit(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	plan, err := service.Route(ctx, model.ID, RouteOptions{Operation: "chat/completions", EstimatedInputTokens: 10, EstimatedOutputTokens: 10})
-	if err != nil || len(plan.Targets) != 2 || plan.Targets[0].UpstreamModelID != second.ID {
+	plan, err := service.Route(ctx, model.ID, RouteOptions{Operation: "chat/completions", EstimatedInputTokens: 10, EstimatedOutputTokens: 10, Eligibility: PreviewRouteEligibility("chat/completions", false)})
+	if err != nil || len(plan.Targets) != 2 || plan.Targets[0].UpstreamModelID != second.ID || plan.SelectionMessage == "" {
 		t.Fatalf("plan=%#v err=%v", plan, err)
+	}
+	unsupported, err := service.Route(ctx, model.ID, RouteOptions{Operation: "moderations", Eligibility: PreviewRouteEligibility("moderations", false)})
+	if !errors.Is(err, ErrNotFound) || len(unsupported.Rejected) != 2 || unsupported.Rejected[0].Reason != "unsupported_capability" || unsupported.Rejected[0].Message == "" {
+		t.Fatalf("unsupported preview=%#v err=%v", unsupported, err)
 	}
 	if _, err = store.SystemDB().ExecContext(ctx, "INSERT INTO price_versions (id,connection_id,model_id,input_nanos_per_million,output_nanos_per_million,cache_read_nanos_per_million,source,effective_from,created_at) VALUES ('price_first',?, ?,100,100,100,'test',?,?),('price_second',?, ?,0,0,0,'test',?,?)", first.ConnectionID, model.ID, now-1, now, second.ConnectionID, model.ID, now-1, now); err != nil {
 		t.Fatal(err)
@@ -56,14 +60,15 @@ func TestRouteStrategiesFreePolicyAndCircuit(t *testing.T) {
 		t.Fatal(err)
 	}
 	plan, err = service.Route(ctx, model.ID, RouteOptions{Operation: "chat/completions", EstimatedInputTokens: 10, EstimatedOutputTokens: 10})
-	if err != nil || len(plan.Targets) != 1 || plan.Targets[0].UpstreamModelID != second.ID || len(plan.Rejected) != 1 || plan.Rejected[0].Reason != "not_verified_free" {
+	if err != nil || len(plan.Targets) != 1 || plan.Targets[0].UpstreamModelID != second.ID || len(plan.Rejected) != 1 || plan.Rejected[0].Reason != "not_verified_free" || plan.Rejected[0].Message == "" {
 		t.Fatalf("free plan=%#v err=%v", plan, err)
 	}
 	if _, err = store.SystemDB().ExecContext(ctx, "UPDATE price_versions SET created_at=? WHERE id='price_second'", now-(25*time.Hour).Milliseconds()); err != nil {
 		t.Fatal(err)
 	}
-	if _, err = service.Route(ctx, model.ID, RouteOptions{Operation: "chat/completions"}); !errors.Is(err, ErrNotFound) {
-		t.Fatalf("stale free price route=%v", err)
+	empty, err := service.Route(ctx, model.ID, RouteOptions{Operation: "chat/completions"})
+	if !errors.Is(err, ErrNotFound) || empty.SelectionMessage != "No eligible target" {
+		t.Fatalf("stale free price plan=%#v err=%v", empty, err)
 	}
 	if _, err = store.SystemDB().ExecContext(ctx, "UPDATE price_versions SET created_at=? WHERE id='price_second'", now); err != nil {
 		t.Fatal(err)
@@ -74,7 +79,7 @@ func TestRouteStrategiesFreePolicyAndCircuit(t *testing.T) {
 	if models, err := service.ListPublicModels(ctx); err != nil || len(models) != 2 {
 		t.Fatalf("fallback-backed models=%#v err=%v", models, err)
 	}
-	if _, _, err = service.RouteConfig(ctx, owner, model.ID); err != nil {
+	if _, _, _, err = service.RouteConfig(ctx, owner, model.ID); err != nil {
 		t.Fatalf("route repair unavailable: %v", err)
 	}
 	if _, err = store.SystemDB().ExecContext(ctx, "UPDATE provider_connections SET enabled=0 WHERE id=?", first.ConnectionID); err != nil {
@@ -243,8 +248,39 @@ func TestRoutingPolicyIsDerivedByTheBackend(t *testing.T) {
 		t.Fatalf("embedding routing policy = %#v", embedding)
 	}
 	chat := routingPolicy([]string{"chat"})
-	if len(chat.AllowedStrategies) != len(routeStrategyOrder) || chat.MaxTargetsByStrategy["fixed"] != 1 || chat.MaxTargetsByStrategy["weighted"] != 32 || !chat.FreeOnlyAllowed {
+	if len(chat.AllowedStrategies) != len(routeStrategyOrder) || chat.MaxTargetsByStrategy["fixed"] != 1 || chat.MaxTargetsByStrategy["weighted"] != 32 || !chat.FreeOnlyAllowed || chat.FreeOnlyLabel == "" || chat.PriorityField.Label == "" || chat.PriorityField.Minimum != 1 || chat.PriorityField.Maximum != 1000 || chat.WeightField.Label == "" || chat.WeightField.Minimum != 1 || chat.WeightField.Maximum != 10000 {
 		t.Fatalf("chat routing policy = %#v", chat)
+	}
+}
+
+func TestAvailableRouteTargetsAreFilteredByBackendCapabilities(t *testing.T) {
+	ctx := context.Background()
+	store, err := storage.Open(ctx, t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+	now := time.Now().UnixMilli()
+	owner := auth.User{ID: "usr_owner", Role: "owner", Status: "active"}
+	if _, err = store.SystemDB().ExecContext(ctx, "INSERT INTO users (id,email,display_name,password_hash,role,status,inference_unrestricted,created_at,updated_at) VALUES (?,?,?,'hash','owner','active',1,?,?)", owner.ID, "owner@example.test", "Owner", now, now); err != nil {
+		t.Fatal(err)
+	}
+	service := New(store.SystemDB(), make([]byte, 32))
+	compatible := routeFixture(t, ctx, service, owner, "compatible")
+	disabled := routeFixture(t, ctx, service, owner, "disabled")
+	if _, err = store.SystemDB().ExecContext(ctx, "UPDATE provider_connections SET enabled=0 WHERE id=?", disabled.ConnectionID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err = service.CreateUpstreamModel(ctx, owner, compatible.ConnectionID, "embeddings-only", []string{"embeddings"}); err != nil {
+		t.Fatal(err)
+	}
+	model, err := service.CreatePublicModel(ctx, owner, "assistant", "Assistant", "", compatible.ID, []string{"chat"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, _, targets, err := service.RouteConfig(ctx, owner, model.ID)
+	if err != nil || len(targets) != 1 || targets[0].ID != compatible.ID || len(targets[0].CapabilityDetails) != len(targets[0].Capabilities) {
+		t.Fatalf("available targets=%#v err=%v", targets, err)
 	}
 }
 
@@ -334,6 +370,10 @@ func TestCatalogSourceChangeClearsCandidates(t *testing.T) {
 	}
 	if _, err = store.SystemDB().ExecContext(ctx, "INSERT INTO catalog_candidates (provider,model_id,label,capabilities_json,free,source,source_version,discovered_at) VALUES ('openrouter','free/test','Test','[\"chat\"]',1,?,'v1',?)", first, now); err != nil {
 		t.Fatal(err)
+	}
+	candidates, _, err := service.Catalog(ctx, owner)
+	if err != nil || len(candidates) != 1 || len(candidates[0].CapabilityDetails) != 1 || candidates[0].CapabilityDetails[0].Label != "Chat" {
+		t.Fatalf("catalog candidates=%#v err=%v", candidates, err)
 	}
 	state, err := service.ConfigureCatalog(ctx, owner, second, false, 24)
 	if err != nil {

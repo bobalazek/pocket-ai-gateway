@@ -216,13 +216,13 @@ func (handler *Handler) getRoute(response http.ResponseWriter, request *http.Req
 	if !ok {
 		return
 	}
-	model, targets, err := handler.service.RouteConfig(request.Context(), current.User, request.PathValue("id"))
+	model, targets, availableTargets, err := handler.service.RouteConfig(request.Context(), current.User, request.PathValue("id"))
 	if err != nil {
 		handler.writeError(response, err)
 		return
 	}
 	response.Header().Set("ETag", auth.ETag(model.Revision))
-	auth.WriteJSON(response, http.StatusOK, map[string]any{"model": model, "targets": targets})
+	auth.WriteJSON(response, http.StatusOK, map[string]any{"model": model, "targets": targets, "available_targets": availableTargets})
 }
 
 func (handler *Handler) putRoute(response http.ResponseWriter, request *http.Request) {
@@ -252,7 +252,7 @@ func (handler *Handler) previewRoute(response http.ResponseWriter, request *http
 	if !ok {
 		return
 	}
-	if _, _, err := handler.service.RouteConfig(request.Context(), current.User, request.PathValue("id")); err != nil {
+	if _, _, _, err := handler.service.RouteConfig(request.Context(), current.User, request.PathValue("id")); err != nil {
 		handler.writeError(response, err)
 		return
 	}
@@ -269,7 +269,7 @@ func (handler *Handler) previewRoute(response http.ResponseWriter, request *http
 		auth.WriteError(response, http.StatusBadRequest, "invalid_request", "operation and non-negative estimates are required")
 		return
 	}
-	plan, err := handler.service.Route(request.Context(), request.PathValue("id"), RouteOptions{Operation: input.Operation, Streaming: input.Streaming, EstimatedInputTokens: input.EstimatedInputTokens, EstimatedOutputTokens: input.EstimatedOutputTokens, Seed: "preview"})
+	plan, err := handler.service.Route(request.Context(), request.PathValue("id"), RouteOptions{Operation: input.Operation, Streaming: input.Streaming, EstimatedInputTokens: input.EstimatedInputTokens, EstimatedOutputTokens: input.EstimatedOutputTokens, Seed: "preview", Eligibility: PreviewRouteEligibility(input.Operation, input.Streaming)})
 	if err != nil && !errors.Is(err, ErrNotFound) {
 		handler.writeError(response, err)
 		return

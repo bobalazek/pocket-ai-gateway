@@ -26,6 +26,8 @@ var routeStrategyOrder = []string{"fixed", "ordered_fallback", "weighted", "lowe
 var routeStrategies = map[string]bool{"fixed": true, "ordered_fallback": true, "weighted": true, "lowest_cost": true, "lowest_latency": true}
 var routeStrategyTargetLimits = map[string]int{"fixed": 1, "ordered_fallback": 32, "weighted": 32, "lowest_cost": 32, "lowest_latency": 32}
 var routeStrategyLabels = map[string]string{"fixed": "Fixed target", "ordered_fallback": "Ordered fallback", "weighted": "Weighted", "lowest_cost": "Lowest estimated cost", "lowest_latency": "Lowest observed latency"}
+var routePriorityField = NumberFieldPolicy{Label: "Priority", Minimum: 1, Maximum: 1000, Default: 1}
+var routeWeightField = NumberFieldPolicy{Label: "Weight", Minimum: 1, Maximum: 10000, Default: 1}
 
 func ValidRouteStrategy(value string) bool { return routeStrategies[value] }
 
@@ -33,12 +35,22 @@ type RoutingPolicy struct {
 	AllowedStrategies    []string              `json:"allowed_strategies"`
 	MaxTargetsByStrategy map[string]int        `json:"max_targets_by_strategy"`
 	FreeOnlyAllowed      bool                  `json:"free_only_allowed"`
+	FreeOnlyLabel        string                `json:"free_only_label"`
+	PriorityField        NumberFieldPolicy     `json:"priority_field"`
+	WeightField          NumberFieldPolicy     `json:"weight_field"`
 	Strategies           []RouteStrategyOption `json:"strategies"`
 }
 
 type RouteStrategyOption struct {
 	ID    string `json:"id"`
 	Label string `json:"label"`
+}
+
+type NumberFieldPolicy struct {
+	Label   string `json:"label"`
+	Minimum int64  `json:"min"`
+	Maximum int64  `json:"max"`
+	Default int64  `json:"default"`
 }
 
 func routingPolicy(capabilities []string) RoutingPolicy {
@@ -52,7 +64,13 @@ func routingPolicy(capabilities []string) RoutingPolicy {
 		limits[strategy] = routeStrategyTargetLimits[strategy]
 		strategies = append(strategies, RouteStrategyOption{ID: strategy, Label: routeStrategyLabels[strategy]})
 	}
-	return RoutingPolicy{AllowedStrategies: append([]string(nil), allowed...), MaxTargetsByStrategy: limits, FreeOnlyAllowed: true, Strategies: strategies}
+	return RoutingPolicy{
+		AllowedStrategies: append([]string(nil), allowed...), MaxTargetsByStrategy: limits, FreeOnlyAllowed: true,
+		FreeOnlyLabel: "Require verified zero provider pricing",
+		PriorityField: routePriorityField,
+		WeightField:   routeWeightField,
+		Strategies:    strategies,
+	}
 }
 
 type RouteTarget struct {
@@ -78,15 +96,17 @@ type RouteRejection struct {
 	UpstreamModelID string `json:"upstream_model_id"`
 	ConnectionID    string `json:"connection_id"`
 	Reason          string `json:"reason"`
+	Message         string `json:"message"`
 }
 
 type RoutePlan struct {
-	ModelID         string           `json:"model_id"`
-	Strategy        string           `json:"strategy"`
-	FreeOnly        bool             `json:"free_only"`
-	SelectionReason string           `json:"selection_reason"`
-	Targets         []RouteTarget    `json:"targets"`
-	Rejected        []RouteRejection `json:"rejected"`
+	ModelID          string           `json:"model_id"`
+	Strategy         string           `json:"strategy"`
+	FreeOnly         bool             `json:"free_only"`
+	SelectionReason  string           `json:"selection_reason"`
+	SelectionMessage string           `json:"selection_message"`
+	Targets          []RouteTarget    `json:"targets"`
+	Rejected         []RouteRejection `json:"rejected"`
 }
 
 type RouteOptions struct {
@@ -98,6 +118,84 @@ type RouteOptions struct {
 	Seed                  string
 	AllowsConnection      func(string) bool
 	Eligibility           func(Target) (bool, string)
+}
+
+type StaticEligibilityInput struct {
+	Dialect        string
+	Capability     string
+	Operation      string
+	Streaming      bool
+	OpaqueMedia    bool
+	ImageStreaming bool
+}
+
+func StaticTargetEligibility(target Target, input StaticEligibilityInput) (bool, string) {
+	native := nativeTarget(input.Dialect, target.Adapter)
+	if input.Operation == "interactions" {
+		if !native || target.Preset != "gemini" {
+			return false, "interactions_native_gemini_required"
+		}
+	}
+	if input.Capability == "" || !containsString(target.Capabilities, input.Capability) || !containsString(target.UpstreamCapabilities, input.Capability) {
+		return false, "unsupported_capability"
+	}
+	if input.ImageStreaming && (target.Adapter != "openai" || target.Preset != "openai" || !strings.HasPrefix(target.UpstreamID, "gpt-image-") && target.UpstreamID != "chatgpt-image-latest") {
+		return false, "image_stream_native_gpt_required"
+	}
+	if input.OpaqueMedia && target.RoutingStrategy == "lowest_cost" {
+		return false, "cost_estimate_unavailable"
+	}
+	if input.OpaqueMedia && target.FreeOnly {
+		return false, "free_price_contract_unavailable"
+	}
+	if !native && input.Capability != "chat" {
+		return false, "translation_unsupported"
+	}
+	if input.Dialect == "anthropic" && input.Streaming && !native {
+		return false, "anthropic_stream_usage_unavailable"
+	}
+	if input.Dialect == "responses_compact" && target.Preset != "openai" {
+		return false, "preset_operation_unsupported"
+	}
+	return true, ""
+}
+
+func PreviewRouteEligibility(operation string, streaming bool) func(Target) (bool, string) {
+	operation = strings.TrimLeft(strings.SplitN(operation, "?", 2)[0], "/")
+	if separator := strings.LastIndex(operation, ":"); separator >= 0 {
+		operation = operation[separator+1:]
+	}
+	capability := operationCapability(operation)
+	dialect := "openai"
+	switch operation {
+	case "messages", "messages/count_tokens":
+		dialect = "anthropic"
+	case "generateContent", "streamGenerateContent", "countTokens", "embedContent", "batchEmbedContents", "interactions":
+		dialect = "gemini"
+	case "responses":
+		dialect = "responses"
+	case "responses/compact":
+		dialect = "responses_compact"
+	}
+	opaqueMedia := capability == "images" || capability == "image_edit" || capability == "image_variation" || strings.HasPrefix(capability, "audio_")
+	input := StaticEligibilityInput{Dialect: dialect, Capability: capability, Operation: operation, Streaming: streaming, OpaqueMedia: opaqueMedia, ImageStreaming: operation == "images/generations" && streaming}
+	return func(target Target) (bool, string) {
+		if eligible, reason := StaticTargetEligibility(target, input); !eligible {
+			return false, reason
+		}
+		targetOperation := operation
+		if !nativeTarget(dialect, target.Adapter) {
+			targetOperation = map[string]string{"anthropic": "messages", "gemini": "generateContent", "openai": "chat/completions", "openai_compatible": "chat/completions"}[target.Adapter]
+		}
+		if targetOperation == "" || !PresetSupports(target.Preset, targetOperation) {
+			return false, "preset_operation_unsupported"
+		}
+		return true, ""
+	}
+}
+
+func nativeTarget(dialect, adapter string) bool {
+	return dialect == adapter || dialect == "openai" && adapter == "openai_compatible" || (dialect == "responses" || dialect == "responses_compact") && (adapter == "openai" || adapter == "openai_compatible")
 }
 
 type RouteTargetInput struct {
@@ -113,28 +211,54 @@ type RouteConfigInput struct {
 	Targets  []RouteTargetInput `json:"targets"`
 }
 
-func (service *Service) RouteConfig(ctx context.Context, actor auth.User, publicID string) (PublicModel, []RouteTargetInput, error) {
+func (service *Service) RouteConfig(ctx context.Context, actor auth.User, publicID string) (PublicModel, []RouteTargetInput, []UpstreamModel, error) {
 	if err := requireManager(ctx, service.database, &actor); err != nil {
-		return PublicModel{}, nil, err
+		return PublicModel{}, nil, nil, err
 	}
 	model, err := service.ResolvePublicModel(ctx, publicID)
 	if err != nil {
-		return PublicModel{}, nil, err
+		return PublicModel{}, nil, nil, err
+	}
+	available, err := service.availableRouteTargets(ctx, model.Capabilities)
+	if err != nil {
+		return PublicModel{}, nil, nil, err
 	}
 	rows, err := service.database.QueryContext(ctx, "SELECT upstream_model_id,priority,weight,enabled FROM public_model_targets WHERE public_model_id=? ORDER BY priority", publicID)
 	if err != nil {
-		return PublicModel{}, nil, err
+		return PublicModel{}, nil, nil, err
 	}
 	defer rows.Close()
 	var targets []RouteTargetInput
 	for rows.Next() {
 		var target RouteTargetInput
 		if err := rows.Scan(&target.UpstreamModelID, &target.Priority, &target.Weight, &target.Enabled); err != nil {
-			return PublicModel{}, nil, err
+			return PublicModel{}, nil, nil, err
 		}
 		targets = append(targets, target)
 	}
-	return model, targets, rows.Err()
+	return model, targets, available, rows.Err()
+}
+
+func (service *Service) availableRouteTargets(ctx context.Context, capabilities []string) ([]UpstreamModel, error) {
+	rows, err := service.database.QueryContext(ctx, "SELECT upstream_models.id,upstream_models.connection_id,upstream_models.upstream_id,upstream_models.capabilities_json,upstream_models.active FROM upstream_models JOIN provider_connections ON provider_connections.id=upstream_models.connection_id WHERE upstream_models.active=1 AND provider_connections.enabled=1 ORDER BY upstream_models.upstream_id,upstream_models.id")
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := make([]UpstreamModel, 0)
+	for rows.Next() {
+		var item UpstreamModel
+		var raw string
+		if err := rows.Scan(&item.ID, &item.ConnectionID, &item.UpstreamID, &raw, &item.Active); err != nil {
+			return nil, err
+		}
+		if json.Unmarshal([]byte(raw), &item.Capabilities) != nil || !subset(capabilities, item.Capabilities) {
+			continue
+		}
+		item.CapabilityDetails = capabilityDetails(item.Capabilities)
+		items = append(items, item)
+	}
+	return items, rows.Err()
 }
 
 func (service *Service) ConfigureRoute(ctx context.Context, actor auth.User, publicID string, revision int64, input RouteConfigInput) (PublicModel, error) {
@@ -153,7 +277,7 @@ func (service *Service) ConfigureRoute(ctx context.Context, actor auth.User, pub
 		if target.Weight == 0 {
 			target.Weight = 1
 		}
-		if target.Priority < 1 || target.Priority > 1000 || target.Weight < 1 || target.Weight > 10000 || target.UpstreamModelID == "" || seenModels[target.UpstreamModelID] || seenPriorities[target.Priority] {
+		if target.Priority < routePriorityField.Minimum || target.Priority > routePriorityField.Maximum || target.Weight < routeWeightField.Minimum || target.Weight > routeWeightField.Maximum || target.UpstreamModelID == "" || seenModels[target.UpstreamModelID] || seenPriorities[target.Priority] {
 			return PublicModel{}, errors.New("route targets require unique models and priorities with valid weights")
 		}
 		seenModels[target.UpstreamModelID], seenPriorities[target.Priority] = true, true
@@ -278,12 +402,12 @@ func (service *Service) Route(ctx context.Context, publicID string, options Rout
 		_ = json.Unmarshal([]byte(publicCaps), &publicCapabilities)
 		item.target = Target{PublicModel: PublicModel{ID: publicID, Label: label, Description: description, TargetConnectionID: item.ConnectionID, TargetModelID: item.UpstreamModelID, UpstreamID: item.UpstreamID, Adapter: item.Adapter, Capabilities: publicCapabilities, Active: true, Revision: modelRevision, RoutingStrategy: strategy, FreeOnly: freeOnly}, UpstreamCapabilities: item.Capabilities, BaseURL: baseURL, AllowPrivateNetwork: allowPrivate, TimeoutMS: timeout, ConnectionRevision: connectionRevision, Preset: preset}
 		if options.AllowsConnection != nil && !options.AllowsConnection(item.ConnectionID) {
-			plan.Rejected = append(plan.Rejected, RouteRejection{item.UpstreamModelID, item.ConnectionID, "connection_not_granted"})
+			plan.Rejected = append(plan.Rejected, routeRejection(item.UpstreamModelID, item.ConnectionID, "connection_not_granted"))
 			continue
 		}
 		if options.Eligibility != nil {
 			if eligible, reason := options.Eligibility(item.target); !eligible {
-				plan.Rejected = append(plan.Rejected, RouteRejection{item.UpstreamModelID, item.ConnectionID, reason})
+				plan.Rejected = append(plan.Rejected, routeRejection(item.UpstreamModelID, item.ConnectionID, reason))
 				continue
 			}
 		}
@@ -293,7 +417,7 @@ func (service *Service) Route(ctx context.Context, publicID string, options Rout
 			item.target.Credential, err = openSecret(service.key, item.ConnectionID, ciphertext, nonce)
 		}
 		if err != nil || item.target.Credential == "" && preset != "ollama" {
-			plan.Rejected = append(plan.Rejected, RouteRejection{item.UpstreamModelID, item.ConnectionID, "credential_unavailable"})
+			plan.Rejected = append(plan.Rejected, routeRejection(item.UpstreamModelID, item.ConnectionID, "credential_unavailable"))
 			continue
 		}
 		if inputRate.Valid && outputRate.Valid {
@@ -307,7 +431,7 @@ func (service *Service) Route(ctx context.Context, publicID string, options Rout
 			item.EstimatedCostUSD = &value
 		}
 		if freeOnly && (!inputRate.Valid || !outputRate.Valid || !priceSource.Valid || !priceCreated.Valid || !usage.VerifiedFreePrice(inputRate.Int64, outputRate.Int64, nullableInt64(cacheReadRate), priceSource.String, priceCreated.Int64, now)) {
-			plan.Rejected = append(plan.Rejected, RouteRejection{item.UpstreamModelID, item.ConnectionID, "not_verified_free"})
+			plan.Rejected = append(plan.Rejected, routeRejection(item.UpstreamModelID, item.ConnectionID, "not_verified_free"))
 			continue
 		}
 		fresh := observedAt.Valid && observedAt.Int64 >= now-latencyFreshness.Milliseconds()
@@ -323,7 +447,7 @@ func (service *Service) Route(ctx context.Context, publicID string, options Rout
 			value := time.UnixMilli(until.Int64).UTC().Format(time.RFC3339Nano)
 			item.CircuitOpenUntil = &value
 			if until.Int64 > now {
-				plan.Rejected = append(plan.Rejected, RouteRejection{item.UpstreamModelID, item.ConnectionID, "circuit_open"})
+				plan.Rejected = append(plan.Rejected, routeRejection(item.UpstreamModelID, item.ConnectionID, "circuit_open"))
 				continue
 			}
 		}
@@ -334,9 +458,55 @@ func (service *Service) Route(ctx context.Context, publicID string, options Rout
 	}
 	plan.Targets, plan.Rejected, plan.SelectionReason = orderRoute(plan.Targets, plan.Rejected, strategy, options.Seed)
 	if len(plan.Targets) == 0 {
+		plan.SelectionMessage = "No eligible target"
 		return plan, ErrNotFound
 	}
+	plan.SelectionMessage = routeSelectionMessage(plan.SelectionReason)
 	return plan, nil
+}
+
+func routeSelectionMessage(reason string) string {
+	strategy := strings.SplitN(reason, ":", 2)[0]
+	return map[string]string{
+		"fixed":                      "Fixed target selected",
+		"ordered_fallback":           "First available target selected",
+		"weighted":                   "Weighted target selected",
+		"lowest_cost":                "Lowest estimated cost selected",
+		"lowest_latency":             "Lowest observed latency selected",
+		"lowest_latency_exploration": "Latency exploration target selected",
+	}[strategy]
+}
+
+func routeRejectionMessage(reason string) string {
+	if message := map[string]string{
+		"anthropic_stream_usage_unavailable":    "Streaming usage is unavailable for this target",
+		"cache_price_contract_unavailable":      "Cache pricing is unavailable for this route",
+		"circuit_open":                          "Target is temporarily unavailable",
+		"connection_not_granted":                "API key does not grant this connection",
+		"cost_estimate_unavailable":             "Cost cannot be estimated for this operation",
+		"credential_unavailable":                "Provider credential is unavailable",
+		"free_price_contract_unavailable":       "Verified-free pricing is unavailable",
+		"image_stream_native_gpt_required":      "Streaming images require a native GPT Image target",
+		"interactions_native_gemini_required":   "Interactions require the built-in Gemini preset",
+		"not_verified_free":                     "Target does not have verified zero pricing",
+		"preset_operation_unsupported":          "Provider preset does not support this operation",
+		"price_unknown":                         "Target price is unknown",
+		"prompt_cache_native_required":          "Prompt caching requires the built-in Anthropic preset",
+		"request_translation_unsupported":       "Request cannot be translated for this target",
+		"translation_unsupported":               "This operation requires a native target",
+		"unsupported_capability":                "Target does not support the required capability",
+		"web_fetch_native_required":             "Web fetch requires the built-in Anthropic preset",
+		"web_fetch_price_contract_unavailable":  "Web fetch pricing is unavailable for this route",
+		"web_search_native_required":            "Web search requires a supported native preset",
+		"web_search_price_contract_unavailable": "Web search pricing is unavailable for this route",
+	}[reason]; message != "" {
+		return message
+	}
+	return "Target is unavailable for this request"
+}
+
+func routeRejection(upstreamModelID, connectionID, reason string) RouteRejection {
+	return RouteRejection{UpstreamModelID: upstreamModelID, ConnectionID: connectionID, Reason: reason, Message: routeRejectionMessage(reason)}
 }
 
 func orderRoute(items []RouteTarget, rejected []RouteRejection, strategy, seed string) ([]RouteTarget, []RouteRejection, string) {
@@ -346,7 +516,7 @@ func orderRoute(items []RouteTarget, rejected []RouteRejection, strategy, seed s
 		kept := items[:0]
 		for _, item := range items {
 			if item.estimatedCostNanos == nil {
-				rejected = append(rejected, RouteRejection{item.UpstreamModelID, item.ConnectionID, "price_unknown"})
+				rejected = append(rejected, routeRejection(item.UpstreamModelID, item.ConnectionID, "price_unknown"))
 			} else {
 				kept = append(kept, item)
 			}
