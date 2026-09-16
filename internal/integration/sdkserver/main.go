@@ -85,9 +85,11 @@ func main() {
 			must(createErr)
 			_, createErr = providerService.CreatePublicModel(ctx, owner, "target-openai-embedding", "Target OpenAI embedding", "", embeddingModel.ID, embeddingModel.Capabilities)
 			must(createErr)
-			editModel, createErr := providerService.CreateUpstreamModel(ctx, owner, connection.ID, "gpt-image-1", []string{"image_edit"})
+			editModel, createErr := providerService.CreateUpstreamModel(ctx, owner, connection.ID, "gpt-image-1", []string{"images", "image_edit"})
 			must(createErr)
-			_, createErr = providerService.CreatePublicModel(ctx, owner, "target-openai-edit", "Target OpenAI edit", "", editModel.ID, editModel.Capabilities)
+			_, createErr = providerService.CreatePublicModel(ctx, owner, "target-openai-image", "Target OpenAI image", "", editModel.ID, []string{"images"})
+			must(createErr)
+			_, createErr = providerService.CreatePublicModel(ctx, owner, "target-openai-edit", "Target OpenAI edit", "", editModel.ID, []string{"image_edit"})
 			must(createErr)
 			variationModel, createErr := providerService.CreateUpstreamModel(ctx, owner, connection.ID, "dall-e-2", []string{"image_variation"})
 			must(createErr)
@@ -145,6 +147,11 @@ func upstreamHandler(response http.ResponseWriter, request *http.Request) {
 	if stream {
 		if strings.HasSuffix(request.URL.Path, "/audio/transcriptions") {
 			io.WriteString(response, "event: transcript.text.delta\ndata: {\"type\":\"transcript.text.delta\",\"delta\":\"gateway \"}\n\nevent: transcript.text.delta\ndata: {\"type\":\"transcript.text.delta\",\"delta\":\"stream\"}\n\nevent: transcript.text.done\ndata: {\"type\":\"transcript.text.done\",\"text\":\"gateway stream\",\"usage\":{\"type\":\"tokens\",\"input_tokens\":3,\"output_tokens\":2,\"total_tokens\":5}}\n\n")
+			return
+		}
+		if target == "openai" && strings.HasSuffix(request.URL.Path, "/images/generations") {
+			io.WriteString(response, "event: image_generation.partial_image\ndata: {\"type\":\"image_generation.partial_image\",\"b64_json\":\"cGFydGlhbA==\",\"background\":\"opaque\",\"created_at\":1764967971,\"output_format\":\"png\",\"partial_image_index\":0,\"quality\":\"medium\",\"size\":\"1024x1024\"}\n\n"+
+				"event: image_generation.completed\ndata: {\"type\":\"image_generation.completed\",\"b64_json\":\"ZmluYWw=\",\"background\":\"opaque\",\"created_at\":1764967971,\"output_format\":\"png\",\"quality\":\"medium\",\"size\":\"1024x1024\",\"usage\":{\"input_tokens\":5,\"input_tokens_details\":{\"image_tokens\":0,\"text_tokens\":5},\"output_tokens\":7,\"total_tokens\":12}}\n\n")
 			return
 		}
 		if target == "openai" && strings.HasSuffix(request.URL.Path, "/responses") {

@@ -150,8 +150,9 @@ func (handler *Handler) forwardAuthorized(response http.ResponseWriter, request 
 			return
 		}
 	}
+	imageGenerationInput := imageGenerationRequest{}
 	if upstreamPath == "images/generations" {
-		if err = validateImageGeneration(envelope); err != nil {
+		if imageGenerationInput, err = validateImageGeneration(envelope); err != nil {
 			handler.writeError(response, dialect, http.StatusBadRequest, "invalid_request", err.Error())
 			return
 		}
@@ -180,6 +181,9 @@ func (handler *Handler) forwardAuthorized(response http.ResponseWriter, request 
 	}
 	stream := false
 	_ = json.Unmarshal(envelope["stream"], &stream)
+	if upstreamPath == "images/generations" {
+		stream = imageGenerationInput.stream
+	}
 	if streamOverride != nil {
 		stream = *streamOverride
 	}
@@ -311,6 +315,9 @@ func (handler *Handler) forwardAuthorized(response http.ResponseWriter, request 
 		if !hasCapability(target.Capabilities, scope) || !hasCapability(target.UpstreamCapabilities, scope) {
 			return false, "unsupported_capability"
 		}
+		if imageGenerationInput.stream && (target.Adapter != "openai" || target.Preset != "openai" || !openAIImageStreamModel(target.UpstreamID)) {
+			return false, "image_stream_native_gpt_required"
+		}
 		if opaqueMedia && target.RoutingStrategy == "lowest_cost" {
 			return false, "cost_estimate_unavailable"
 		}
@@ -428,8 +435,8 @@ func (handler *Handler) forwardAuthorized(response http.ResponseWriter, request 
 		var countedInputTokens *int64
 		semanticResponseError := false
 		if native {
-			result, raw, copyErr = handler.dispatch(attemptWriter, request, target, targetPath, targetBody, stream, dialect, publicID, (anthropicWebSearch.enabled || anthropicWebFetch.enabled) && stream, releaseDispatch)
-			semanticResponseError = errors.Is(copyErr, errAnthropicStreamInvalid) || errors.Is(copyErr, protocol.ErrInvalidOpenAICompletion)
+			result, raw, copyErr = handler.dispatch(attemptWriter, request, target, targetPath, targetBody, stream, dialect, publicID, (anthropicWebSearch.enabled || anthropicWebFetch.enabled) && stream, int(imageGenerationInput.partialImages), releaseDispatch)
+			semanticResponseError = errors.Is(copyErr, errAnthropicStreamInvalid) || errors.Is(copyErr, protocol.ErrInvalidOpenAICompletion) || errors.Is(copyErr, protocol.ErrInvalidOpenAIImageStream)
 		} else {
 			result, raw, copyErr = handler.dispatchTranslated(attemptWriter, request, target, targetPath, targetBody, dialect, publicID, stream, releaseDispatch)
 		}

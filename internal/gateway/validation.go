@@ -181,13 +181,51 @@ func validateResponseInputTokens(raw []byte) (int64, error) {
 	return *count, nil
 }
 
-func validateImageGeneration(envelope map[string]json.RawMessage) error {
-	return validateImageJSON(envelope, "generation")
+type imageGenerationRequest struct {
+	stream        bool
+	partialImages int64
+}
+
+func validateImageGeneration(envelope map[string]json.RawMessage) (imageGenerationRequest, error) {
+	if err := validateImageJSON(envelope); err != nil {
+		return imageGenerationRequest{}, err
+	}
+	stream, err := jsonBoolean(envelope, "stream", false)
+	if err != nil {
+		return imageGenerationRequest{}, err
+	}
+	n := int64(1)
+	if raw := bytes.TrimSpace(envelope["n"]); len(raw) > 0 && !bytes.Equal(raw, []byte("null")) {
+		_ = json.Unmarshal(raw, &n)
+	}
+	partialImages := int64(0)
+	if raw := bytes.TrimSpace(envelope["partial_images"]); len(raw) > 0 && !bytes.Equal(raw, []byte("null")) {
+		if json.Unmarshal(raw, &partialImages) != nil || partialImages < 0 || partialImages > 3 {
+			return imageGenerationRequest{}, errors.New("partial_images must be an integer between 0 and 3")
+		}
+		if !stream {
+			return imageGenerationRequest{}, errors.New("partial_images requires streaming image generation")
+		}
+	}
+	if stream && n != 1 {
+		return imageGenerationRequest{}, errors.New("streaming image generation requires n=1")
+	}
+	return imageGenerationRequest{stream: stream, partialImages: partialImages}, nil
+}
+
+func openAIImageStreamModel(model string) bool {
+	return strings.HasPrefix(model, "gpt-image-") || model == "chatgpt-image-latest"
 }
 
 func validateImageEditBatch(envelope map[string]json.RawMessage) error {
-	if err := validateImageJSON(envelope, "edits"); err != nil {
+	if err := validateImageJSON(envelope); err != nil {
 		return err
+	}
+	if stream, err := jsonBoolean(envelope, "stream", false); err != nil || stream {
+		return errors.New("stream must be false or omitted in Batches")
+	}
+	if raw := bytes.TrimSpace(envelope["partial_images"]); len(raw) > 0 && !bytes.Equal(raw, []byte("null")) {
+		return errors.New("partial_images is not supported in Batches")
 	}
 	var images []json.RawMessage
 	if json.Unmarshal(envelope["images"], &images) != nil || len(images) < 1 || len(images) > 16 {
@@ -206,7 +244,7 @@ func validateImageEditBatch(envelope map[string]json.RawMessage) error {
 	return nil
 }
 
-func validateImageJSON(envelope map[string]json.RawMessage, operation string) error {
+func validateImageJSON(envelope map[string]json.RawMessage) error {
 	var prompt string
 	if json.Unmarshal(envelope["prompt"], &prompt) != nil || strings.TrimSpace(prompt) == "" || len([]rune(prompt)) > 32_000 {
 		return errors.New("prompt must contain 1-32000 characters")
@@ -220,12 +258,6 @@ func validateImageJSON(envelope map[string]json.RawMessage, operation string) er
 		if json.Unmarshal(raw, &value) != nil || value < bounds[0] || value > bounds[1] {
 			return fmt.Errorf("%s must be an integer between %d and %d", name, bounds[0], bounds[1])
 		}
-	}
-	if raw := bytes.TrimSpace(envelope["stream"]); len(raw) > 0 && !bytes.Equal(raw, []byte("null")) && !bytes.Equal(raw, []byte("false")) {
-		return fmt.Errorf("streaming image %s are not supported", operation)
-	}
-	if raw := bytes.TrimSpace(envelope["partial_images"]); len(raw) > 0 && !bytes.Equal(raw, []byte("null")) {
-		return fmt.Errorf("partial_images requires streaming image %s", operation)
 	}
 	return nil
 }

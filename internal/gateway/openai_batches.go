@@ -302,8 +302,12 @@ func parseOpenAIBatchInput(content []byte, endpoint string) ([]openAIBatchInputL
 				return nil, "", err
 			}
 		case "/v1/images/generations":
-			if err := validateImageGeneration(envelope); err != nil {
+			image, err := validateImageGeneration(envelope)
+			if err != nil {
 				return nil, "", err
+			}
+			if image.stream {
+				return nil, "", errors.New("stream must be false or omitted in Batches")
 			}
 		case "/v1/images/edits":
 			if err := validateImageEditBatch(envelope); err != nil {

@@ -40,6 +40,7 @@ Each record states status/source, context, decision, and consequences. A recomme
 | ADR-032 | [Bounded native Anthropic basic web fetch](2026-09-16-native-anthropic-web-fetch.md) | Accepted bounded Phase 8 contract |
 | ADR-033 | [Native OpenAI legacy Completions and gateway-owned Batches](2026-09-16-native-openai-legacy-completions.md) | Accepted bounded Phase 8 contract extending ADR-024 through ADR-031 |
 | ADR-034 | [Backend-owned dashboard metadata](2026-09-16-backend-owned-dashboard-metadata.md) | Accepted user direction extending ADR-002 and ADR-011 |
+| ADR-035 | [Native OpenAI image-generation streaming](2026-09-16-native-openai-image-generation-streaming.md) | Accepted bounded Phase 8 contract |
 
 Historical: [initial proposal](2026-09-14-initial-proposal.md), superseded by the records above where they differ. Its A/P/D/M identifiers are historical references only; current documents use ADR IDs.
 
