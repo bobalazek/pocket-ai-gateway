@@ -121,7 +121,7 @@ func TestOpenAIFileListUsesValidatedKeysetPagination(t *testing.T) {
 	if second.Code != http.StatusOK || !strings.Contains(second.Body.String(), ids[1]) || strings.Contains(second.Body.String(), ids[0]) {
 		t.Fatalf("second status=%d body=%s", second.Code, second.Body.String())
 	}
-	for _, path := range []string{"/api/openai/v1/files?limit=0", "/api/openai/v1/files?limit=101", "/api/openai/v1/files?order=newest", "/api/openai/v1/files?purpose=fine-tune", "/api/openai/v1/files?after=missing", "/api/openai/v1/files?after=a&after=b"} {
+	for _, path := range []string{"/api/openai/v1/files?limit=0", "/api/openai/v1/files?limit=101", "/api/openai/v1/files?order=newest", "/api/openai/v1/files?purpose=invalid", "/api/openai/v1/files?after=missing", "/api/openai/v1/files?after=a&after=b"} {
 		result := performFileRequest(t, mux, http.MethodGet, path, secret, nil, "")
 		if result.Code != http.StatusBadRequest {
 			t.Fatalf("invalid query %s status=%d body=%s", path, result.Code, result.Body.String())
@@ -149,6 +149,12 @@ func TestOpenAIFileUploadValidationAndBounds(t *testing.T) {
 		{"missing-purpose", "input.jsonl", []byte("{}"), nil, nil, http.StatusBadRequest},
 		{"reserved-purpose", "input.jsonl", []byte("{}"), map[string]string{"purpose": "batch_output"}, nil, http.StatusBadRequest},
 		{"extension", "input.txt", []byte("{}"), map[string]string{"purpose": "batch"}, nil, http.StatusBadRequest},
+		{"assistants", "notes.txt", []byte("notes"), map[string]string{"purpose": "assistants"}, nil, http.StatusOK},
+		{"fine-tune", "training.jsonl", []byte("{}\n"), map[string]string{"purpose": "fine-tune"}, nil, http.StatusOK},
+		{"vision", "image.png", []byte("image"), map[string]string{"purpose": "vision"}, nil, http.StatusOK},
+		{"user-data", "document.pdf", []byte("document"), map[string]string{"purpose": "user_data"}, nil, http.StatusOK},
+		{"evals", "evals.jsonl", []byte("{}\n"), map[string]string{"purpose": "evals"}, nil, http.StatusOK},
+		{"evals-extension", "evals.txt", []byte("{}\n"), map[string]string{"purpose": "evals"}, nil, http.StatusBadRequest},
 		{"empty", "input.jsonl", nil, map[string]string{"purpose": "batch"}, nil, http.StatusBadRequest},
 		{"partial-expiry", "input.jsonl", []byte("{}"), map[string]string{"purpose": "batch", "expires_after[seconds]": "3600"}, nil, http.StatusBadRequest},
 		{"bad-anchor", "input.jsonl", []byte("{}"), map[string]string{"purpose": "batch", "expires_after[anchor]": "modified_at", "expires_after[seconds]": "3600"}, nil, http.StatusBadRequest},
@@ -162,6 +168,12 @@ func TestOpenAIFileUploadValidationAndBounds(t *testing.T) {
 			result := performFileUpload(t, mux, secret, test.filename, test.content, test.fields, test.extra)
 			if result.Code != test.status {
 				t.Fatalf("status=%d body=%s", result.Code, result.Body.String())
+			}
+			if test.status == http.StatusOK {
+				var item openAIFile
+				if err := json.Unmarshal(result.Body.Bytes(), &item); err != nil || item.Purpose != test.fields["purpose"] {
+					t.Fatalf("purpose=%q error=%v body=%s", item.Purpose, err, result.Body.String())
+				}
 			}
 		})
 	}

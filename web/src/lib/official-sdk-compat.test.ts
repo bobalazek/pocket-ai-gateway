@@ -139,6 +139,13 @@ describe("official SDK compatibility through the Go gateway", () => {
     });
     expect((await client.files.retrieve(created[0].id)).id).toBe(created[0].id);
 
+    const userData = await client.files.create({
+      file: await toFile(Buffer.from("gateway notes"), "notes.txt", { type: "text/plain" }),
+      purpose: "user_data",
+    });
+    expect(userData).toMatchObject({ filename: "notes.txt", purpose: "user_data", status: "processed" });
+    expect((await client.files.list({ purpose: "user_data" })).data.map((file) => file.id)).toContain(userData.id);
+
     const ascending = await client.files.list({ purpose: "batch", order: "asc", limit: 100 });
     const descending = await client.files.list({ purpose: "batch", order: "desc", limit: 100 });
     expect(descending.data.map((file) => file.id)).toEqual(ascending.data.map((file) => file.id).reverse());
@@ -158,6 +165,7 @@ describe("official SDK compatibility through the Go gateway", () => {
     await expect(openAI(noFilesApiKey).files.list()).rejects.toMatchObject({ status: 403 });
     expect(await client.files.delete(created[0].id)).toEqual({ id: created[0].id, object: "file", deleted: true });
     await expect(client.files.retrieve(created[0].id)).rejects.toMatchObject({ status: 404 });
+    expect(await client.files.delete(userData.id)).toMatchObject({ id: userData.id, deleted: true });
   });
 
   it("assembles gateway-owned OpenAI Uploads in the requested Part order", async () => {

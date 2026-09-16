@@ -39,6 +39,7 @@ type openAIFile struct {
 type fileUpload struct {
 	filename string
 	content  []byte
+	purpose  string
 	expires  time.Duration
 }
 
@@ -88,20 +89,20 @@ func (handler *Handler) createFile(response http.ResponseWriter, request *http.R
 		return
 	}
 	id := "file_" + token
-	ciphertext, nonce, err := credentials.Seal(handler.masterKey, upload.content, fileAdditionalData(id, principal.KeyID, "batch", int64(len(upload.content))))
+	ciphertext, nonce, err := credentials.Seal(handler.masterKey, upload.content, fileAdditionalData(id, principal.KeyID, upload.purpose, int64(len(upload.content))))
 	if err != nil {
 		handler.writeError(response, "openai", http.StatusServiceUnavailable, "gateway_unavailable", "File could not be created")
 		return
 	}
 	now := time.Now()
-	item := openAIFile{ID: id, Object: "file", Bytes: int64(len(upload.content)), CreatedAt: now.Unix(), ExpiresAt: now.Add(upload.expires).Unix(), Filename: upload.filename, Purpose: "batch", Status: "processed"}
+	item := openAIFile{ID: id, Object: "file", Bytes: int64(len(upload.content)), CreatedAt: now.Unix(), ExpiresAt: now.Add(upload.expires).Unix(), Filename: upload.filename, Purpose: upload.purpose, Status: "processed"}
 	tx, err := handler.database.BeginTx(request.Context(), nil)
 	if err == nil {
 		defer tx.Rollback()
 		err = checkRetainedResourceCapacity(request.Context(), tx, principal.OwnerUserID, principal.KeyID, 1, int64(len(upload.filename)+len(ciphertext)+len(nonce)))
 	}
 	if err == nil {
-		_, err = tx.ExecContext(request.Context(), `INSERT INTO openai_files(id,owner_user_id,key_id,filename,purpose,bytes,ciphertext,nonce,created_at,expires_at) VALUES(?,?,?,?,?,?,?,?,?,?)`, item.ID, principal.OwnerUserID, principal.KeyID, item.Filename, item.Purpose, item.Bytes, ciphertext, nonce, now.UnixMilli(), now.Add(upload.expires).UnixMilli())
+		_, err = tx.ExecContext(request.Context(), `INSERT INTO openai_files(id,owner_user_id,key_id,filename,purpose,client_purpose,bytes,ciphertext,nonce,created_at,expires_at) VALUES(?,?,?,?,?,?,?,?,?,?,?)`, item.ID, principal.OwnerUserID, principal.KeyID, item.Filename, storedFilePurpose(item.Purpose), item.Purpose, item.Bytes, ciphertext, nonce, now.UnixMilli(), now.Add(upload.expires).UnixMilli())
 	}
 	if err == nil {
 		err = tx.Commit()
@@ -148,8 +149,8 @@ func parseFileUpload(body io.Reader, contentType string) (fileUpload, error) {
 		seen[name] = true
 		if name == "file" {
 			filename := part.FileName()
-			if filename == "" || !validFileName(filename) || !strings.EqualFold(path.Ext(filename), ".jsonl") {
-				return fileUpload{}, errors.New("file must be a non-empty .jsonl upload")
+			if filename == "" || !validFileName(filename) {
+				return fileUpload{}, errors.New("file must have a safe filename")
 			}
 			content, err := io.ReadAll(io.LimitReader(part, maxFileBytes+1))
 			if err != nil {
@@ -159,7 +160,7 @@ func parseFileUpload(body io.Reader, contentType string) (fileUpload, error) {
 				return fileUpload{}, errFileTooLarge
 			}
 			if len(content) == 0 {
-				return fileUpload{}, errors.New("file must be a non-empty .jsonl upload")
+				return fileUpload{}, errors.New("file must be non-empty")
 			}
 			upload.filename, upload.content = filename, content
 			continue
@@ -177,9 +178,10 @@ func parseFileUpload(body io.Reader, contentType string) (fileUpload, error) {
 		text := strings.TrimSpace(string(value))
 		switch name {
 		case "purpose":
-			if text != "batch" {
-				return fileUpload{}, errors.New("purpose must be batch")
+			if !validFilePurpose(text, false) {
+				return fileUpload{}, errors.New("purpose must be assistants, batch, fine-tune, vision, user_data, or evals")
 			}
+			upload.purpose = text
 		case "expires_after[anchor]":
 			if text != "created_at" {
 				return fileUpload{}, errors.New("expires_after.anchor must be created_at")
@@ -200,7 +202,32 @@ func parseFileUpload(body io.Reader, contentType string) (fileUpload, error) {
 	if seen["expires_after[anchor]"] != seen["expires_after[seconds]"] {
 		return fileUpload{}, errors.New("expires_after requires anchor and seconds")
 	}
+	if filePurposeRequiresJSONL(upload.purpose) && !strings.EqualFold(path.Ext(upload.filename), ".jsonl") {
+		return fileUpload{}, errors.New("batch, fine-tune, and evals files must use a .jsonl filename")
+	}
 	return upload, nil
+}
+
+func validFilePurpose(value string, generated bool) bool {
+	switch value {
+	case "assistants", "batch", "fine-tune", "vision", "user_data", "evals":
+		return true
+	case "batch_output":
+		return generated
+	default:
+		return false
+	}
+}
+
+func filePurposeRequiresJSONL(value string) bool {
+	return value == "batch" || value == "fine-tune" || value == "evals"
+}
+
+func storedFilePurpose(value string) string {
+	if value == "batch_output" {
+		return value
+	}
+	return "batch"
 }
 
 func validFileName(filename string) bool {
@@ -227,7 +254,7 @@ func (handler *Handler) getFile(response http.ResponseWriter, request *http.Requ
 func (handler *Handler) readFile(ctx context.Context, keyID, id string) (openAIFile, error) {
 	var item openAIFile
 	var createdAt, expiresAt int64
-	err := handler.database.QueryRowContext(ctx, `SELECT id,filename,purpose,bytes,created_at,expires_at FROM openai_files WHERE id=? AND key_id=? AND expires_at>?`, id, keyID, time.Now().UnixMilli()).Scan(&item.ID, &item.Filename, &item.Purpose, &item.Bytes, &createdAt, &expiresAt)
+	err := handler.database.QueryRowContext(ctx, `SELECT id,filename,COALESCE(client_purpose,purpose),bytes,created_at,expires_at FROM openai_files WHERE id=? AND key_id=? AND expires_at>?`, id, keyID, time.Now().UnixMilli()).Scan(&item.ID, &item.Filename, &item.Purpose, &item.Bytes, &createdAt, &expiresAt)
 	item.Object, item.Status, item.CreatedAt, item.ExpiresAt = "file", "processed", createdAt/1000, expiresAt/1000
 	return item, err
 }
@@ -300,14 +327,14 @@ func (handler *Handler) listFiles(response http.ResponseWriter, request *http.Re
 		}
 	}
 	after, purpose := query.Get("after"), query.Get("purpose")
-	if purpose != "" && purpose != "batch" && purpose != "batch_output" {
-		handler.writeError(response, "openai", http.StatusBadRequest, "invalid_request", "purpose must be batch or batch_output")
+	if purpose != "" && !validFilePurpose(purpose, true) {
+		handler.writeError(response, "openai", http.StatusBadRequest, "invalid_request", "purpose is invalid")
 		return
 	}
 	predicate := `key_id=? AND expires_at>?`
 	arguments := []any{principal.KeyID, time.Now().UnixMilli()}
 	if purpose != "" {
-		predicate += ` AND purpose=?`
+		predicate += ` AND COALESCE(client_purpose,purpose)=?`
 		arguments = append(arguments, purpose)
 	}
 	comparison := ">"
@@ -330,7 +357,7 @@ func (handler *Handler) listFiles(response http.ResponseWriter, request *http.Re
 		arguments = append(arguments, createdAt, createdAt, after)
 	}
 	arguments = append(arguments, limit+1)
-	rows, err := handler.database.QueryContext(request.Context(), `SELECT id,filename,purpose,bytes,created_at,expires_at FROM openai_files WHERE `+predicate+` ORDER BY created_at `+order+`,id `+order+` LIMIT ?`, arguments...)
+	rows, err := handler.database.QueryContext(request.Context(), `SELECT id,filename,COALESCE(client_purpose,purpose),bytes,created_at,expires_at FROM openai_files WHERE `+predicate+` ORDER BY created_at `+order+`,id `+order+` LIMIT ?`, arguments...)
 	if err != nil {
 		handler.writeError(response, "openai", http.StatusServiceUnavailable, "gateway_unavailable", "Files are unavailable")
 		return

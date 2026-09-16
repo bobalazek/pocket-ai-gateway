@@ -15,7 +15,7 @@ func TestOpenAIFilesMigrationEnforcesEncryptionAndRetentionBounds(t *testing.T) 
 	defer store.Close()
 	database := store.SystemDB()
 	var version int64
-	if err = database.QueryRowContext(ctx, `SELECT MAX(version) FROM schema_migrations`).Scan(&version); err != nil || version < 19 {
+	if err = database.QueryRowContext(ctx, `SELECT MAX(version) FROM schema_migrations`).Scan(&version); err != nil || version < 29 {
 		t.Fatalf("system migration version=%d error=%v", version, err)
 	}
 	if _, err = database.ExecContext(ctx, `INSERT INTO users(id,email,display_name,password_hash,role,status,inference_unrestricted,created_at,updated_at) VALUES('usr_file','file@example.test','File','hash','owner','active',1,1,1)`); err != nil {
@@ -27,6 +27,12 @@ func TestOpenAIFilesMigrationEnforcesEncryptionAndRetentionBounds(t *testing.T) 
 	insert := `INSERT INTO openai_files(id,owner_user_id,key_id,filename,purpose,bytes,ciphertext,nonce,created_at,expires_at) VALUES(?,?,?,?,?,?,?,?,?,?)`
 	if _, err = database.ExecContext(ctx, insert, "file_valid", "usr_file", "key_file", "batch.jsonl", "batch", 1, make([]byte, 17), make([]byte, 12), 1, 3_600_001); err != nil {
 		t.Fatal(err)
+	}
+	if _, err = database.ExecContext(ctx, `INSERT INTO openai_files(id,owner_user_id,key_id,filename,purpose,client_purpose,bytes,ciphertext,nonce,created_at,expires_at) VALUES(?,?,?,?,?,?,?,?,?,?,?)`, "file_general", "usr_file", "key_file", "document.pdf", "batch", "user_data", 1, make([]byte, 17), make([]byte, 12), 1, 3_600_001); err != nil {
+		t.Fatal(err)
+	}
+	if _, err = database.ExecContext(ctx, `INSERT INTO openai_files(id,owner_user_id,key_id,filename,purpose,client_purpose,bytes,ciphertext,nonce,created_at,expires_at) VALUES(?,?,?,?,?,?,?,?,?,?,?)`, "file_bad_client_purpose", "usr_file", "key_file", "document.pdf", "batch", "invalid", 1, make([]byte, 17), make([]byte, 12), 1, 3_600_001); err == nil {
+		t.Fatal("invalid client file purpose was accepted")
 	}
 	for name, values := range map[string][]any{
 		"purpose":    {"file_purpose", "usr_file", "key_file", "batch.jsonl", "fine-tune", 1, make([]byte, 17), make([]byte, 12), 1, 3_600_001},

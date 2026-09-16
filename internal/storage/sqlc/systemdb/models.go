@@ -297,16 +297,17 @@ type OpenaiBatchItem struct {
 }
 
 type OpenaiFile struct {
-	ID          string `json:"id"`
-	OwnerUserID string `json:"owner_user_id"`
-	KeyID       string `json:"key_id"`
-	Filename    string `json:"filename"`
-	Purpose     string `json:"purpose"`
-	Bytes       int64  `json:"bytes"`
-	Ciphertext  []byte `json:"ciphertext"`
-	Nonce       []byte `json:"nonce"`
-	CreatedAt   int64  `json:"created_at"`
-	ExpiresAt   int64  `json:"expires_at"`
+	ID            string         `json:"id"`
+	OwnerUserID   string         `json:"owner_user_id"`
+	KeyID         string         `json:"key_id"`
+	Filename      string         `json:"filename"`
+	Purpose       string         `json:"purpose"`
+	Bytes         int64          `json:"bytes"`
+	Ciphertext    []byte         `json:"ciphertext"`
+	Nonce         []byte         `json:"nonce"`
+	CreatedAt     int64          `json:"created_at"`
+	ExpiresAt     int64          `json:"expires_at"`
+	ClientPurpose sql.NullString `json:"client_purpose"`
 }
 
 type OpenaiUpload struct {

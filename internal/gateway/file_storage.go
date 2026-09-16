@@ -25,7 +25,7 @@ func (handler *Handler) loadOpenAIFileContent(ctx context.Context, keyID, id str
 	var item openAIFile
 	var createdAt, expiresAt int64
 	var ciphertext, nonce []byte
-	err := handler.database.QueryRowContext(ctx, `SELECT id,filename,purpose,bytes,ciphertext,nonce,created_at,expires_at FROM openai_files WHERE id=? AND key_id=? AND expires_at>?`, id, keyID, time.Now().UnixMilli()).Scan(&item.ID, &item.Filename, &item.Purpose, &item.Bytes, &ciphertext, &nonce, &createdAt, &expiresAt)
+	err := handler.database.QueryRowContext(ctx, `SELECT id,filename,COALESCE(client_purpose,purpose),bytes,ciphertext,nonce,created_at,expires_at FROM openai_files WHERE id=? AND key_id=? AND expires_at>?`, id, keyID, time.Now().UnixMilli()).Scan(&item.ID, &item.Filename, &item.Purpose, &item.Bytes, &ciphertext, &nonce, &createdAt, &expiresAt)
 	if err != nil {
 		return openAIFile{}, nil, err
 	}
@@ -59,6 +59,6 @@ func (handler *Handler) insertOpenAIFile(ctx context.Context, tx *sql.Tx, ownerI
 		return openAIFile{}, err
 	}
 	item := openAIFile{ID: id, Object: "file", Bytes: int64(len(content)), CreatedAt: now.Unix(), ExpiresAt: expiresAt.Unix(), Filename: filename, Purpose: purpose, Status: "processed"}
-	_, err = tx.ExecContext(ctx, `INSERT INTO openai_files(id,owner_user_id,key_id,filename,purpose,bytes,ciphertext,nonce,created_at,expires_at) VALUES(?,?,?,?,?,?,?,?,?,?)`, item.ID, ownerID, keyID, item.Filename, item.Purpose, item.Bytes, ciphertext, nonce, now.UnixMilli(), expiresAt.UnixMilli())
+	_, err = tx.ExecContext(ctx, `INSERT INTO openai_files(id,owner_user_id,key_id,filename,purpose,client_purpose,bytes,ciphertext,nonce,created_at,expires_at) VALUES(?,?,?,?,?,?,?,?,?,?,?)`, item.ID, ownerID, keyID, item.Filename, storedFilePurpose(item.Purpose), item.Purpose, item.Bytes, ciphertext, nonce, now.UnixMilli(), expiresAt.UnixMilli())
 	return item, err
 }
