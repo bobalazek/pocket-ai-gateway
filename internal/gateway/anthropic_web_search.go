@@ -203,6 +203,10 @@ func anthropicWebSearchTargetEligibility(target providers.Target) (bool, string)
 }
 
 func parseAnthropicWebSearchUsage(raw []byte, maximum int64) (*int64, bool, bool) {
+	return parseAnthropicServerToolUsage(raw, "web_search_requests", maximum)
+}
+
+func parseAnthropicServerToolUsage(raw []byte, field string, maximum int64) (*int64, bool, bool) {
 	var response map[string]json.RawMessage
 	if json.Unmarshal(raw, &response) != nil || response == nil {
 		return nil, false, false
@@ -224,9 +228,18 @@ func parseAnthropicWebSearchUsage(raw []byte, maximum int64) (*int64, bool, bool
 		return nil, false, false
 	}
 	var count int64
-	rawCount, exists := serverToolUse["web_search_requests"]
+	rawCount, exists := serverToolUse[field]
 	if !exists || bytes.Equal(bytes.TrimSpace(rawCount), []byte("null")) || json.Unmarshal(rawCount, &count) != nil || count < 0 {
 		return nil, false, false
+	}
+	for name, raw := range serverToolUse {
+		if name == field || bytes.Equal(bytes.TrimSpace(raw), []byte("null")) {
+			continue
+		}
+		var other int64
+		if json.Unmarshal(raw, &other) != nil || other != 0 {
+			return nil, false, false
+		}
 	}
 	if count > maximum {
 		return nil, false, true
@@ -235,6 +248,10 @@ func parseAnthropicWebSearchUsage(raw []byte, maximum int64) (*int64, bool, bool
 }
 
 func parseAnthropicWebSearchStream(raw []byte, maximum int64) (*int64, error) {
+	return parseAnthropicServerToolStream(raw, "web_search_requests", maximum)
+}
+
+func parseAnthropicServerToolStream(raw []byte, field string, maximum int64) (*int64, error) {
 	scanner := bufio.NewScanner(bytes.NewReader(raw))
 	scanner.Buffer(make([]byte, 4096), maxInferenceBody+1)
 	var data bytes.Buffer
@@ -282,19 +299,23 @@ func parseAnthropicWebSearchStream(raw []byte, maximum int64) (*int64, error) {
 			if !started {
 				return errors.New("provider omitted message_start")
 			}
-			tokens := parseUsageDetails("anthropic", object)
-			if tokens.inputTokens == nil || tokens.outputTokens == nil {
-				return errors.New("provider omitted terminal token usage")
+			var delta struct {
+				Usage struct {
+					OutputTokens *int64 `json:"output_tokens"`
+				} `json:"usage"`
 			}
-			parsed, known, exceeded := parseAnthropicWebSearchUsage(object, maximum)
+			if json.Unmarshal(object, &delta) != nil || delta.Usage.OutputTokens == nil || *delta.Usage.OutputTokens < 0 {
+				return errors.New("provider omitted terminal output token usage")
+			}
+			parsed, known, exceeded := parseAnthropicServerToolUsage(object, field, maximum)
 			if exceeded {
 				return errors.New("provider exceeded max_uses")
 			}
 			if !known {
-				return errors.New("provider omitted terminal web-search usage")
+				return errors.New("provider omitted terminal server-tool usage")
 			}
 			if count != nil && *parsed < *count {
-				return errors.New("provider decreased cumulative web-search usage")
+				return errors.New("provider decreased cumulative server-tool usage")
 			}
 			count = parsed
 		case "message_stop":
@@ -302,7 +323,7 @@ func parseAnthropicWebSearchStream(raw []byte, maximum int64) (*int64, error) {
 				return errors.New("provider omitted message_start")
 			}
 			if count == nil {
-				return errors.New("provider omitted terminal web-search usage")
+				return errors.New("provider omitted terminal server-tool usage")
 			}
 			stopped = true
 		default:
@@ -337,6 +358,10 @@ func parseAnthropicWebSearchStream(raw []byte, maximum int64) (*int64, error) {
 	}
 	if !stopped {
 		return nil, errors.New("provider stream ended before message_stop")
+	}
+	tokens := parseUsageDetails("anthropic", raw)
+	if tokens.inputTokens == nil || tokens.outputTokens == nil {
+		return nil, errors.New("provider omitted terminal token usage")
 	}
 	return count, nil
 }

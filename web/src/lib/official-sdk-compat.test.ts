@@ -533,6 +533,87 @@ describe("official SDK compatibility through the Go gateway", () => {
     });
   });
 
+  it("preserves bounded native Anthropic web fetch", async () => {
+    const result = await anthropic().messages.create({
+      model: "target-anthropic",
+      max_tokens: 128,
+      messages: [{ role: "user", content: "Fetch https://example.com/page" }],
+      tools: [{
+        type: "web_fetch_20250910",
+        name: "web_fetch",
+        max_uses: 1,
+        max_content_tokens: 1024,
+        allowed_domains: ["example.com"],
+        citations: { enabled: true },
+      }],
+    });
+
+    expect(result.model).toBe("target-anthropic");
+    expect(result.content.find((block) => block.type === "server_tool_use")).toMatchObject({
+      id: "srvtoolu_fetch_1",
+      name: "web_fetch",
+      caller: { type: "direct" },
+      input: { url: "https://example.com/page" },
+    });
+    expect(result.content.find((block) => block.type === "web_fetch_tool_result")).toMatchObject({
+      tool_use_id: "srvtoolu_fetch_1",
+      caller: { type: "direct" },
+      content: {
+        type: "web_fetch_result",
+        url: "https://example.com/page",
+        retrieved_at: null,
+        content: {
+          type: "document",
+          source: { type: "text", media_type: "text/plain", data: "Fetched page" },
+          title: "Example page",
+          citations: { enabled: true },
+        },
+      },
+    });
+    expect(result.usage).toMatchObject({
+      input_tokens: 9,
+      output_tokens: 3,
+      server_tool_use: { web_fetch_requests: 1, web_search_requests: 0 },
+    });
+  });
+
+  it("streams bounded native Anthropic web fetch", async () => {
+    const stream = anthropic().messages.stream({
+      model: "target-anthropic",
+      max_tokens: 128,
+      messages: [{ role: "user", content: "Fetch https://example.com/page" }],
+      tools: [{
+        type: "web_fetch_20250910",
+        name: "web_fetch",
+        max_uses: 1,
+        max_content_tokens: 1024,
+        blocked_domains: ["blocked.example"],
+        citations: { enabled: true },
+      }],
+    });
+    const events = [];
+    for await (const event of stream) events.push(event);
+    const result = await stream.finalMessage();
+
+    const serverTool = result.content.find((block) => block.type === "server_tool_use");
+    expect(result.model).toBe("target-anthropic");
+    expect(serverTool).toMatchObject({ name: "web_fetch", input: { url: "https://example.com/page" } });
+    expect(result.content.find((block) => block.type === "web_fetch_tool_result")).toMatchObject({
+      tool_use_id: serverTool?.id,
+      content: {
+        type: "web_fetch_result",
+        url: "https://example.com/page",
+        content: { source: { type: "text", data: "Fetched page" } },
+      },
+    });
+    expect(result.usage.server_tool_use?.web_fetch_requests).toBe(1);
+    expect(events.find((event) => event.type === "message_delta")?.usage).toMatchObject({
+      input_tokens: expect.any(Number),
+      output_tokens: expect.any(Number),
+      server_tool_use: { web_fetch_requests: 1, web_search_requests: 0 },
+    });
+  });
+
   it("manages gateway-owned Anthropic Message Batches", async () => {
     const client = anthropic();
     const created = await client.messages.batches.create({

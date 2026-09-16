@@ -25,7 +25,7 @@ export default function ProvidersPage() {
         <section className="section-block">
           <h2>{model.items.length} connections</h2>
           <div className="resource-list">
-            {model.items.map((item) => <ProviderCard key={item.id} item={item} presets={model.presets} busy={model.busy} onToggle={model.toggle} onCredential={model.credential} onAddModel={model.addModel} />)}
+            {model.items.map((item) => <ProviderCard key={item.id} item={item} busy={model.busy} onToggle={model.toggle} onCredential={model.credential} onAddModel={model.addModel} />)}
           </div>
         </section>
         {model.items.length > 0 && <div className="next-step"><div><strong>Next: publish a model</strong><small>Map a stable public model name to one of these upstream models.</small></div><Link className={buttonVariants()} href="/models/">Continue to models</Link></div>}

@@ -26,8 +26,8 @@ var (
 
 var adapters = map[string][]string{
 	"openai":            {"chat", "web_search", "embeddings", "moderations", "count_tokens", "images", "image_edit", "image_variation", "audio_speech", "audio_transcription", "audio_translation"},
-	"anthropic":         {"messages", "web_search", "count_tokens", "prompt_cache"},
-	"gemini":            {"generate_content", "count_tokens", "embeddings"},
+	"anthropic":         {"chat", "web_search", "web_fetch", "count_tokens", "prompt_cache"},
+	"gemini":            {"chat", "count_tokens", "embeddings"},
 	"openai_compatible": {"chat", "embeddings", "moderations", "count_tokens", "images", "image_edit", "image_variation", "audio_speech", "audio_transcription", "audio_translation"},
 }
 
@@ -38,18 +38,20 @@ type Service struct {
 }
 
 type Connection struct {
-	ID                  string `json:"id"`
-	Name                string `json:"name"`
-	Adapter             string `json:"adapter"`
-	BaseURL             string `json:"base_url"`
-	Enabled             bool   `json:"enabled"`
-	AllowPrivateNetwork bool   `json:"allow_private_network"`
-	TimeoutMS           int64  `json:"timeout_ms"`
-	Preset              string `json:"preset"`
-	CredentialState     string `json:"credential_state"`
-	Revision            int64  `json:"revision"`
-	CreatedAt           string `json:"created_at"`
-	UpdatedAt           string `json:"updated_at"`
+	ID                  string   `json:"id"`
+	Name                string   `json:"name"`
+	Adapter             string   `json:"adapter"`
+	BaseURL             string   `json:"base_url"`
+	Enabled             bool     `json:"enabled"`
+	AllowPrivateNetwork bool     `json:"allow_private_network"`
+	TimeoutMS           int64    `json:"timeout_ms"`
+	Preset              string   `json:"preset"`
+	Capabilities        []string `json:"capabilities"`
+	CredentialRequired  bool     `json:"credential_required"`
+	CredentialState     string   `json:"credential_state"`
+	Revision            int64    `json:"revision"`
+	CreatedAt           string   `json:"created_at"`
+	UpdatedAt           string   `json:"updated_at"`
 }
 
 type ConnectionInput struct {
@@ -71,18 +73,19 @@ type UpstreamModel struct {
 }
 
 type PublicModel struct {
-	ID                 string   `json:"id"`
-	Label              string   `json:"label"`
-	Description        string   `json:"description"`
-	TargetConnectionID string   `json:"target_connection_id"`
-	TargetModelID      string   `json:"target_model_id"`
-	UpstreamID         string   `json:"upstream_id"`
-	Adapter            string   `json:"adapter"`
-	Capabilities       []string `json:"capabilities"`
-	Active             bool     `json:"active"`
-	Revision           int64    `json:"revision"`
-	RoutingStrategy    string   `json:"routing_strategy"`
-	FreeOnly           bool     `json:"free_only"`
+	ID                 string        `json:"id"`
+	Label              string        `json:"label"`
+	Description        string        `json:"description"`
+	TargetConnectionID string        `json:"target_connection_id"`
+	TargetModelID      string        `json:"target_model_id"`
+	UpstreamID         string        `json:"upstream_id"`
+	Adapter            string        `json:"adapter"`
+	Capabilities       []string      `json:"capabilities"`
+	Active             bool          `json:"active"`
+	Revision           int64         `json:"revision"`
+	RoutingStrategy    string        `json:"routing_strategy"`
+	FreeOnly           bool          `json:"free_only"`
+	RoutingPolicy      RoutingPolicy `json:"routing_policy"`
 }
 
 type VisibleModel struct {
@@ -630,16 +633,15 @@ func normalizeCapabilities(values []string) []string {
 	return out
 }
 func validCapabilities(values []string) bool {
-	hasChat, hasPromptCache, hasWebSearch := false, false, false
+	hasChat, hasHostedChatCapability := false, false
 	for _, value := range values {
-		if value != "chat" && value != "web_search" && value != "embeddings" && value != "count_tokens" && value != "moderations" && value != "images" && value != "image_edit" && value != "image_variation" && value != "audio_speech" && value != "audio_transcription" && value != "audio_translation" && value != "prompt_cache" {
+		if value != "chat" && value != "web_search" && value != "web_fetch" && value != "embeddings" && value != "count_tokens" && value != "moderations" && value != "images" && value != "image_edit" && value != "image_variation" && value != "audio_speech" && value != "audio_transcription" && value != "audio_translation" && value != "prompt_cache" {
 			return false
 		}
 		hasChat = hasChat || value == "chat"
-		hasPromptCache = hasPromptCache || value == "prompt_cache"
-		hasWebSearch = hasWebSearch || value == "web_search"
+		hasHostedChatCapability = hasHostedChatCapability || value == "prompt_cache" || value == "web_search" || value == "web_fetch"
 	}
-	return (!hasPromptCache && !hasWebSearch) || hasChat
+	return !hasHostedChatCapability || hasChat
 }
 func validPublicID(value string) bool {
 	if value == "" || len(value) > 200 {
@@ -735,6 +737,8 @@ func scanConnection(row scanner) (Connection, error) {
 	var item Connection
 	var created, updated int64
 	err := row.Scan(&item.ID, &item.Name, &item.Adapter, &item.BaseURL, &item.Enabled, &item.AllowPrivateNetwork, &item.TimeoutMS, &item.Preset, &item.CredentialState, &item.Revision, &created, &updated)
+	item.Capabilities = availableCapabilities(item.Preset, item.Adapter)
+	item.CredentialRequired = presetCredentialRequired(item.Preset)
 	item.CreatedAt, item.UpdatedAt = formatTime(created), formatTime(updated)
 	return item, err
 }
@@ -744,6 +748,7 @@ func scanPublicModel(row scanner) (PublicModel, error) {
 	err := row.Scan(&item.ID, &item.Label, &item.Description, &item.TargetConnectionID, &item.TargetModelID, &item.UpstreamID, &item.Adapter, &raw, &item.Active, &item.Revision, &item.RoutingStrategy, &item.FreeOnly)
 	if err == nil {
 		err = json.Unmarshal([]byte(raw), &item.Capabilities)
+		item.RoutingPolicy = routingPolicy(item.Capabilities)
 	}
 	return item, err
 }

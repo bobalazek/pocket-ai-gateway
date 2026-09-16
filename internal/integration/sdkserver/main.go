@@ -63,7 +63,7 @@ func main() {
 		must(providerService.PutCredential(ctx, owner, connection.ID, "provider-secret", ""))
 		capabilities := []string{"chat"}
 		if adapter == "anthropic" {
-			capabilities = append(capabilities, "prompt_cache", "web_search")
+			capabilities = append(capabilities, "prompt_cache", "web_search", "web_fetch")
 		}
 		if adapter == "openai" {
 			capabilities = append(capabilities, "moderations", "count_tokens", "images", "audio_speech", "audio_transcription", "audio_translation")
@@ -97,7 +97,7 @@ func main() {
 		connections = append(connections, connection.ID)
 	}
 	keyService := keys.New(store.SystemDB())
-	_, secret, err := keyService.Create(ctx, owner.ID, keys.Input{Label: "Official SDK matrix", Scopes: []string{"chat:generate", "messages:batches", "messages:web_search", "responses:generate", "responses:web_search", "embeddings:generate", "moderations:classify", "images:generate", "images:edit", "images:variation", "audio:speech", "audio:transcribe", "audio:translate", "models:read", "tokens:count", "files:manage", "batches:manage"}, ModelPatterns: []string{"target-*"}, ConnectionIDs: connections})
+	_, secret, err := keyService.Create(ctx, owner.ID, keys.Input{Label: "Official SDK matrix", Scopes: []string{"chat:generate", "messages:batches", "messages:web_search", "messages:web_fetch", "responses:generate", "responses:web_search", "embeddings:generate", "moderations:classify", "images:generate", "images:edit", "images:variation", "audio:speech", "audio:transcribe", "audio:translate", "models:read", "tokens:count", "files:manage", "batches:manage"}, ModelPatterns: []string{"target-*"}, ConnectionIDs: connections})
 	must(err)
 	_, otherSecret, err := keyService.Create(ctx, owner.ID, keys.Input{Label: "Official SDK ownership boundary", Scopes: []string{"files:manage", "batches:manage", "responses:generate"}, ModelPatterns: []string{"target-*"}, ConnectionIDs: connections})
 	must(err)
@@ -149,6 +149,19 @@ func upstreamHandler(response http.ResponseWriter, request *http.Request) {
 				return
 			}
 			io.WriteString(response, "event: response.output_text.delta\ndata: {\"type\":\"response.output_text.delta\",\"item_id\":\"msg_1\",\"output_index\":0,\"content_index\":0,\"delta\":\"Hello\"}\n\nevent: response.completed\ndata: {\"type\":\"response.completed\",\"response\":{\"id\":\"resp_1\",\"object\":\"response\",\"status\":\"completed\",\"output\":[{\"id\":\"msg_1\",\"type\":\"message\",\"role\":\"assistant\",\"status\":\"completed\",\"content\":[{\"type\":\"output_text\",\"text\":\"Hello\",\"annotations\":[]}]}],\"usage\":{\"input_tokens\":2,\"output_tokens\":1,\"total_tokens\":3}}}\n\n")
+			return
+		}
+		if target == "anthropic" && bytes.Contains(body, []byte(`"type":"web_fetch_20250910"`)) {
+			io.WriteString(response, "event: message_start\ndata: {\"type\":\"message_start\",\"message\":{\"id\":\"msg_fetch_stream\",\"type\":\"message\",\"role\":\"assistant\",\"model\":\"anthropic-upstream\",\"content\":[],\"container\":null,\"stop_details\":null,\"stop_reason\":null,\"stop_sequence\":null,\"usage\":{\"cache_creation\":null,\"cache_creation_input_tokens\":null,\"cache_read_input_tokens\":null,\"inference_geo\":null,\"input_tokens\":9,\"output_tokens\":0,\"output_tokens_details\":null,\"server_tool_use\":null,\"service_tier\":\"standard\"}}}\n\n"+
+				"event: content_block_start\ndata: {\"type\":\"content_block_start\",\"index\":0,\"content_block\":{\"type\":\"server_tool_use\",\"id\":\"srvtoolu_fetch_1\",\"name\":\"web_fetch\",\"caller\":{\"type\":\"direct\"},\"input\":{}}}\n\n"+
+				"event: content_block_delta\ndata: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"input_json_delta\",\"partial_json\":\"{\\\"url\\\":\\\"https://example.com/page\\\"}\"}}\n\n"+
+				"event: content_block_stop\ndata: {\"type\":\"content_block_stop\",\"index\":0}\n\n"+
+				"event: content_block_start\ndata: {\"type\":\"content_block_start\",\"index\":1,\"content_block\":{\"type\":\"web_fetch_tool_result\",\"tool_use_id\":\"srvtoolu_fetch_1\",\"caller\":{\"type\":\"direct\"},\"content\":{\"type\":\"web_fetch_result\",\"url\":\"https://example.com/page\",\"retrieved_at\":\"2026-09-16T08:00:00Z\",\"content\":{\"type\":\"document\",\"source\":{\"type\":\"text\",\"media_type\":\"text/plain\",\"data\":\"Fetched page\"},\"title\":\"Example page\",\"citations\":{\"enabled\":true}}}}}\n\n"+
+				"event: content_block_stop\ndata: {\"type\":\"content_block_stop\",\"index\":1}\n\n"+
+				"event: content_block_start\ndata: {\"type\":\"content_block_start\",\"index\":2,\"content_block\":{\"type\":\"text\",\"text\":\"Fetched answer\",\"citations\":[]}}\n\n"+
+				"event: content_block_stop\ndata: {\"type\":\"content_block_stop\",\"index\":2}\n\n"+
+				"event: message_delta\ndata: {\"type\":\"message_delta\",\"delta\":{\"container\":null,\"stop_details\":null,\"stop_reason\":\"end_turn\",\"stop_sequence\":null},\"usage\":{\"cache_creation_input_tokens\":null,\"cache_read_input_tokens\":null,\"input_tokens\":9,\"output_tokens\":3,\"output_tokens_details\":null,\"server_tool_use\":{\"web_fetch_requests\":1,\"web_search_requests\":0}}}\n\n"+
+				"event: message_stop\ndata: {\"type\":\"message_stop\"}\n\n")
 			return
 		}
 		if target == "anthropic" && bytes.Contains(body, []byte(`"type":"web_search_20250305"`)) {
@@ -234,6 +247,10 @@ func upstreamHandler(response http.ResponseWriter, request *http.Request) {
 		}
 		io.WriteString(response, `{"id":"chat_1","object":"chat.completion","choices":[{"index":0,"message":{"role":"assistant","content":"Hello"},"finish_reason":"stop"}],"usage":{"prompt_tokens":2,"completion_tokens":1,"total_tokens":3}}`)
 	case "anthropic":
+		if bytes.Contains(body, []byte(`"type":"web_fetch_20250910"`)) {
+			io.WriteString(response, `{"id":"msg_fetch","type":"message","role":"assistant","model":"anthropic-upstream","container":null,"content":[{"type":"server_tool_use","id":"srvtoolu_fetch_1","name":"web_fetch","caller":{"type":"direct"},"input":{"url":"https://example.com/page"}},{"type":"web_fetch_tool_result","tool_use_id":"srvtoolu_fetch_1","caller":{"type":"direct"},"content":{"type":"web_fetch_result","url":"https://example.com/page","retrieved_at":null,"content":{"type":"document","source":{"type":"text","media_type":"text/plain","data":"Fetched page"},"title":"Example page","citations":{"enabled":true}}}},{"type":"text","text":"Fetched answer","citations":[]}],"stop_details":null,"stop_reason":"end_turn","stop_sequence":null,"usage":{"cache_creation":null,"cache_creation_input_tokens":null,"cache_read_input_tokens":null,"inference_geo":null,"input_tokens":9,"output_tokens":3,"output_tokens_details":null,"server_tool_use":{"web_fetch_requests":1,"web_search_requests":0},"service_tier":"standard"}}`)
+			return
+		}
 		if bytes.Contains(body, []byte(`"type":"web_search_20250305"`)) {
 			io.WriteString(response, `{"id":"msg_web","type":"message","role":"assistant","model":"target-anthropic","container":null,"content":[{"type":"server_tool_use","id":"srvtoolu_1","name":"web_search","caller":{"type":"direct"},"input":{"query":"Pocket AI Gateway"}},{"type":"web_search_tool_result","tool_use_id":"srvtoolu_1","caller":{"type":"direct"},"content":[{"type":"web_search_result","url":"https://example.com/source","title":"Example source","encrypted_content":"encrypted-result","page_age":"September 15, 2026"}]},{"type":"text","text":"A sourced answer","citations":[{"type":"web_search_result_location","url":"https://example.com/source","title":"Example source","encrypted_index":"encrypted-index","cited_text":"Pocket AI Gateway"}]}],"stop_details":null,"stop_reason":"end_turn","stop_sequence":null,"usage":{"cache_creation":null,"cache_creation_input_tokens":null,"cache_read_input_tokens":null,"inference_geo":null,"input_tokens":8,"output_tokens":4,"output_tokens_details":null,"server_tool_use":{"web_fetch_requests":0,"web_search_requests":1},"service_tier":"standard"}}`)
 			return

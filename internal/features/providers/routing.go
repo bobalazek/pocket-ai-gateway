@@ -22,9 +22,29 @@ const (
 	circuitDuration       = 30 * time.Second
 )
 
+var routeStrategyOrder = []string{"fixed", "ordered_fallback", "weighted", "lowest_cost", "lowest_latency"}
 var routeStrategies = map[string]bool{"fixed": true, "ordered_fallback": true, "weighted": true, "lowest_cost": true, "lowest_latency": true}
+var routeStrategyTargetLimits = map[string]int{"fixed": 1, "ordered_fallback": 32, "weighted": 32, "lowest_cost": 32, "lowest_latency": 32}
 
 func ValidRouteStrategy(value string) bool { return routeStrategies[value] }
+
+type RoutingPolicy struct {
+	AllowedStrategies    []string       `json:"allowed_strategies"`
+	MaxTargetsByStrategy map[string]int `json:"max_targets_by_strategy"`
+	FreeOnlyAllowed      bool           `json:"free_only_allowed"`
+}
+
+func routingPolicy(capabilities []string) RoutingPolicy {
+	allowed := routeStrategyOrder
+	if containsString(capabilities, "embeddings") {
+		allowed = []string{"fixed"}
+	}
+	limits := make(map[string]int, len(allowed))
+	for _, strategy := range allowed {
+		limits[strategy] = routeStrategyTargetLimits[strategy]
+	}
+	return RoutingPolicy{AllowedStrategies: append([]string(nil), allowed...), MaxTargetsByStrategy: limits, FreeOnlyAllowed: true}
+}
 
 type RouteTarget struct {
 	UpstreamModelID    string   `json:"upstream_model_id"`
@@ -145,11 +165,13 @@ func (service *Service) ConfigureRoute(ctx context.Context, actor auth.User, pub
 	if err := json.Unmarshal([]byte(publicCapabilitiesJSON), &publicCapabilities); err != nil {
 		return PublicModel{}, err
 	}
-	if input.Strategy == "fixed" && (len(input.Targets) != 1 || enabled != 1) {
-		return PublicModel{}, errors.New("fixed routing requires exactly one enabled target")
+	policy := routingPolicy(publicCapabilities)
+	maximum, allowed := policy.MaxTargetsByStrategy[input.Strategy]
+	if !allowed || len(input.Targets) > maximum || enabled > maximum {
+		return PublicModel{}, errors.New("the selected routing strategy does not allow this target configuration")
 	}
-	if containsString(publicCapabilities, "embeddings") && input.Strategy != "fixed" {
-		return PublicModel{}, errors.New("embedding models require one fixed target to preserve vector compatibility")
+	if input.FreeOnly && !policy.FreeOnlyAllowed {
+		return PublicModel{}, errors.New("verified-free routing is unavailable for this model capability set")
 	}
 	for _, target := range input.Targets {
 		var capabilitiesJSON string

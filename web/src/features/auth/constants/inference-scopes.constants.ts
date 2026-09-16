@@ -2,6 +2,7 @@ export const inferenceScopes = [
   "chat:generate",
   "messages:batches",
   "messages:web_search",
+  "messages:web_fetch",
   "responses:generate",
   "responses:web_search",
   "embeddings:generate",

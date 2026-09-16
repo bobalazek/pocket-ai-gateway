@@ -48,6 +48,8 @@ type AdmissionInput struct {
 	BatchItems             int64
 	EstimatedInputTokens   int64
 	EstimatedOutputTokens  int64
+	EnforceInputBound      bool
+	InputBounded           bool
 	EnforceOutputBound     bool
 	OutputBounded          bool
 }
@@ -177,6 +179,13 @@ func (service *Service) Admit(ctx context.Context, input AdmissionInput) (Admiss
 		for _, policy := range policies {
 			if policy.Metric == "tokens" || policy.Metric == "output_tokens" || policy.Metric == "spend" {
 				return Admission{}, &Denial{PolicyID: policy.ID, Metric: policy.Metric, Reason: "an explicit output token limit is required by the active policy"}
+			}
+		}
+	}
+	if input.EnforceInputBound && !input.InputBounded {
+		for _, policy := range policies {
+			if policy.Metric == "tokens" || policy.Metric == "spend" {
+				return Admission{}, &Denial{PolicyID: policy.ID, Metric: policy.Metric, Reason: "a bounded input token estimate is required by the active policy"}
 			}
 		}
 	}

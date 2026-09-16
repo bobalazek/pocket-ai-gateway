@@ -81,6 +81,7 @@ func TestAnthropicWebSearchUsageParsing(t *testing.T) {
 		{`{"usage":{"input_tokens":1,"output_tokens":2,"server_tool_use":null}}`, 4, int64Pointer(0), false},
 		{`{"usage":{"input_tokens":1,"output_tokens":2}}`, 4, nil, false},
 		{`{"usage":{"input_tokens":1,"output_tokens":2,"server_tool_use":{"web_search_requests":"1"}}}`, 4, nil, false},
+		{`{"usage":{"input_tokens":1,"output_tokens":2,"server_tool_use":{"web_search_requests":1,"web_fetch_requests":1}}}`, 4, nil, false},
 		{`{"usage":{"input_tokens":1,"output_tokens":2,"server_tool_use":{"web_search_requests":2}}}`, 1, nil, true},
 	} {
 		got, known, exceeded := parseAnthropicWebSearchUsage([]byte(test.raw), test.max)
@@ -97,6 +98,11 @@ func TestAnthropicWebSearchStreamParsing(t *testing.T) {
 	if err != nil || count == nil || *count != 2 {
 		t.Fatalf("valid stream count=%v err=%v", count, err)
 	}
+	nullableTerminalInput := strings.Replace(valid, `"input_tokens":7,"output_tokens":2`, `"input_tokens":null,"output_tokens":2`, 1)
+	count, err = parseAnthropicWebSearchStream([]byte(nullableTerminalInput), 2)
+	if err != nil || count == nil || *count != 2 {
+		t.Fatalf("nullable terminal input count=%v err=%v", count, err)
+	}
 	count, err = parseAnthropicWebSearchStream([]byte(strings.ReplaceAll(valid, "\n", "\r\n")), 2)
 	if err != nil || count == nil || *count != 2 {
 		t.Fatalf("valid CRLF stream count=%v err=%v", count, err)
@@ -107,6 +113,9 @@ func TestAnthropicWebSearchStreamParsing(t *testing.T) {
 		"missing usage":    anthropicWebSearchSSE("end_turn", "", ""),
 		"malformed":        anthropicWebSearchSSE("end_turn", `{"web_search_requests":"two"}`, ""),
 		"overrun":          anthropicWebSearchSSE("end_turn", `{"web_search_requests":3}`, ""),
+		"missing output":   strings.Replace(valid, `,"output_tokens":2`, "", 1),
+		"null output":      strings.Replace(valid, `"output_tokens":2`, `"output_tokens":null`, 1),
+		"other tool usage": anthropicWebSearchSSE("end_turn", `{"web_search_requests":2,"web_fetch_requests":1}`, ""),
 		"decreasing count": decreasing,
 		"mismatched type":  strings.Replace(valid, "event: message_delta", "event: content_block_delta", 1),
 		"error":            "event: error\ndata: {\"type\":\"error\",\"error\":{\"type\":\"overloaded_error\"}}\n\n",
