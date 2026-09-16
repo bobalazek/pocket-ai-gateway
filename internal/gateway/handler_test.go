@@ -39,7 +39,9 @@ func TestProviderCredentialHeaders(t *testing.T) {
 
 func TestNativeOpenAIForwardingUsesProviderCredentialAndAccounts(t *testing.T) {
 	var gotAuthorization, gotModel string
+	calls := 0
 	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		calls++
 		gotAuthorization = r.Header.Get("Authorization")
 		var body map[string]any
 		_ = json.NewDecoder(r.Body).Decode(&body)
@@ -73,6 +75,17 @@ func TestNativeOpenAIForwardingUsesProviderCredentialAndAccounts(t *testing.T) {
 	}
 	if gotAuthorization != "Bearer provider-secret" || gotModel != "gpt-upstream" {
 		t.Fatalf("upstream auth/model = %q/%q", gotAuthorization, gotModel)
+	}
+	blocked, _ := http.NewRequest(http.MethodPost, server.URL+"/api/openai/v1/chat/completions", strings.NewReader(`{"model":"assistant","messages":[{"role":"user","content":"Search"}],"web_search_options":{}}`))
+	blocked.Header.Set("Authorization", "Bearer "+secret)
+	blocked.Header.Set("Content-Type", "application/json")
+	blockedResponse, err := http.DefaultClient.Do(blocked)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer blockedResponse.Body.Close()
+	if blockedResponse.StatusCode != http.StatusBadRequest || calls != 1 {
+		t.Fatalf("web search status=%d upstream calls=%d", blockedResponse.StatusCode, calls)
 	}
 	var state, status, upstreamID string
 	var input, output int64

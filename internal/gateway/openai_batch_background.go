@@ -22,11 +22,11 @@ const (
 type openAIBatchItemContextKey struct{}
 
 type openAIBatchJob struct {
-	batchID, ownerID, keyID, customID, resultID string
-	ordinal, total                              int64
-	createdAt                                   int64
-	requestBytes                                int64
-	requestCiphertext, requestNonce             []byte
+	batchID, ownerID, keyID, customID, resultID, endpoint string
+	ordinal, total                                        int64
+	createdAt                                             int64
+	requestBytes                                          int64
+	requestCiphertext, requestNonce                       []byte
 }
 
 func (handler *Handler) sealOpenAIBatchPayload(batchID, keyID, customID string, ordinal int64, kind string, plaintext []byte) ([]byte, []byte, error) {
@@ -123,7 +123,7 @@ func (handler *Handler) claimOpenAIBatch(ctx context.Context) (openAIBatchJob, b
 	}
 	defer tx.Rollback()
 	var job openAIBatchJob
-	err = tx.QueryRowContext(ctx, `SELECT i.batch_id,i.ordinal,i.custom_id,i.result_id,i.request_bytes,i.request_ciphertext,i.request_nonce,b.owner_user_id,b.key_id,b.request_total,b.created_at FROM openai_batch_items i JOIN openai_batches b ON b.id=i.batch_id WHERE i.state='queued' AND b.status='in_progress' AND b.cancel_requested=0 AND b.expires_at>? ORDER BY b.created_at,i.ordinal LIMIT 1`, time.Now().UnixMilli()).Scan(&job.batchID, &job.ordinal, &job.customID, &job.resultID, &job.requestBytes, &job.requestCiphertext, &job.requestNonce, &job.ownerID, &job.keyID, &job.total, &job.createdAt)
+	err = tx.QueryRowContext(ctx, `SELECT i.batch_id,i.ordinal,i.custom_id,i.result_id,i.request_bytes,i.request_ciphertext,i.request_nonce,b.owner_user_id,b.key_id,b.request_total,b.created_at,b.endpoint FROM openai_batch_items i JOIN openai_batches b ON b.id=i.batch_id WHERE i.state='queued' AND b.status='in_progress' AND b.cancel_requested=0 AND b.expires_at>? ORDER BY b.created_at,i.ordinal LIMIT 1`, time.Now().UnixMilli()).Scan(&job.batchID, &job.ordinal, &job.customID, &job.resultID, &job.requestBytes, &job.requestCiphertext, &job.requestNonce, &job.ownerID, &job.keyID, &job.total, &job.createdAt, &job.endpoint)
 	if err != nil {
 		return openAIBatchJob{}, false
 	}
@@ -139,8 +139,9 @@ func (handler *Handler) claimOpenAIBatch(ctx context.Context) (openAIBatchJob, b
 }
 
 func (handler *Handler) runOpenAIBatch(ctx context.Context, job openAIBatchJob) {
+	dialect, scope, upstreamPath, supportedEndpoint := openAIBatchEndpoint(job.endpoint)
 	principal, err := handler.keys.Principal(ctx, job.keyID)
-	if err != nil || principal.OwnerUserID != job.ownerID || !principalHasScope(principal.Scopes, "batches:manage") || !principalHasScope(principal.Scopes, "responses:generate") {
+	if !supportedEndpoint || err != nil || principal.OwnerUserID != job.ownerID || !principalHasScope(principal.Scopes, "batches:manage") || !principalHasScope(principal.Scopes, scope) {
 		handler.finishOpenAIBatchItem(ctx, job, "failed", openAIBatchErrorLine(job.resultID, job.customID, "permission_denied", "The creating API key or its grants are no longer active."), "", "")
 		return
 	}
@@ -185,11 +186,14 @@ func (handler *Handler) runOpenAIBatch(ctx context.Context, job openAIBatchJob) 
 		handler.finishOpenAIBatchItem(ctx, job, "failed", openAIBatchErrorLine(job.resultID, job.customID, "server_error", "The Batch cancellation state could not be checked."), "", "")
 		return
 	}
-	envelope["background"], envelope["store"], envelope["stream"] = json.RawMessage(`false`), json.RawMessage(`false`), json.RawMessage(`false`)
+	envelope["store"], envelope["stream"] = json.RawMessage(`false`), json.RawMessage(`false`)
+	if job.endpoint == "/v1/responses" {
+		envelope["background"] = json.RawMessage(`false`)
+	}
 	body, _ = json.Marshal(envelope)
 	recorder := &memoryResponse{header: make(http.Header)}
-	request, _ := http.NewRequestWithContext(context.WithValue(jobContext, openAIBatchItemContextKey{}, job.total), http.MethodPost, "/api/openai/v1/responses", bytes.NewReader(body))
-	handler.forwardAuthorized(recorder, request, "responses", "responses:generate", "responses", "", nil, principal, body)
+	request, _ := http.NewRequestWithContext(context.WithValue(jobContext, openAIBatchItemContextKey{}, job.total), http.MethodPost, "/api/openai"+job.endpoint, bytes.NewReader(body))
+	handler.forwardAuthorized(recorder, request, dialect, scope, upstreamPath, "", nil, principal, body)
 	if ctx.Err() != nil {
 		return
 	}
@@ -361,10 +365,10 @@ func (handler *Handler) finalizeOpenAIBatch(ctx context.Context, batchID string)
 		return err
 	}
 	defer tx.Rollback()
-	var ownerID, keyID, status string
+	var ownerID, keyID, endpoint, status string
 	var cancelRequested bool
 	var expirySeconds, total int64
-	err = tx.QueryRowContext(ctx, `SELECT owner_user_id,key_id,status,cancel_requested,output_expiry_seconds,request_total FROM openai_batches WHERE id=?`, batchID).Scan(&ownerID, &keyID, &status, &cancelRequested, &expirySeconds, &total)
+	err = tx.QueryRowContext(ctx, `SELECT owner_user_id,key_id,endpoint,status,cancel_requested,output_expiry_seconds,request_total FROM openai_batches WHERE id=?`, batchID).Scan(&ownerID, &keyID, &endpoint, &status, &cancelRequested, &expirySeconds, &total)
 	if err != nil || status == "completed" || status == "cancelled" || status == "expired" {
 		return err
 	}
@@ -401,7 +405,7 @@ func (handler *Handler) finalizeOpenAIBatch(ctx context.Context, batchID string)
 		if state == "succeeded" {
 			completed++
 			appendJSONL(&output, line)
-			usage.known = usage.add(line) && usage.known
+			usage.known = usage.add(line, endpoint) && usage.known
 		} else {
 			expiredItems = expiredItems || state == "expired"
 			if state == "failed" || state == "interrupted_unknown" || requestID.Valid {
@@ -532,30 +536,55 @@ type openAIBatchUsage struct {
 
 const maxOpenAIBatchUsage = int64(9_007_199_254_740_991)
 
-func (usage *openAIBatchUsage) add(line []byte) bool {
+func (usage *openAIBatchUsage) add(line []byte, endpoint string) bool {
 	var value struct {
 		Response struct {
-			Body struct {
-				Usage struct {
-					Input        *int64 `json:"input_tokens"`
-					Output       *int64 `json:"output_tokens"`
-					Total        *int64 `json:"total_tokens"`
-					InputDetails struct {
-						Cached int64 `json:"cached_tokens"`
-					} `json:"input_tokens_details"`
-					OutputDetails struct {
-						Reasoning int64 `json:"reasoning_tokens"`
-					} `json:"output_tokens_details"`
-				} `json:"usage"`
-			} `json:"body"`
+			Body json.RawMessage `json:"body"`
 		} `json:"response"`
 	}
-	if json.Unmarshal(line, &value) != nil || value.Response.Body.Usage.Input == nil || value.Response.Body.Usage.Output == nil {
+	if json.Unmarshal(line, &value) != nil || len(value.Response.Body) == 0 {
 		return false
 	}
-	input, output := *value.Response.Body.Usage.Input, *value.Response.Body.Usage.Output
-	cached, reasoning := value.Response.Body.Usage.InputDetails.Cached, value.Response.Body.Usage.OutputDetails.Reasoning
-	if input < 0 || output < 0 || cached < 0 || cached > input || reasoning < 0 || reasoning > output || input > maxOpenAIBatchUsage-output || value.Response.Body.Usage.Total != nil && *value.Response.Body.Usage.Total != input+output || input > maxOpenAIBatchUsage-usage.input || output > maxOpenAIBatchUsage-usage.output || usage.input+input > maxOpenAIBatchUsage-(usage.output+output) || cached > maxOpenAIBatchUsage-usage.cached || reasoning > maxOpenAIBatchUsage-usage.reasoning {
+	details := parseUsageDetails("openai", value.Response.Body)
+	if details.inputTokens == nil || details.outputTokens == nil {
+		return false
+	}
+	var body struct {
+		Usage struct {
+			Input         *int64          `json:"input_tokens"`
+			Output        *int64          `json:"output_tokens"`
+			Prompt        *int64          `json:"prompt_tokens"`
+			Completion    *int64          `json:"completion_tokens"`
+			Total         *int64          `json:"total_tokens"`
+			InputDetails  json.RawMessage `json:"input_tokens_details"`
+			OutputDetails struct {
+				Reasoning int64 `json:"reasoning_tokens"`
+			} `json:"output_tokens_details"`
+			PromptDetails     json.RawMessage `json:"prompt_tokens_details"`
+			CompletionDetails struct {
+				Reasoning int64 `json:"reasoning_tokens"`
+			} `json:"completion_tokens_details"`
+		} `json:"usage"`
+	}
+	if json.Unmarshal(value.Response.Body, &body) != nil {
+		return false
+	}
+	if endpoint == "/v1/chat/completions" {
+		if body.Usage.Prompt == nil || body.Usage.Completion == nil || body.Usage.Input != nil || body.Usage.Output != nil || jsonValuePresent(body.Usage.InputDetails) {
+			return false
+		}
+	} else if body.Usage.Input == nil || body.Usage.Output == nil || body.Usage.Prompt != nil || body.Usage.Completion != nil || jsonValuePresent(body.Usage.PromptDetails) {
+		return false
+	}
+	input, output := *details.inputTokens, *details.outputTokens
+	cached, reasoning := int64(0), body.Usage.OutputDetails.Reasoning
+	if details.cacheReadInputTokens != nil {
+		cached = *details.cacheReadInputTokens
+	}
+	if endpoint == "/v1/chat/completions" {
+		reasoning = body.Usage.CompletionDetails.Reasoning
+	}
+	if input < 0 || output < 0 || cached < 0 || cached > input || reasoning < 0 || reasoning > output || input > maxOpenAIBatchUsage-output || body.Usage.Total != nil && *body.Usage.Total != input+output || input > maxOpenAIBatchUsage-usage.input || output > maxOpenAIBatchUsage-usage.output || usage.input+input > maxOpenAIBatchUsage-(usage.output+output) || cached > maxOpenAIBatchUsage-usage.cached || reasoning > maxOpenAIBatchUsage-usage.reasoning {
 		return false
 	}
 	usage.input += input
@@ -563,4 +592,9 @@ func (usage *openAIBatchUsage) add(line []byte) bool {
 	usage.cached += cached
 	usage.reasoning += reasoning
 	return true
+}
+
+func jsonValuePresent(raw json.RawMessage) bool {
+	trimmed := bytes.TrimSpace(raw)
+	return len(trimmed) > 0 && !bytes.Equal(trimmed, []byte("null"))
 }
