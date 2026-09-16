@@ -36,6 +36,7 @@ export type ProviderPreset = {
   base_url_example?: string;
   base_url_required: boolean;
   credential_required: boolean;
+  authentication?: string;
   private_network: boolean;
   operations: string[];
   capabilities: string[];

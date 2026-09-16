@@ -26,8 +26,8 @@ export function ProviderCard({ item, busy, onToggle, onCredential, onAddModel }:
           <summary>Replace credential</summary>
           <form onSubmit={(event) => onCredential(event, item.id)}>
             <div className="inline-fields">
-              <div className="field"><Label htmlFor={`mode-${item.id}`}>Storage</Label><select id={`mode-${item.id}`} className="select" name="mode"><option value="stored">Encrypted local value</option><option value="external">Environment reference</option></select></div>
-              <Field id={`credential-${item.id}`} name="value" label="Credential or env:NAME" type="password" required />
+              <div className="field"><Label htmlFor={`mode-${item.id}`}>Storage</Label><select id={`mode-${item.id}`} className="select" name="mode"><option value="stored">Encrypted local value</option><option value="external">External reference</option></select></div>
+              <Field id={`credential-${item.id}`} name="value" label="Credential or external reference" type="password" placeholder="env:NAME or bearer-file:/run/secrets/token" required />
             </div>
             <Button disabled={busy}>Replace credential</Button>
           </form>

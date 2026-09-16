@@ -12,3 +12,5 @@ An adapter preserves one upstream protocol family. Add a new native family only 
 OpenAI-compatible branding alone is not evidence. Record the provider, API version, model, date, operations exercised, and any divergence. Live tests must be opt-in and budget limited.
 
 Built-in presets pin reviewed HTTPS base URLs and list only operations stated in current provider documentation. The preset selects an existing adapter; it does not bypass model capabilities, key grants, limits, routing, egress checks, accounting, or compatibility validation. See [provider certification](../project/provider-certification.md) for the evidence boundary.
+
+Stable API keys may be encrypted locally or read through `env:NAME` and `file:/absolute/path`. Use `bearer-env:NAME` or `bearer-file:/absolute/path` for short-lived OAuth tokens. External references are resolved for each route selection; keep token minting and file rotation in the cloud identity agent rather than the protocol adapter.

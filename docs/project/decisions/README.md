@@ -43,6 +43,7 @@ Each record states status/source, context, decision, and consequences. A recomme
 | ADR-035 | [Native OpenAI image-generation streaming](2026-09-16-native-openai-image-generation-streaming.md) | Accepted bounded Phase 8 contract |
 | ADR-036 | [Bounded native Gemini Interactions](2026-09-16-native-gemini-interactions.md) | Accepted bounded Phase 8 contract |
 | ADR-037 | [Gateway-owned OpenAI File purposes](2026-09-16-openai-file-purposes.md) | Accepted bounded Phase 8 contract extending ADR-023 |
+| ADR-038 | [Rotating provider credential references](2026-09-16-rotating-provider-credentials.md) | Accepted cloud-auth boundary |
 
 Historical: [initial proposal](2026-09-14-initial-proposal.md), superseded by the records above where they differ. Its A/P/D/M identifiers are historical references only; current documents use ADR IDs.
 

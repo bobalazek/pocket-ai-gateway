@@ -7,7 +7,6 @@ import (
 	"errors"
 	"net"
 	"net/url"
-	"os"
 	"path"
 	"sort"
 	"strings"
@@ -165,6 +164,7 @@ type Target struct {
 	TimeoutMS            int64
 	ConnectionRevision   int64
 	Credential           string
+	BearerCredential     bool
 	Preset               string
 }
 
@@ -352,7 +352,7 @@ func (service *Service) PutCredential(ctx context.Context, actor auth.User, id, 
 		}
 	}
 	if externalRef != "" && !validExternalRef(externalRef) {
-		return errors.New("external_ref must use env:NAME")
+		return errors.New("external_ref must use env:NAME, file:/absolute/path, bearer-env:NAME, or bearer-file:/absolute/path")
 	}
 	tx, err := service.database.BeginTx(ctx, nil)
 	if err != nil {
@@ -581,10 +581,9 @@ func (service *Service) Target(ctx context.Context, id string) (Target, error) {
 		return Target{}, err
 	}
 	if external.Valid {
-		name := strings.TrimPrefix(external.String, "env:")
-		target.Credential = os.Getenv(name)
-		if target.Credential == "" {
-			return Target{}, errors.New("external provider credential is unavailable")
+		target.Credential, target.BearerCredential, err = resolveExternalCredential(external.String)
+		if err != nil {
+			return Target{}, err
 		}
 	} else {
 		target.Credential, err = openSecret(service.key, model.TargetConnectionID, ciphertext, nonce)
@@ -654,7 +653,7 @@ func presetBaseURLAllowed(preset string, parsed *url.URL) bool {
 		region := strings.TrimSuffix(strings.TrimPrefix(host, "bedrock-runtime."), ".amazonaws.com")
 		mantleRegion := strings.TrimSuffix(strings.TrimPrefix(host, "bedrock-mantle."), ".api.aws")
 		return strings.HasPrefix(host, "bedrock-runtime.") && strings.HasSuffix(host, ".amazonaws.com") && region != "" && !strings.Contains(region, ".") && endpointPath == "/openai/v1" ||
-			strings.HasPrefix(host, "bedrock-mantle.") && strings.HasSuffix(host, ".api.aws") && mantleRegion != "" && !strings.Contains(mantleRegion, ".") && endpointPath == "/v1"
+			strings.HasPrefix(host, "bedrock-mantle.") && strings.HasSuffix(host, ".api.aws") && mantleRegion != "" && !strings.Contains(mantleRegion, ".") && (endpointPath == "/v1" || endpointPath == "/openai/v1")
 	case "vertex":
 		segments := strings.Split(strings.Trim(endpointPath, "/"), "/")
 		if len(segments) != 7 || segments[0] != "v1" && segments[0] != "v1beta1" || segments[1] != "projects" || segments[2] == "" || segments[3] != "locations" || segments[4] == "" || segments[5] != "endpoints" || segments[6] != "openapi" {
@@ -724,18 +723,6 @@ func validPublicID(value string) bool {
 	}
 	for index, character := range value {
 		if character >= 'a' && character <= 'z' || character >= 'A' && character <= 'Z' || character >= '0' && character <= '9' || index > 0 && (character == '.' || character == '_' || character == '-') {
-			continue
-		}
-		return false
-	}
-	return true
-}
-func validExternalRef(value string) bool {
-	if !strings.HasPrefix(value, "env:") || len(value) < 5 || len(value) > 200 {
-		return false
-	}
-	for index, character := range strings.TrimPrefix(value, "env:") {
-		if character >= 'A' && character <= 'Z' || character >= 'a' && character <= 'z' || character == '_' || index > 0 && character >= '0' && character <= '9' {
 			continue
 		}
 		return false

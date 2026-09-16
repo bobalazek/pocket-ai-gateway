@@ -206,7 +206,31 @@ func TestConnectionModelAndCredentialLifecycle(t *testing.T) {
 	if err := service.PutCredential(ctx, owner, connection.ID, "", "env:BAD-NAME"); err == nil {
 		t.Fatal("unsafe environment reference was accepted")
 	}
-	connection = connections[0]
+	if err := service.PutCredential(ctx, owner, connection.ID, "", "file:relative"); err == nil {
+		t.Fatal("relative file reference was accepted")
+	}
+	tokenFile := filepath.Join(t.TempDir(), "provider-token")
+	if err := os.WriteFile(tokenFile, []byte("external-one\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := service.PutCredential(ctx, owner, connection.ID, "", "bearer-file:"+tokenFile); err != nil {
+		t.Fatal(err)
+	}
+	target, err = service.Target(ctx, model.ID)
+	if err != nil || target.Credential != "external-one" || !target.BearerCredential {
+		t.Fatalf("external target = %#v, %v", target, err)
+	}
+	if err := os.WriteFile(tokenFile, []byte("external-two"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	target, err = service.Target(ctx, model.ID)
+	if err != nil || target.Credential != "external-two" || !target.BearerCredential {
+		t.Fatalf("rotated external target = %#v, %v", target, err)
+	}
+	connection, err = service.getConnection(ctx, connection.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
 	if _, err := service.UpdateConnection(ctx, owner, connection.ID, connection.Revision, ConnectionInput{Name: connection.Name, Adapter: connection.Adapter, BaseURL: connection.BaseURL, Enabled: false, AllowPrivateNetwork: true, TimeoutMS: connection.TimeoutMS}); err != nil {
 		t.Fatal(err)
 	}

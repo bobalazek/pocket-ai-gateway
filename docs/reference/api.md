@@ -193,6 +193,7 @@ Base path /api/v1/. Server-side session cookies authorize browser operations; se
 | Connections | GET/POST /connections, GET/PATCH/DELETE /connections/{id} | Owner/admin; archive/disable where referenced |
 | Provider types | GET /providers | Gateway provider/adapter catalog; safe capability metadata |
 | Credential replacement | PUT /connections/{id}/credential | Write-only secret/reference; no reveal endpoint |
+| External credential references | PUT /connections/{id}/credential | `env:NAME` and `file:/absolute/path` are reread for each route selection; `bearer-env:` and `bearer-file:` force OAuth bearer authentication for Azure/Vertex token rotation; values are bounded, single-line, and never returned |
 | Provider tests/discovery | POST /connections/{id}/test, POST /connections/{id}/discover | Explicit test mode; billable mode requires scoped inference key |
 | Upstream catalog | GET/POST/PATCH catalog resources under /connections/{id}/models | Candidate model data; catalog refresh never publishes automatically |
 | Prices | GET/POST /admin/prices | Immutable effective-dated prices support nullable cache-read rates and non-overlapping half-open weekly UTC windows; attempts retain the quoted version and quote time |
@@ -230,9 +231,9 @@ Setup, user/grant mutations, imports, and multi-policy updates transact with the
 | OpenRouter | OpenAI-compatible preset; downstream-provider guarantees require separately configured OpenRouter controls |
 | Ollama | OpenAI-compatible local preset with explicit private-network access and no credential requirement |
 | Generic OpenAI-compatible | Configurable endpoint with explicitly selected capabilities |
-| Azure OpenAI | OpenAI-compatible v1 preset with a validated resource URL and `api-key` authentication |
+| Azure OpenAI | OpenAI-compatible v1 preset with a validated resource URL; encrypted API keys use `api-key`, while rotating Entra tokens use a bearer external reference |
 | Amazon Bedrock | OpenAI-compatible runtime or Mantle resource URL with a Bedrock bearer API key; SigV4 is outside this preset |
-| Google Vertex AI | OpenAI-compatible regional or global resource URL with a Google Cloud access token; token refresh remains operator-managed |
+| Google Vertex AI | OpenAI-compatible regional or global resource URL with a rotating Google Cloud bearer-token reference |
 | Mistral, Groq, DeepSeek, xAI, Together, Fireworks, Cohere, Perplexity | Built-in OpenAI-compatible presets pin reviewed endpoints and advertised operations; deterministic adapter conformance is tested, while live certification is tracked separately |
 
 Gemini, OpenRouter, and Ollama document compatible surfaces, but expose different features. Their inclusion is a testing commitment, not an assumption of native parity. [Gemini compatibility](https://ai.google.dev/gemini-api/docs/openai), [OpenRouter quickstart](https://openrouter.ai/docs/quickstart), [Ollama compatibility](https://docs.ollama.com/api/openai-compatibility)

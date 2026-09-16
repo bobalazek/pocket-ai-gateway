@@ -67,7 +67,7 @@ func (handler *Handler) dispatch(response http.ResponseWriter, request *http.Req
 		requestContentType = multipart.contentType
 	}
 	upstream.Header.Set("Content-Type", requestContentType)
-	setProviderCredential(upstream, target.Adapter, target.Preset, target.Credential)
+	setProviderCredential(upstream, target.Adapter, target.Preset, target.Credential, target.BearerCredential)
 	copyProtocolHeaders(upstream.Header, request.Header, target.Adapter)
 	client := safeClient(time.Duration(target.TimeoutMS)*time.Millisecond, target.AllowPrivateNetwork)
 	result, err := client.Do(upstream)
@@ -175,7 +175,7 @@ func (handler *Handler) dispatchTranslated(response http.ResponseWriter, request
 		return 0, nil, err
 	}
 	upstream.Header.Set("Content-Type", "application/json")
-	setProviderCredential(upstream, target.Adapter, target.Preset, target.Credential)
+	setProviderCredential(upstream, target.Adapter, target.Preset, target.Credential, target.BearerCredential)
 	if target.Adapter == "anthropic" {
 		upstream.Header.Set("anthropic-version", "2023-06-01")
 	}
@@ -228,8 +228,12 @@ func joinURL(base, relative string) (string, error) {
 	parsed.RawQuery = reference.RawQuery
 	return parsed.String(), nil
 }
-func setProviderCredential(request *http.Request, adapter, preset, credential string) {
+func setProviderCredential(request *http.Request, adapter, preset, credential string, bearer bool) {
 	if credential == "" {
+		return
+	}
+	if bearer {
+		request.Header.Set("Authorization", "Bearer "+credential)
 		return
 	}
 	if preset == "azure-openai" {
