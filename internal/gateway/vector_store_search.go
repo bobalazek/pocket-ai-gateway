@@ -82,12 +82,12 @@ func (handler *Handler) searchVectorStore(response http.ResponseWriter, request 
 	queryTerms := searchTermFrequency(strings.Join(options.queries, " "))
 	results := make([]vectorStoreSearchResult, 0, options.limit)
 	for _, file := range files {
-		_, content, loadErr := handler.loadOpenAIFileContent(request.Context(), principal.KeyID, file.id)
+		storedFile, content, loadErr := handler.loadOpenAIFileContent(request.Context(), principal.KeyID, file.id)
 		if loadErr != nil {
 			handler.writeError(response, "openai", http.StatusServiceUnavailable, "gateway_unavailable", "Vector Store search is unavailable")
 			return
 		}
-		chunks, chunkErr := vectorStoreTextChunks(content)
+		chunks, chunkErr := vectorStoreContentChunks(storedFile.Filename, content)
 		if chunkErr != nil {
 			handler.writeError(response, "openai", http.StatusBadRequest, "unsupported_feature", chunkErr.Error())
 			return
