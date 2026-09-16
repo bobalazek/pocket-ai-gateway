@@ -8,14 +8,28 @@ import (
 	"errors"
 	"io"
 	"net/http"
+	"path"
 	"strings"
 	"unicode/utf8"
 )
 
 const (
 	maxVectorStoreContentChunkBytes = 64 << 10
-	maxVectorStoreDOCXXMLBytes      = 16 << 20
-	maxVectorStoreDOCXEntries       = 1024
+	maxVectorStoreOOXMLBytes        = 16 << 20
+	maxVectorStoreOOXMLEntries      = 1024
+)
+
+const (
+	wordprocessingMLNamespace       = "http://schemas.openxmlformats.org/wordprocessingml/2006/main"
+	strictWordprocessingMLNamespace = "http://purl.oclc.org/ooxml/wordprocessingml/main"
+	presentationMLNamespace         = "http://schemas.openxmlformats.org/presentationml/2006/main"
+	strictPresentationMLNamespace   = "http://purl.oclc.org/ooxml/presentationml/main"
+	drawingMLNamespace              = "http://schemas.openxmlformats.org/drawingml/2006/main"
+	strictDrawingMLNamespace        = "http://purl.oclc.org/ooxml/drawingml/main"
+	officeRelationshipNamespace     = "http://schemas.openxmlformats.org/officeDocument/2006/relationships"
+	strictOfficeRelationshipNS      = "http://purl.oclc.org/ooxml/officeDocument/relationships"
+	packageRelationshipNamespace    = "http://schemas.openxmlformats.org/package/2006/relationships"
+	strictPackageRelationshipNS     = "http://purl.oclc.org/ooxml/package/relationships"
 )
 
 type vectorStoreContent struct {
@@ -59,8 +73,15 @@ func (handler *Handler) vectorStoreFileContent(response http.ResponseWriter, req
 }
 
 func vectorStoreContentChunks(filename string, content []byte) ([]vectorStoreContent, error) {
-	if strings.HasSuffix(strings.ToLower(filename), ".docx") {
+	switch {
+	case strings.HasSuffix(strings.ToLower(filename), ".docx"):
 		text, err := vectorStoreDOCXText(content)
+		if err != nil {
+			return nil, err
+		}
+		content = text
+	case strings.HasSuffix(strings.ToLower(filename), ".pptx"):
+		text, err := vectorStorePPTXText(content)
 		if err != nil {
 			return nil, err
 		}
@@ -71,7 +92,7 @@ func vectorStoreContentChunks(filename string, content []byte) ([]vectorStoreCon
 
 func vectorStoreDOCXText(content []byte) ([]byte, error) {
 	archive, err := zip.NewReader(bytes.NewReader(content), int64(len(content)))
-	if err != nil || len(archive.File) > maxVectorStoreDOCXEntries {
+	if err != nil || len(archive.File) > maxVectorStoreOOXMLEntries {
 		return nil, errors.New("DOCX content is invalid or exceeds the archive entry limit")
 	}
 	var document *zip.File
@@ -83,57 +104,231 @@ func vectorStoreDOCXText(content []byte) ([]byte, error) {
 			document = file
 		}
 	}
-	if document == nil || document.UncompressedSize64 > maxVectorStoreDOCXXMLBytes {
+	if document == nil || document.UncompressedSize64 > maxVectorStoreOOXMLBytes {
 		return nil, errors.New("DOCX body document is missing or exceeds 16 MiB")
 	}
-	reader, err := document.Open()
-	if err != nil {
-		return nil, errors.New("DOCX body document could not be opened")
+	return vectorStoreOOXMLPartText(document, "DOCX", "document", wordprocessingMLNamespace, strictWordprocessingMLNamespace, wordprocessingMLNamespace, strictWordprocessingMLNamespace, maxVectorStoreOOXMLBytes)
+}
+
+func vectorStorePPTXText(content []byte) ([]byte, error) {
+	archive, err := zip.NewReader(bytes.NewReader(content), int64(len(content)))
+	if err != nil || len(archive.File) > maxVectorStoreOOXMLEntries {
+		return nil, errors.New("PPTX content is invalid or exceeds the archive entry limit")
 	}
-	defer reader.Close()
-	decoder := xml.NewDecoder(io.LimitReader(reader, maxVectorStoreDOCXXMLBytes+1))
+	files := make(map[string]*zip.File, len(archive.File))
+	for _, file := range archive.File {
+		if files[file.Name] != nil {
+			return nil, errors.New("PPTX contains duplicate package parts")
+		}
+		files[file.Name] = file
+	}
+	presentation, relationships := files["ppt/presentation.xml"], files["ppt/_rels/presentation.xml.rels"]
+	if presentation == nil || relationships == nil || presentation.UncompressedSize64 > maxVectorStoreOOXMLBytes || relationships.UncompressedSize64 > maxVectorStoreOOXMLBytes {
+		return nil, errors.New("PPTX presentation metadata is missing or exceeds 16 MiB")
+	}
+	targets, err := vectorStorePPTXRelationshipTargets(relationships)
+	if err != nil {
+		return nil, err
+	}
+	slideNames, err := vectorStorePPTXSlideNames(presentation, targets)
+	if err != nil {
+		return nil, err
+	}
 	var text strings.Builder
-	lastNewline := false
+	var declared uint64
+	seen := make(map[string]struct{}, len(slideNames))
+	for _, name := range slideNames {
+		if _, duplicate := seen[name]; duplicate {
+			return nil, errors.New("PPTX contains a duplicate slide reference")
+		}
+		seen[name] = struct{}{}
+		slide := files[name]
+		if slide == nil || slide.UncompressedSize64 > uint64(maxVectorStoreOOXMLBytes)-declared {
+			return nil, errors.New("PPTX slide content is missing or exceeds 16 MiB")
+		}
+		declared += slide.UncompressedSize64
+		slideText, partErr := vectorStoreOOXMLPartText(slide, "PPTX", "sld", presentationMLNamespace, strictPresentationMLNamespace, drawingMLNamespace, strictDrawingMLNamespace, maxVectorStoreOOXMLBytes-text.Len())
+		if partErr != nil {
+			return nil, partErr
+		}
+		text.Write(slideText)
+	}
+	return []byte(text.String()), nil
+}
+
+func vectorStorePPTXRelationshipTargets(file *zip.File) (map[string]string, error) {
+	decoder, closePart, err := vectorStoreOOXMLDecoder(file)
+	if err != nil {
+		return nil, errors.New("PPTX relationships could not be opened")
+	}
+	defer closePart()
+	targets := make(map[string]string)
+	rootSeen := false
 	for {
 		token, tokenErr := decoder.Token()
 		if errors.Is(tokenErr, io.EOF) {
+			if !rootSeen {
+				return nil, errors.New("PPTX relationships root is invalid")
+			}
+			return targets, nil
+		}
+		if tokenErr != nil {
+			return nil, errors.New("PPTX relationships are not valid XML")
+		}
+		start, ok := token.(xml.StartElement)
+		if !ok {
+			continue
+		}
+		if !rootSeen {
+			if start.Name.Local != "Relationships" || (start.Name.Space != packageRelationshipNamespace && start.Name.Space != strictPackageRelationshipNS) {
+				return nil, errors.New("PPTX relationships root is invalid")
+			}
+			rootSeen = true
+			continue
+		}
+		if start.Name.Local != "Relationship" || (start.Name.Space != packageRelationshipNamespace && start.Name.Space != strictPackageRelationshipNS) {
+			continue
+		}
+		var id, target, relationshipType, targetMode string
+		for _, attribute := range start.Attr {
+			switch attribute.Name.Local {
+			case "Id":
+				id = attribute.Value
+			case "Target":
+				target = attribute.Value
+			case "Type":
+				relationshipType = attribute.Value
+			case "TargetMode":
+				targetMode = attribute.Value
+			}
+		}
+		if relationshipType != officeRelationshipNamespace+"/slide" && relationshipType != strictOfficeRelationshipNS+"/slide" {
+			continue
+		}
+		if id == "" || target == "" || (targetMode != "" && targetMode != "Internal") || strings.Contains(target, "\\") {
+			return nil, errors.New("PPTX contains an invalid slide relationship")
+		}
+		name := path.Clean(path.Join("ppt", strings.TrimPrefix(target, "/ppt/")))
+		if !strings.HasPrefix(name, "ppt/slides/") || path.Ext(name) != ".xml" || targets[id] != "" {
+			return nil, errors.New("PPTX contains an invalid slide relationship")
+		}
+		targets[id] = name
+	}
+}
+
+func vectorStorePPTXSlideNames(file *zip.File, targets map[string]string) ([]string, error) {
+	decoder, closePart, err := vectorStoreOOXMLDecoder(file)
+	if err != nil {
+		return nil, errors.New("PPTX presentation could not be opened")
+	}
+	defer closePart()
+	var slides []string
+	rootSeen := false
+	for {
+		token, tokenErr := decoder.Token()
+		if errors.Is(tokenErr, io.EOF) {
+			if !rootSeen {
+				return nil, errors.New("PPTX presentation root is invalid")
+			}
+			return slides, nil
+		}
+		if tokenErr != nil {
+			return nil, errors.New("PPTX presentation is not valid XML")
+		}
+		start, ok := token.(xml.StartElement)
+		if !ok {
+			continue
+		}
+		if !rootSeen {
+			if start.Name.Local != "presentation" || (start.Name.Space != presentationMLNamespace && start.Name.Space != strictPresentationMLNamespace) {
+				return nil, errors.New("PPTX presentation root is invalid")
+			}
+			rootSeen = true
+			continue
+		}
+		if start.Name.Local != "sldId" || (start.Name.Space != presentationMLNamespace && start.Name.Space != strictPresentationMLNamespace) {
+			continue
+		}
+		var relationshipID string
+		for _, attribute := range start.Attr {
+			if attribute.Name.Local == "id" && (attribute.Name.Space == officeRelationshipNamespace || attribute.Name.Space == strictOfficeRelationshipNS) {
+				relationshipID = attribute.Value
+			}
+		}
+		if targets[relationshipID] == "" {
+			return nil, errors.New("PPTX slide order references a missing relationship")
+		}
+		slides = append(slides, targets[relationshipID])
+	}
+}
+
+func vectorStoreOOXMLDecoder(file *zip.File) (*xml.Decoder, func(), error) {
+	reader, err := file.Open()
+	if err != nil {
+		return nil, nil, err
+	}
+	return xml.NewDecoder(io.LimitReader(reader, int64(file.UncompressedSize64)+1)), func() { _ = reader.Close() }, nil
+}
+
+func vectorStoreOOXMLPartText(file *zip.File, format, rootLocal, rootNamespace, strictRootNamespace, textNamespace, strictTextNamespace string, maxText int) ([]byte, error) {
+	decoder, closePart, err := vectorStoreOOXMLDecoder(file)
+	if err != nil {
+		return nil, errors.New(format + " document part could not be opened")
+	}
+	defer closePart()
+	var text strings.Builder
+	lastNewline := false
+	rootSeen := false
+	for {
+		token, tokenErr := decoder.Token()
+		if errors.Is(tokenErr, io.EOF) {
+			if !rootSeen {
+				return nil, errors.New(format + " document root is invalid")
+			}
 			break
 		}
 		if tokenErr != nil {
-			return nil, errors.New("DOCX body document is not valid XML")
+			return nil, errors.New(format + " document part is not valid XML")
 		}
 		switch value := token.(type) {
 		case xml.StartElement:
+			if !rootSeen {
+				if value.Name.Local != rootLocal || (value.Name.Space != rootNamespace && value.Name.Space != strictRootNamespace) {
+					return nil, errors.New(format + " document root is invalid")
+				}
+				rootSeen = true
+				continue
+			}
 			switch {
-			case vectorStoreWordElement(value.Name, "t"):
+			case vectorStoreOOXMLElement(value.Name, "t", textNamespace, strictTextNamespace):
 				var valueText string
-				if decoder.DecodeElement(&valueText, &value) != nil || text.Len()+len(valueText) > maxVectorStoreDOCXXMLBytes {
-					return nil, errors.New("DOCX text is invalid or exceeds 16 MiB")
+				if decoder.DecodeElement(&valueText, &value) != nil || text.Len()+len(valueText) > maxText {
+					return nil, errors.New(format + " text is invalid or exceeds 16 MiB")
 				}
 				text.WriteString(valueText)
 				lastNewline = strings.HasSuffix(valueText, "\n")
-			case vectorStoreWordElement(value.Name, "tab"):
+			case vectorStoreOOXMLElement(value.Name, "tab", textNamespace, strictTextNamespace):
 				text.WriteByte('\t')
 				lastNewline = false
-			case vectorStoreWordElement(value.Name, "br"), vectorStoreWordElement(value.Name, "cr"):
+			case vectorStoreOOXMLElement(value.Name, "br", textNamespace, strictTextNamespace), vectorStoreOOXMLElement(value.Name, "cr", textNamespace, strictTextNamespace):
 				text.WriteByte('\n')
 				lastNewline = true
 			}
 		case xml.EndElement:
-			if vectorStoreWordElement(value.Name, "p") && text.Len() > 0 && !lastNewline {
+			if vectorStoreOOXMLElement(value.Name, "p", textNamespace, strictTextNamespace) && text.Len() > 0 && !lastNewline {
 				text.WriteByte('\n')
 				lastNewline = true
 			}
 		}
-		if text.Len() > maxVectorStoreDOCXXMLBytes {
-			return nil, errors.New("DOCX text exceeds 16 MiB")
+		if text.Len() > maxText {
+			return nil, errors.New(format + " text exceeds 16 MiB")
 		}
 	}
 	return []byte(text.String()), nil
 }
 
-func vectorStoreWordElement(name xml.Name, local string) bool {
-	return name.Local == local && (name.Space == "http://schemas.openxmlformats.org/wordprocessingml/2006/main" || name.Space == "http://purl.oclc.org/ooxml/wordprocessingml/main")
+func vectorStoreOOXMLElement(name xml.Name, local, namespace, strictNamespace string) bool {
+	return name.Local == local && (name.Space == namespace || name.Space == strictNamespace)
 }
 
 func vectorStoreTextChunks(content []byte) ([]vectorStoreContent, error) {
