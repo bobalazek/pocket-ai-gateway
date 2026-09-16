@@ -147,7 +147,7 @@ func (handler *Handler) session(response http.ResponseWriter, request *http.Requ
 		return
 	}
 	response.Header().Set("Cache-Control", "no-store")
-	WriteJSON(response, http.StatusOK, map[string]any{"user": current.User, "session": CurrentSessionView(current)})
+	WriteJSON(response, http.StatusOK, map[string]any{"user": current.User, "session": CurrentSessionView(current), "inference_scopes": inferenceScopes})
 }
 
 func (handler *Handler) sessions(response http.ResponseWriter, request *http.Request) {

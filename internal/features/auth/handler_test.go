@@ -50,11 +50,19 @@ func TestSetupHTTPFlow(t *testing.T) {
 		t.Fatalf("session response = %d: %s", session.Code, session.Body.String())
 	}
 	var sessionBody struct {
-		User    User        `json:"user"`
-		Session SessionView `json:"session"`
+		User            User             `json:"user"`
+		Session         SessionView      `json:"session"`
+		InferenceScopes []InferenceScope `json:"inference_scopes"`
 	}
 	if err := json.Unmarshal(session.Body.Bytes(), &sessionBody); err != nil || sessionBody.Session.ID == "" || sessionBody.Session.CreatedAt == "" || sessionBody.Session.LastSeenAt == "" || !sessionBody.User.Grants.Unrestricted {
 		t.Fatalf("session contract = %#v, %v", sessionBody, err)
+	}
+	completionScope := false
+	for _, scope := range sessionBody.InferenceScopes {
+		completionScope = completionScope || scope.ID == "completions:generate" && scope.Policy != ""
+	}
+	if !completionScope {
+		t.Fatalf("session inference scopes = %#v", sessionBody.InferenceScopes)
 	}
 	completeStatus := httptest.NewRecorder()
 	mux.ServeHTTP(completeStatus, httptest.NewRequest(http.MethodGet, "/api/v1/auth/setup/status", nil))

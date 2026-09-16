@@ -93,6 +93,13 @@ func (handler *Handler) dispatch(response http.ResponseWriter, request *http.Req
 			handler.writeError(response, dialect, http.StatusBadGateway, "upstream_error", "Provider response exceeds 16 MiB")
 			return result.StatusCode, nil, errors.New("provider response exceeds 16 MiB")
 		}
+		if relative == "completions" {
+			raw, readErr = protocol.NormalizeOpenAICompletionResponse(raw, publicModel)
+			if readErr != nil {
+				handler.writeError(response, dialect, http.StatusBadGateway, "upstream_error", "Provider returned an invalid Completion response")
+				return result.StatusCode, nil, readErr
+			}
+		}
 		response.Header().Set("Content-Type", contentType)
 		response.Header().Set("Cache-Control", "no-store")
 		response.WriteHeader(result.StatusCode)
@@ -117,7 +124,9 @@ func (handler *Handler) dispatch(response http.ResponseWriter, request *http.Req
 		window = &headTailCapture{head: limitedCapture{limit: 1 << 20}, tail: tailCapture{limit: maxInferenceBody}}
 		captureWriter = window
 	}
-	if dialect == "anthropic" {
+	if relative == "completions" {
+		err = protocol.CopyOpenAICompletionStream(io.MultiWriter(flushWriter{writer: response, flusher: flusher}, captureWriter), result.Body, publicModel)
+	} else if dialect == "anthropic" {
 		err = copyAnthropicStream(io.MultiWriter(flushWriter{writer: response, flusher: flusher}, captureWriter), result.Body, publicModel)
 	} else {
 		_, err = io.Copy(flushWriter{writer: response, flusher: flusher}, io.TeeReader(result.Body, captureWriter))

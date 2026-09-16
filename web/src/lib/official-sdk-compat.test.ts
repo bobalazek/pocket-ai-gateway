@@ -50,6 +50,44 @@ describe("official SDK compatibility through the Go gateway", () => {
     expect(result.choices[0]?.message.content).toBe("Hello");
   });
 
+  it("decodes native OpenAI legacy Completions", async () => {
+    const result = await openAI().completions.create({
+      model: "target-openai-completion",
+      prompt: "Complete this",
+      max_tokens: 8,
+      logprobs: 2,
+    });
+
+    expect(result).toMatchObject({
+      id: "cmpl_1",
+      object: "text_completion",
+      model: "target-openai-completion",
+      choices: [{ text: "Legacy completion", index: 0, logprobs: null, finish_reason: "stop" }],
+      usage: { prompt_tokens: 3, completion_tokens: 2, total_tokens: 5 },
+    });
+  });
+
+  it("streams native OpenAI legacy Completions with terminal usage", async () => {
+    const stream = await openAI().completions.create({
+      model: "target-openai-completion",
+      prompt: "Complete this",
+      max_tokens: 8,
+      stream: true,
+      stream_options: { include_obfuscation: false, include_usage: true },
+    });
+    const chunks = [];
+    for await (const chunk of stream) chunks.push(chunk);
+
+    expect(chunks.flatMap((chunk) => chunk.choices).map((choice) => choice.text).join("")).toBe("Legacy completion");
+    expect(chunks.every((chunk) => chunk.model === "target-openai-completion")).toBe(true);
+    expect(chunks.at(-1)).toMatchObject({
+      object: "text_completion",
+      model: "target-openai-completion",
+      choices: [],
+      usage: { prompt_tokens: 3, completion_tokens: 2, total_tokens: 5 },
+    });
+  });
+
   it("manages gateway-stored Chat Completions", async () => {
     const client = openAI();
     const created = await client.chat.completions.create({
@@ -146,7 +184,7 @@ describe("official SDK compatibility through the Go gateway", () => {
     await expect(client.uploads.parts.create(cancelled.id, { data: await toFile(Buffer.from("x"), "rejected") })).rejects.toMatchObject({ status: 400 });
   });
 
-  it("runs gateway-owned OpenAI Responses, Chat Completions, Embeddings, Moderation, and Image batches", async () => {
+  it("runs gateway-owned OpenAI Responses, Chat Completions, legacy Completions, Embeddings, Moderation, and Image batches", async () => {
     const client = openAI();
     const upload = async (content: string, name: string) => client.files.create({
       file: await toFile(Buffer.from(content), name, { type: "application/jsonl" }),
@@ -239,6 +277,42 @@ describe("official SDK compatibility through the Go gateway", () => {
         status_code: 200,
         request_id: expect.stringMatching(/^req_/),
         body: { object: "chat.completion", model: "target-openai", usage: { prompt_tokens: 2, completion_tokens: 1, total_tokens: 3 } },
+      },
+      error: null,
+    }]);
+
+    const completionInput = await upload(
+      '{"custom_id":"completion-success","method":"POST","url":"/v1/completions","body":{"model":"target-openai-completion","prompt":"Batch completion","max_tokens":8}}\n',
+      "completion-batch.jsonl",
+    );
+    const completionCreated = await client.batches.create({
+      input_file_id: completionInput.id,
+      endpoint: "/v1/completions",
+      completion_window: "24h",
+    });
+    expect(completionCreated).toMatchObject({ endpoint: "/v1/completions", model: "target-openai-completion" });
+    const completionCompleted = await waitForTerminal(completionCreated.id);
+    expect(completionCompleted).toMatchObject({
+      endpoint: "/v1/completions",
+      model: "target-openai-completion",
+      status: "completed",
+      request_counts: { total: 1, completed: 1, failed: 0 },
+      usage: { input_tokens: 3, output_tokens: 2, total_tokens: 5 },
+    });
+    if (!completionCompleted.output_file_id) throw new Error("Completion Batch output File is missing");
+    expect(completionCompleted.error_file_id).toBeNull();
+    expect(await readJSONLines(completionCompleted.output_file_id)).toMatchObject([{
+      custom_id: "completion-success",
+      response: {
+        status_code: 200,
+        request_id: expect.stringMatching(/^req_/),
+        body: {
+          id: "cmpl_1",
+          object: "text_completion",
+          model: "target-openai-completion",
+          choices: [{ text: "Legacy completion", index: 0, logprobs: null, finish_reason: "stop" }],
+          usage: { prompt_tokens: 3, completion_tokens: 2, total_tokens: 5 },
+        },
       },
       error: null,
     }]);

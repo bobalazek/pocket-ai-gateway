@@ -192,6 +192,8 @@ func (handler *Handler) runOpenAIBatch(ctx context.Context, job openAIBatchJob) 
 		envelope["background"] = json.RawMessage(`false`)
 	case "/v1/chat/completions":
 		envelope["store"], envelope["stream"] = json.RawMessage(`false`), json.RawMessage(`false`)
+	case "/v1/completions":
+		envelope["stream"] = json.RawMessage(`false`)
 	}
 	body, _ = json.Marshal(envelope)
 	recorder := &memoryResponse{header: make(http.Header)}
@@ -575,7 +577,7 @@ func (usage *openAIBatchUsage) add(line []byte, endpoint string) bool {
 		return false
 	}
 	switch endpoint {
-	case "/v1/chat/completions":
+	case "/v1/chat/completions", "/v1/completions":
 		if body.Usage.Prompt == nil || body.Usage.Completion == nil || body.Usage.Input != nil || body.Usage.Output != nil || jsonValuePresent(body.Usage.InputDetails) || body.Usage.OutputDetails != nil {
 			return false
 		}
@@ -596,7 +598,7 @@ func (usage *openAIBatchUsage) add(line []byte, endpoint string) bool {
 	if details.cacheReadInputTokens != nil {
 		cached = *details.cacheReadInputTokens
 	}
-	if endpoint == "/v1/chat/completions" && body.Usage.CompletionDetails != nil {
+	if (endpoint == "/v1/chat/completions" || endpoint == "/v1/completions") && body.Usage.CompletionDetails != nil {
 		reasoning = body.Usage.CompletionDetails.Reasoning
 	}
 	if input < 0 || output < 0 || cached < 0 || cached > input || reasoning < 0 || reasoning > output || input > maxOpenAIBatchUsage-output || body.Usage.Total != nil && *body.Usage.Total != input+output || input > maxOpenAIBatchUsage-usage.input || output > maxOpenAIBatchUsage-usage.output || usage.input+input > maxOpenAIBatchUsage-(usage.output+output) || cached > maxOpenAIBatchUsage-usage.cached || reasoning > maxOpenAIBatchUsage-usage.reasoning {

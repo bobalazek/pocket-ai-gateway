@@ -71,6 +71,9 @@ func (handler *Handler) Register(mux *http.ServeMux) {
 	mux.HandleFunc("GET /api/openai/v1/batches", handler.listOpenAIBatches)
 	mux.HandleFunc("GET /api/openai/v1/batches/{batch_id}", handler.getOpenAIBatch)
 	mux.HandleFunc("POST /api/openai/v1/batches/{batch_id}/cancel", handler.cancelOpenAIBatch)
+	mux.HandleFunc("POST /api/openai/v1/completions", func(w http.ResponseWriter, r *http.Request) {
+		handler.forward(w, r, "openai", "completions:generate", "completions", "", nil)
+	})
 	mux.HandleFunc("POST /api/openai/v1/chat/completions", handler.chatCompletions)
 	mux.HandleFunc("GET /api/openai/v1/chat/completions", handler.listChatCompletions)
 	mux.HandleFunc("GET /api/openai/v1/chat/completions/{completion_id}", handler.getChatCompletion)

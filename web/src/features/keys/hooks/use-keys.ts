@@ -2,8 +2,7 @@
 
 import { useEffect, useRef, useState, type FormEvent } from "react";
 
-import { useGatewayUser } from "@/components/setup-gate";
-import { inferenceScopes } from "@/features/auth/constants/inference-scopes.constants";
+import { useGatewayInferenceScopes, useGatewayUser } from "@/components/setup-gate";
 import type { GatewayKey, OneTimeSecret } from "@/features/keys/types/keys.types";
 import { pocketAIGatewayAdmin } from "@/lib/pocket-ai-gateway-admin.client";
 import { GatewayAPIError } from "@/lib/pocket-ai-gateway-admin.client";
@@ -12,6 +11,7 @@ const list = (value: FormDataEntryValue | null) => String(value ?? "").split(","
 
 export function useKeys() {
   const current = useGatewayUser();
+  const inferenceScopes = useGatewayInferenceScopes();
   const [keys, setKeys] = useState<GatewayKey[]>([]);
   const [nextCursor, setNextCursor] = useState("");
   const [secret, setSecret] = useState<OneTimeSecret | null>(null);
@@ -41,6 +41,6 @@ export function useKeys() {
   async function revoke(key: GatewayKey) { if (!window.confirm(`Revoke ${key.label}? This cannot be undone.`)) return; setSecret(null); try { await pocketAIGatewayAdmin.keys.revoke(key.id, key.revision); await refresh(); } catch (failure) { showError(failure); } }
   async function toggle(key: GatewayKey) { try { await pocketAIGatewayAdmin.keys.update(key.id, key.revision, { label: key.label, state: key.state === "active" ? "disabled" : "active", scopes: key.scopes, model_patterns: key.model_patterns, connection_ids: key.connection_ids, expires_at: key.expires_at ?? "" }); await refresh(); } catch (failure) { showError(failure); } }
 
-  const permittedScopes = current?.grants.unrestricted ? [...inferenceScopes] : current?.grants.scopes ?? [];
+  const permittedScopes = inferenceScopes.filter((scope) => current?.grants.unrestricted || current?.grants.scopes.includes(scope.id));
   return { current, keys, nextCursor, secret, error, issuing, loadingPage, permittedScopes, create, rotate, revoke, toggle, loadPage };
 }

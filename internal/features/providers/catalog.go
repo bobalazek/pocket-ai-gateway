@@ -32,7 +32,7 @@ type Preset struct {
 }
 
 var presets = []Preset{
-	{ID: "openai", Label: "OpenAI", Adapter: "openai", BaseURL: "https://api.openai.com/v1", CredentialRequired: true, Operations: []string{"chat/completions", "responses", "responses/compact", "responses/input_tokens", "embeddings", "moderations", "images/generations", "images/edits", "images/variations", "audio/speech", "audio/transcriptions", "audio/translations"}, DocumentationURL: "https://developers.openai.com/api/reference/overview", ReviewedAt: "2026-09-15"},
+	{ID: "openai", Label: "OpenAI", Adapter: "openai", BaseURL: "https://api.openai.com/v1", CredentialRequired: true, Operations: []string{"chat/completions", "completions", "responses", "responses/compact", "responses/input_tokens", "embeddings", "moderations", "images/generations", "images/edits", "images/variations", "audio/speech", "audio/transcriptions", "audio/translations"}, DocumentationURL: "https://developers.openai.com/api/reference/overview", ReviewedAt: "2026-09-16"},
 	{ID: "anthropic", Label: "Anthropic", Adapter: "anthropic", BaseURL: "https://api.anthropic.com/v1", CredentialRequired: true, Operations: []string{"messages", "messages/count_tokens"}, DocumentationURL: "https://platform.claude.com/docs/en/api/overview", ReviewedAt: "2026-09-15"},
 	{ID: "gemini", Label: "Google Gemini", Adapter: "gemini", BaseURL: "https://generativelanguage.googleapis.com/v1beta", CredentialRequired: true, Operations: []string{"generateContent", "streamGenerateContent", "countTokens", "embedContent", "batchEmbedContents"}, DocumentationURL: "https://ai.google.dev/api", ReviewedAt: "2026-09-15"},
 	{ID: "openrouter", Label: "OpenRouter", Adapter: "openai_compatible", BaseURL: "https://openrouter.ai/api/v1", CredentialRequired: true, Operations: []string{"chat/completions"}, DocumentationURL: "https://openrouter.ai/docs/api/reference/overview", ReviewedAt: "2026-09-15"},
@@ -147,7 +147,7 @@ func PresetSupportsCapabilities(presetID string, capabilities []string) bool {
 			return false
 		}
 		supported := false
-		for _, operation := range []string{"chat/completions", "messages", "generateContent", "responses", "responses/compact", "responses/input_tokens", "embeddings", "embedContent", "batchEmbedContents", "moderations", "images/generations", "images/edits", "images/variations", "audio/speech", "audio/transcriptions", "audio/translations", "messages/count_tokens", "countTokens"} {
+		for _, operation := range []string{"chat/completions", "completions", "messages", "generateContent", "responses", "responses/compact", "responses/input_tokens", "embeddings", "embedContent", "batchEmbedContents", "moderations", "images/generations", "images/edits", "images/variations", "audio/speech", "audio/transcriptions", "audio/translations", "messages/count_tokens", "countTokens"} {
 			if operationCapability(operation) == capability && PresetSupports(presetID, operation) {
 				supported = true
 				break
@@ -190,6 +190,8 @@ func PresetSupportsModelCapabilities(presetID, upstreamID string, capabilities [
 
 func operationCapability(operation string) string {
 	switch operation {
+	case "completions":
+		return "completions"
 	case "chat/completions", "messages", "generateContent", "responses", "responses/compact":
 		return "chat"
 	case "embeddings", "embedContent", "batchEmbedContents":

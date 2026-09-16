@@ -182,7 +182,8 @@ textarea.select { resize: vertical; }
 .secret-card small { color: var(--muted); }
 .scope-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px 18px; margin: 0; padding: 18px; border: 1px solid var(--border); border-radius: 8px; }
 .scope-grid legend { padding: 0 6px; font-weight: 700; }
-.scope-grid label { display: flex; align-items: center; gap: 7px; font-size: 13px; }
+.scope-grid label { display: flex; align-items: flex-start; gap: 7px; font-size: 13px; }
+.scope-grid label > span { display: grid; gap: 2px; }
 .scope-grid input { width: 17px; height: 17px; accent-color: var(--accent); }
 .metric-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(180px, 100%), 1fr)); gap: 12px; margin-bottom: 28px; }
 .metric-grid > div { padding: 22px; }

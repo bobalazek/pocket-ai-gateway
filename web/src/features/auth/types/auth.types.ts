@@ -23,3 +23,8 @@ export type GatewaySession = {
   authenticated_at: string;
   user_agent: string;
 };
+
+export type GatewayInferenceScope = {
+  id: string;
+  policy?: string;
+};

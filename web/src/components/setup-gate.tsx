@@ -4,12 +4,16 @@ import { createContext, useContext, type ReactNode } from "react";
 
 import { buttonVariants } from "@/components/ui/button";
 import { useSetupGate } from "@/features/auth/hooks/use-setup-gate";
-import type { GatewayUser } from "@/features/auth/types/auth.types";
+import type { GatewayInferenceScope, GatewayUser } from "@/features/auth/types/auth.types";
 
-const SessionContext = createContext<GatewayUser | null>(null);
+const SessionContext = createContext<{ user: GatewayUser | null; inferenceScopes: GatewayInferenceScope[] }>({ user: null, inferenceScopes: [] });
 
 export function useGatewayUser() {
-  return useContext(SessionContext);
+  return useContext(SessionContext).user;
+}
+
+export function useGatewayInferenceScopes() {
+  return useContext(SessionContext).inferenceScopes;
 }
 
 export function SetupGate({ children }: { children: ReactNode }) {
@@ -28,5 +32,5 @@ export function SetupGate({ children }: { children: ReactNode }) {
   if (!state.ready) {
     return <main id="main-content" className="gate-state" aria-live="polite">Opening your gateway…</main>;
   }
-  return <SessionContext.Provider value={state.user}>{children}</SessionContext.Provider>;
+  return <SessionContext.Provider value={{ user: state.user, inferenceScopes: state.inferenceScopes }}>{children}</SessionContext.Provider>;
 }

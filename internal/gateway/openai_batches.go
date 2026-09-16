@@ -16,6 +16,7 @@ import (
 
 	"github.com/bobalazek/pocket-ai-gateway/internal/credentials"
 	"github.com/bobalazek/pocket-ai-gateway/internal/features/keys"
+	"github.com/bobalazek/pocket-ai-gateway/internal/protocol"
 )
 
 type openAIBatchRow struct {
@@ -192,6 +193,8 @@ func openAIBatchEndpoint(endpoint string) (dialect, scope, upstreamPath string, 
 		return "responses", "responses:generate", "responses", true
 	case "/v1/chat/completions":
 		return "openai", "chat:generate", "chat/completions", true
+	case "/v1/completions":
+		return "openai", "completions:generate", "completions", true
 	case "/v1/embeddings":
 		return "openai", "embeddings:generate", "embeddings", true
 	case "/v1/moderations":
@@ -276,6 +279,14 @@ func parseOpenAIBatchInput(content []byte, endpoint string) ([]openAIBatchInputL
 			}
 			if store, storeErr := jsonBoolean(envelope, "store", false); storeErr != nil || store {
 				return nil, "", errors.New("store must be false or omitted in Batches")
+			}
+		case "/v1/completions":
+			completion, completionErr := protocol.ValidateOpenAICompletion(envelope)
+			if completionErr != nil {
+				return nil, "", completionErr
+			}
+			if completion.Stream {
+				return nil, "", errors.New("stream must be false or omitted in Batches")
 			}
 		case "/v1/embeddings":
 			for _, field := range []string{"stream", "store", "background", "conversation", "previous_response_id", "tools", "web_search_options"} {
