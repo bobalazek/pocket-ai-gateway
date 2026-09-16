@@ -336,6 +336,19 @@ type OpenaiUploadPart struct {
 	CreatedAt  int64  `json:"created_at"`
 }
 
+type OpenaiVectorStore struct {
+	ID               string        `json:"id"`
+	OwnerUserID      string        `json:"owner_user_id"`
+	KeyID            string        `json:"key_id"`
+	Name             string        `json:"name"`
+	Description      string        `json:"description"`
+	MetadataJson     []byte        `json:"metadata_json"`
+	CreatedAt        int64         `json:"created_at"`
+	LastActiveAt     int64         `json:"last_active_at"`
+	ExpiresAfterDays sql.NullInt64 `json:"expires_after_days"`
+	ExpiresAt        sql.NullInt64 `json:"expires_at"`
+}
+
 type OperationSetting struct {
 	Singleton            int64  `json:"singleton"`
 	BackupEnabled        int64  `json:"backup_enabled"`

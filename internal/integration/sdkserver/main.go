@@ -106,9 +106,9 @@ func main() {
 		connections = append(connections, connection.ID)
 	}
 	keyService := keys.New(store.SystemDB())
-	_, secret, err := keyService.Create(ctx, owner.ID, keys.Input{Label: "Official SDK matrix", Scopes: []string{"chat:generate", "completions:generate", "messages:batches", "messages:web_search", "messages:web_fetch", "responses:generate", "responses:web_search", "embeddings:generate", "moderations:classify", "images:generate", "images:edit", "images:variation", "audio:speech", "audio:transcribe", "audio:translate", "models:read", "tokens:count", "files:manage", "batches:manage"}, ModelPatterns: []string{"target-*"}, ConnectionIDs: connections})
+	_, secret, err := keyService.Create(ctx, owner.ID, keys.Input{Label: "Official SDK matrix", Scopes: []string{"chat:generate", "completions:generate", "messages:batches", "messages:web_search", "messages:web_fetch", "responses:generate", "responses:web_search", "embeddings:generate", "moderations:classify", "images:generate", "images:edit", "images:variation", "audio:speech", "audio:transcribe", "audio:translate", "models:read", "tokens:count", "files:manage", "batches:manage", "vector_stores:manage"}, ModelPatterns: []string{"target-*"}, ConnectionIDs: connections})
 	must(err)
-	_, otherSecret, err := keyService.Create(ctx, owner.ID, keys.Input{Label: "Official SDK ownership boundary", Scopes: []string{"files:manage", "batches:manage", "responses:generate"}, ModelPatterns: []string{"target-*"}, ConnectionIDs: connections})
+	_, otherSecret, err := keyService.Create(ctx, owner.ID, keys.Input{Label: "Official SDK ownership boundary", Scopes: []string{"files:manage", "batches:manage", "responses:generate", "vector_stores:manage"}, ModelPatterns: []string{"target-*"}, ConnectionIDs: connections})
 	must(err)
 	_, noFilesSecret, err := keyService.Create(ctx, owner.ID, keys.Input{Label: "Official SDK Files scope boundary", Scopes: []string{"chat:generate"}, ModelPatterns: []string{"target-*"}, ConnectionIDs: connections})
 	must(err)

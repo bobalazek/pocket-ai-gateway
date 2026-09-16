@@ -23,6 +23,7 @@ var inferenceScopes = []InferenceScope{
 	{ID: "audio:translate"},
 	{ID: "batches:manage"},
 	{ID: "files:manage"},
+	{ID: "vector_stores:manage"},
 	{ID: "models:read"},
 	{ID: "tokens:count"},
 }

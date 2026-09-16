@@ -44,6 +44,7 @@ Each record states status/source, context, decision, and consequences. A recomme
 | ADR-036 | [Bounded native Gemini Interactions](2026-09-16-native-gemini-interactions.md) | Accepted bounded Phase 8 contract |
 | ADR-037 | [Gateway-owned OpenAI File purposes](2026-09-16-openai-file-purposes.md) | Accepted bounded Phase 8 contract extending ADR-023 |
 | ADR-038 | [Rotating provider credential references](2026-09-16-rotating-provider-credentials.md) | Accepted cloud-auth boundary |
+| ADR-039 | [Gateway-owned OpenAI Vector Store lifecycle](2026-09-16-gateway-owned-openai-vector-stores.md) | Accepted bounded Phase 8 contract |
 
 Historical: [initial proposal](2026-09-14-initial-proposal.md), superseded by the records above where they differ. Its A/P/D/M identifiers are historical references only; current documents use ADR IDs.
 

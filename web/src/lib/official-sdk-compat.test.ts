@@ -168,6 +168,45 @@ describe("official SDK compatibility through the Go gateway", () => {
     expect(await client.files.delete(userData.id)).toMatchObject({ id: userData.id, deleted: true });
   });
 
+  it("manages gateway-owned OpenAI Vector Store metadata", async () => {
+    const client = openAI();
+    const first = await client.vectorStores.create({
+      name: "Knowledge",
+      description: "Product documentation",
+      metadata: { suite: "sdk" },
+      expires_after: { anchor: "last_active_at", days: 7 },
+    });
+    const second = await client.vectorStores.create({ name: "Archive" });
+
+    expect(first).toMatchObject({
+      object: "vector_store",
+      name: "Knowledge",
+      status: "completed",
+      usage_bytes: 0,
+      metadata: { suite: "sdk" },
+      expires_after: { anchor: "last_active_at", days: 7 },
+      file_counts: { in_progress: 0, completed: 0, failed: 0, cancelled: 0, total: 0 },
+    });
+    expect(first.id).toMatch(/^vs_/);
+    expect((await client.vectorStores.retrieve(first.id)).id).toBe(first.id);
+    expect(await client.vectorStores.update(first.id, { name: "Updated", metadata: { suite: "updated" }, expires_after: null })).toMatchObject({
+      id: first.id,
+      name: "Updated",
+      metadata: { suite: "updated" },
+    });
+    const page = await client.vectorStores.list({ limit: 1, order: "asc" });
+    expect(page.data).toHaveLength(1);
+    expect(page.has_more).toBe(true);
+    const listed = [];
+    for await (const store of client.vectorStores.list({ limit: 1, order: "asc" })) listed.push(store.id);
+    expect(listed).toEqual(expect.arrayContaining([first.id, second.id]));
+    await expect(openAI(otherApiKey).vectorStores.retrieve(first.id)).rejects.toMatchObject({ status: 404 });
+    await expect(openAI(noFilesApiKey).vectorStores.list()).rejects.toMatchObject({ status: 403 });
+    await expect(client.vectorStores.create({ file_ids: ["file_missing"] })).rejects.toMatchObject({ status: 400, code: "unsupported_feature" });
+    expect(await client.vectorStores.delete(first.id)).toEqual({ id: first.id, object: "vector_store.deleted", deleted: true });
+    expect(await client.vectorStores.delete(second.id)).toEqual({ id: second.id, object: "vector_store.deleted", deleted: true });
+  });
+
   it("assembles gateway-owned OpenAI Uploads in the requested Part order", async () => {
     const client = openAI();
     const upload = await client.uploads.create({
