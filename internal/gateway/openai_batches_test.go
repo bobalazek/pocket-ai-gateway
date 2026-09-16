@@ -255,6 +255,73 @@ func TestOpenAIImageGenerationBatchUsesSharedDispatchAndAccounting(t *testing.T)
 	}
 }
 
+func TestOpenAIImageEditBatchUsesSharedDispatchAndAccounting(t *testing.T) {
+	var calls atomic.Int64
+	upstream := httptest.NewServer(http.HandlerFunc(func(response http.ResponseWriter, request *http.Request) {
+		calls.Add(1)
+		if request.Method != http.MethodPost || request.URL.Path != "/v1/images/edits" || request.Header.Get("Authorization") != "Bearer provider-secret" || request.Header.Get("Content-Type") != "application/json" {
+			http.Error(response, "invalid request target", http.StatusBadRequest)
+			return
+		}
+		var body map[string]json.RawMessage
+		if json.NewDecoder(request.Body).Decode(&body) != nil || string(body["model"]) != `"edit-upstream"` || string(body["prompt"]) != `"Add a hat"` || string(body["n"]) != `2` || string(body["images"]) != `[{"image_url":"https://example.com/source.png"},{"image_url":"data:image/png;base64,iVBORw0KGgo="}]` {
+			http.Error(response, "invalid request", http.StatusBadRequest)
+			return
+		}
+		for _, field := range []string{"stream", "partial_images", "file_id"} {
+			if _, exists := body[field]; exists {
+				http.Error(response, "unexpected field", http.StatusBadRequest)
+				return
+			}
+		}
+		response.Header().Set("Content-Type", "application/json")
+		_, _ = io.WriteString(response, `{"created":1764967971,"data":[{"b64_json":"ZWRpdA=="}],"usage":{"input_tokens":3,"input_tokens_details":{"image_tokens":2,"text_tokens":1},"output_tokens":2,"total_tokens":5}}`)
+	}))
+	defer upstream.Close()
+
+	ctx, store, owner, keyService, providerService, usageService := gatewayFixture(t)
+	defer store.Close()
+	connection, model := publishModel(t, ctx, providerService, owner, "openai", upstream.URL+"/v1", "edit-upstream", []string{"image_edit"})
+	_, secret, err := keyService.Create(ctx, owner.ID, keys.Input{Label: "Image Edit Batch", Scopes: []string{"batches:manage", "files:manage", "images:edit"}, ModelPatterns: []string{model.ID}, ConnectionIDs: []string{connection.ID}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	handler := NewWithMasterKey(store.SystemDB(), keyService, providerService, usageService, bytes.Repeat([]byte{14}, 32))
+	mux := http.NewServeMux()
+	handler.Register(mux)
+	line := `{"custom_id":"edit","method":"POST","url":"/v1/images/edits","body":{"model":"` + model.ID + `","images":[{"image_url":"https://example.com/source.png"},{"image_url":"data:image/png;base64,iVBORw0KGgo="}],"prompt":"Add a hat","n":2}}` + "\n"
+	uploaded := performFileUpload(t, mux, secret, "image-edit-batch.jsonl", []byte(line), map[string]string{"purpose": "batch"}, nil)
+	var file openAIFile
+	if uploaded.Code != http.StatusOK || json.Unmarshal(uploaded.Body.Bytes(), &file) != nil {
+		t.Fatalf("upload=%d %s", uploaded.Code, uploaded.Body.String())
+	}
+	created := performOpenAIBatchRequest(t, mux, http.MethodPost, "/api/openai/v1/batches", secret, `{"input_file_id":"`+file.ID+`","endpoint":"/v1/images/edits","completion_window":"24h"}`)
+	if created.Code != http.StatusOK || !bytes.Contains(created.Body.Bytes(), []byte(`"model":"`+model.ID+`"`)) {
+		t.Fatalf("create=%d %s", created.Code, created.Body.String())
+	}
+	job, ok := handler.claimOpenAIBatch(ctx)
+	if !ok || job.endpoint != "/v1/images/edits" {
+		t.Fatalf("claimed=%v endpoint=%q", ok, job.endpoint)
+	}
+	handler.runOpenAIBatch(ctx, job)
+	batch, err := handler.loadOpenAIBatch(ctx, job.keyID, job.batchID)
+	if err != nil || batch.status != "completed" || !batch.usageKnown || batch.inputTokens != 3 || batch.outputTokens != 2 || batch.cachedTokens != 0 || batch.reasoningTokens != 0 || !batch.outputFileID.Valid || calls.Load() != 1 {
+		t.Fatalf("batch=%#v calls=%d err=%v", batch, calls.Load(), err)
+	}
+	_, output, err := handler.loadOpenAIFileContent(ctx, job.keyID, batch.outputFileID.String)
+	if err != nil || !bytes.Contains(output, []byte(`"b64_json":"ZWRpdA=="`)) || bytes.Contains(output, []byte(`"model"`)) {
+		t.Fatalf("output=%s err=%v", output, err)
+	}
+	requests, _, err := usageService.ListRequests(ctx, owner, usage.UsageQuery{})
+	if err != nil || len(requests) != 1 || requests[0].Operation != "images/edits" || requests[0].Dialect != "openai" || requests[0].ModelID != model.ID || requests[0].State != "succeeded" || len(requests[0].Attempts) != 1 {
+		t.Fatalf("requests=%#v err=%v", requests, err)
+	}
+	attempt := requests[0].Attempts[0]
+	if attempt.TargetOperation != "images/edits" || attempt.UpstreamID != "edit-upstream" || attempt.UsageStatus != "provider_reported" || attempt.InputTokens == nil || *attempt.InputTokens != 3 || attempt.OutputTokens == nil || *attempt.OutputTokens != 2 {
+		t.Fatalf("attempt=%#v", attempt)
+	}
+}
+
 func TestOpenAIModerationBatchUsesSharedDispatchAndEstimatedAccounting(t *testing.T) {
 	var calls atomic.Int64
 	input := `[{"type":"text","text":"violent text"},{"type":"image_url","image_url":{"url":"https://example.com/image.png"}}]`
@@ -433,6 +500,61 @@ func TestOpenAIImageGenerationBatchEnforcesLineAndOutputCardinality(t *testing.T
 	}
 }
 
+func TestOpenAIImageEditBatchEnforcesLineAndOutputCardinality(t *testing.T) {
+	for name, lines := range map[string][]string{
+		"line count": {
+			`{"custom_id":"one","method":"POST","url":"/v1/images/edits","body":{"model":"assistant","images":[{"image_url":"https://example.com/one.png"}],"prompt":"one"}}`,
+			`{"custom_id":"two","method":"POST","url":"/v1/images/edits","body":{"model":"assistant","images":[{"image_url":"https://example.com/two.png"}],"prompt":"two"}}`,
+		},
+		"output cardinality": {
+			`{"custom_id":"one","method":"POST","url":"/v1/images/edits","body":{"model":"assistant","images":[{"image_url":"https://example.com/one.png"}],"prompt":"two images","n":2}}`,
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			var calls atomic.Int64
+			upstream := httptest.NewServer(http.HandlerFunc(func(response http.ResponseWriter, request *http.Request) {
+				calls.Add(1)
+				_, _ = io.WriteString(response, `{"created":1,"data":[{"b64_json":"ZWRpdA=="}]}`)
+			}))
+			defer upstream.Close()
+			ctx, store, owner, keyService, providerService, usageService := gatewayFixture(t)
+			defer store.Close()
+			connection, model := publishModel(t, ctx, providerService, owner, "openai", upstream.URL+"/v1", "edit-upstream", []string{"image_edit"})
+			if _, err := usageService.CreatePolicy(ctx, owner, usage.PolicyInput{ScopeKind: "instance", Metric: "batch_items", Algorithm: "ceiling", LimitUnits: 1}); err != nil {
+				t.Fatal(err)
+			}
+			_, secret, err := keyService.Create(ctx, owner.ID, keys.Input{Label: "Image edit ceiling", Scopes: []string{"batches:manage", "files:manage", "images:edit"}, ModelPatterns: []string{model.ID}, ConnectionIDs: []string{connection.ID}})
+			if err != nil {
+				t.Fatal(err)
+			}
+			handler := NewWithMasterKey(store.SystemDB(), keyService, providerService, usageService, bytes.Repeat([]byte{15}, 32))
+			mux := http.NewServeMux()
+			handler.Register(mux)
+			content := strings.ReplaceAll(strings.Join(lines, "\n")+"\n", `"assistant"`, strconv.Quote(model.ID))
+			uploaded := performFileUpload(t, mux, secret, "image-edit-ceiling.jsonl", []byte(content), map[string]string{"purpose": "batch"}, nil)
+			var file openAIFile
+			if uploaded.Code != http.StatusOK || json.Unmarshal(uploaded.Body.Bytes(), &file) != nil {
+				t.Fatalf("upload=%d %s", uploaded.Code, uploaded.Body.String())
+			}
+			created := performOpenAIBatchRequest(t, mux, http.MethodPost, "/api/openai/v1/batches", secret, `{"input_file_id":"`+file.ID+`","endpoint":"/v1/images/edits","completion_window":"24h"}`)
+			if created.Code != http.StatusOK {
+				t.Fatalf("create=%d %s", created.Code, created.Body.String())
+			}
+			for range lines {
+				job, ok := handler.claimOpenAIBatch(ctx)
+				if !ok {
+					t.Fatal("Batch item was not claimable")
+				}
+				handler.runOpenAIBatch(ctx, job)
+			}
+			var failed, completed int
+			if err := store.SystemDB().QueryRowContext(ctx, `SELECT request_failed,request_completed FROM openai_batches`).Scan(&failed, &completed); err != nil || failed != len(lines) || completed != 0 || calls.Load() != 0 {
+				t.Fatalf("failed=%d completed=%d calls=%d err=%v", failed, completed, calls.Load(), err)
+			}
+		})
+	}
+}
+
 func TestOpenAIBatchListUsesKeysetPagination(t *testing.T) {
 	ctx, store, owner, keyService, providerService, usageService := gatewayFixture(t)
 	defer store.Close()
@@ -497,6 +619,7 @@ func TestOpenAIBatchValidationScopesAndOwnership(t *testing.T) {
 	noEmbeddings := makeKey("No Embeddings", []string{"batches:manage", "files:manage", "responses:generate"})
 	noModerations := makeKey("No Moderations", []string{"batches:manage", "files:manage", "responses:generate"})
 	noImages := makeKey("No Images", []string{"batches:manage", "files:manage", "responses:generate"})
+	noImageEdits := makeKey("No Image Edits", []string{"batches:manage", "files:manage", "images:generate"})
 	missingScopes := []string{
 		makeKey("No Batch", []string{"files:manage", "responses:generate"}),
 		makeKey("No Responses", []string{"batches:manage", "files:manage"}),
@@ -523,6 +646,9 @@ func TestOpenAIBatchValidationScopesAndOwnership(t *testing.T) {
 	}
 	if denied := performOpenAIBatchRequest(t, mux, http.MethodPost, "/api/openai/v1/batches", noImages, `{"input_file_id":"`+validFile+`","endpoint":"/v1/images/generations","completion_window":"24h"}`); denied.Code != http.StatusForbidden {
 		t.Fatalf("missing images scope status=%d body=%s", denied.Code, denied.Body.String())
+	}
+	if denied := performOpenAIBatchRequest(t, mux, http.MethodPost, "/api/openai/v1/batches", noImageEdits, `{"input_file_id":"`+validFile+`","endpoint":"/v1/images/edits","completion_window":"24h"}`); denied.Code != http.StatusForbidden {
+		t.Fatalf("missing image edit scope status=%d body=%s", denied.Code, denied.Body.String())
 	}
 	for _, scopedSecret := range missingScopes {
 		if denied := performOpenAIBatchRequest(t, mux, http.MethodPost, "/api/openai/v1/batches", scopedSecret, `{"input_file_id":"`+validFile+`","endpoint":"/v1/responses","completion_window":"24h"}`); denied.Code != http.StatusForbidden {
@@ -875,6 +1001,25 @@ func TestParseOpenAIBatchInputBounds(t *testing.T) {
 		content := []byte(`{"custom_id":"image","method":"POST","url":"/v1/images/generations","body":` + body + `}` + "\n")
 		if _, _, err := parseOpenAIBatchInput(content, "/v1/images/generations"); err == nil {
 			t.Fatalf("invalid image body accepted: %s", body)
+		}
+	}
+	for _, body := range []string{
+		`{"model":"assistant","images":[{"image_url":"https://example.com/source.png"}],"prompt":"edit"}`,
+		`{"model":"assistant","images":[{"image_url":"data:image/png;base64,iVBORw0KGgo="}],"prompt":"edit","n":10,"output_compression":0,"stream":false}`,
+	} {
+		content := []byte(`{"custom_id":"image-edit","method":"POST","url":"/v1/images/edits","body":` + body + `}` + "\n")
+		if items, model, err := parseOpenAIBatchInput(content, "/v1/images/edits"); err != nil || len(items) != 1 || model != "assistant" {
+			t.Fatalf("image edit body=%s items=%d model=%q err=%v", body, len(items), model, err)
+		}
+	}
+	for _, body := range []string{
+		`{"model":"assistant","images":[{"file_id":"file-provider"}],"prompt":"edit"}`,
+		`{"model":"assistant","images":[{"image_url":"https://example.com/source.png"}],"prompt":"edit","stream":true}`,
+		`{"model":"assistant","images":[{"image_url":"https://example.com/source.png"}],"prompt":"edit","partial_images":0}`,
+	} {
+		content := []byte(`{"custom_id":"image-edit","method":"POST","url":"/v1/images/edits","body":` + body + `}` + "\n")
+		if _, _, err := parseOpenAIBatchInput(content, "/v1/images/edits"); err == nil {
+			t.Fatalf("invalid image edit body accepted: %s", body)
 		}
 	}
 	for _, invalidChat := range [][]byte{
