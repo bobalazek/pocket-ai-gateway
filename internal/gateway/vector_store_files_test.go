@@ -173,6 +173,26 @@ func TestVectorStorePPTXContentExtraction(t *testing.T) {
 	}
 }
 
+func TestVectorStoreXLSXContentExtraction(t *testing.T) {
+	workbook := vectorStoreTestXLSX(t)
+	chunks, err := vectorStoreContentChunks("SHEET.XLSX", workbook)
+	if err != nil || len(chunks) != 1 || chunks[0].Text != "Opening\t42\nDetails\tGateway\nDone\n" {
+		t.Fatalf("chunks=%#v error=%v", chunks, err)
+	}
+	if _, err := vectorStoreContentChunks("invalid.xlsx", []byte("not a zip")); err == nil {
+		t.Fatal("invalid XLSX was accepted")
+	}
+	if _, err := vectorStoreContentChunks("traversal.xlsx", vectorStoreTestXLSXTarget(t, "../outside.xml")); err == nil {
+		t.Fatal("XLSX package traversal was accepted")
+	}
+	if _, err := vectorStoreContentChunks("duplicate.xlsx", vectorStoreTestXLSXPackage(t, "worksheets/sheet1.xml", "rId1")); err == nil {
+		t.Fatal("duplicate XLSX relationship IDs were accepted")
+	}
+	if _, err := vectorStoreContentChunks("oversized.xlsx", vectorStoreTestXLSXOversizedMetadata(t)); err == nil {
+		t.Fatal("aggregate XLSX metadata over 16 MiB was accepted")
+	}
+}
+
 func TestOpenAIVectorStoreParsedContentAndSearch(t *testing.T) {
 	tests := []struct {
 		name, filename, want, query string
@@ -181,6 +201,7 @@ func TestOpenAIVectorStoreParsedContentAndSearch(t *testing.T) {
 		{name: "UTF-16", filename: "notes.txt", want: "Café gateway\n", query: "gateway", content: func(t *testing.T) []byte { return vectorStoreTestUTF16("Café gateway\n", binary.LittleEndian) }},
 		{name: "DOCX", filename: "notes.docx", want: "First\tcell\nSecond\n", query: "second", content: vectorStoreTestDOCX},
 		{name: "PPTX", filename: "slides.pptx", want: "Opening\nDetails\tline\n", query: "details", content: vectorStoreTestPPTX},
+		{name: "XLSX", filename: "sheet.xlsx", want: "Opening\t42\nDetails\tGateway\nDone\n", query: "gateway", content: vectorStoreTestXLSX},
 		{name: "HTML", filename: "docs.html", want: "Pocket AI Gateway\nRoutes requests safely.", query: "safely", content: func(*testing.T) []byte {
 			return []byte(`<main><h1>Pocket AI Gateway</h1><p>Routes requests safely.</p><script>ignore()</script></main>`)
 		}},
@@ -276,4 +297,62 @@ func vectorStoreTestPPTXTarget(t *testing.T, firstTarget string) []byte {
 		t.Fatal(err)
 	}
 	return presentation.Bytes()
+}
+
+func vectorStoreTestXLSX(t *testing.T) []byte {
+	return vectorStoreTestXLSXTarget(t, "worksheets/sheet1.xml")
+}
+
+func vectorStoreTestXLSXTarget(t *testing.T, firstTarget string) []byte {
+	return vectorStoreTestXLSXPackage(t, firstTarget, "rId3")
+}
+
+func vectorStoreTestXLSXPackage(t *testing.T, firstTarget, sharedID string) []byte {
+	t.Helper()
+	parts := map[string]string{
+		"xl/workbook.xml":            `<workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"><sheets><sheet name="First" sheetId="1" r:id="rId2"/><sheet name="Second" sheetId="2" r:id="rId1"/></sheets></workbook>`,
+		"xl/_rels/workbook.xml.rels": `<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="` + firstTarget + `"/><Relationship Id="rId2" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet2.xml"/><Relationship Id="` + sharedID + `" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/sharedStrings" Target="sharedStrings.xml"/></Relationships>`,
+		"xl/sharedStrings.xml":       `<sst xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" count="2" uniqueCount="2"><si><t>Details</t></si><si><r><t>Gate</t></r><r><t>way</t></r></si></sst>`,
+		"xl/worksheets/sheet1.xml":   `<worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"><sheetData><row r="1"><c r="A1" t="s"><v>0</v></c><c r="B1" t="s"><v>1</v></c></row><row r="2"><c r="A2" t="str"><v>Done</v></c></row></sheetData></worksheet>`,
+		"xl/worksheets/sheet2.xml":   `<worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"><sheetData><row r="1"><c r="A1" t="inlineStr"><is><t>Opening</t></is></c><c r="B1"><v>42</v></c></row></sheetData></worksheet>`,
+	}
+	var workbook bytes.Buffer
+	archive := zip.NewWriter(&workbook)
+	for name, body := range parts {
+		entry, err := archive.Create(name)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err := entry.Write([]byte(body)); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := archive.Close(); err != nil {
+		t.Fatal(err)
+	}
+	return workbook.Bytes()
+}
+
+func vectorStoreTestXLSXOversizedMetadata(t *testing.T) []byte {
+	t.Helper()
+	padding := strings.Repeat(" ", maxVectorStoreParsedContentBytes/2)
+	parts := map[string]string{
+		"xl/workbook.xml":            `<workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">` + padding + `</workbook>`,
+		"xl/_rels/workbook.xml.rels": `<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">` + padding + `</Relationships>`,
+	}
+	var workbook bytes.Buffer
+	archive := zip.NewWriter(&workbook)
+	for name, body := range parts {
+		entry, err := archive.Create(name)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err := entry.Write([]byte(body)); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := archive.Close(); err != nil {
+		t.Fatal(err)
+	}
+	return workbook.Bytes()
 }

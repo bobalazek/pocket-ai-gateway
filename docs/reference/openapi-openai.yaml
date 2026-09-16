@@ -560,7 +560,7 @@ paths:
     parameters: [{ name: vector_store_id, in: path, required: true, schema: { type: string } }]
     post:
       operationId: searchVectorStore
-      description: Backend-only lexical search over parsed UTF-8/ASCII, BOM-marked UTF-16, HTML visible-text, DOCX body-text, or PPTX slide-text chunks. Explicit ranker none, nested attribute filters, score thresholds, and up to 50 deterministic results are supported. Query rewriting and embedding-backed rankers are rejected.
+      description: Backend-only lexical search over parsed UTF-8/ASCII, BOM-marked UTF-16, HTML visible-text, DOCX body-text, PPTX slide-text, or XLSX worksheet-value chunks. Explicit ranker none, nested attribute filters, score thresholds, and up to 50 deterministic results are supported. Query rewriting and embedding-backed rankers are rejected.
       requestBody:
         required: true
         content:
@@ -618,7 +618,7 @@ paths:
       - { name: file_id, in: path, required: true, schema: { type: string } }
     get:
       operationId: retrieveVectorStoreFileContent
-      description: Returns valid UTF-8/ASCII, BOM-marked little- or big-endian UTF-16, bounded HTML visible text, bounded DOCX main-document body text, or bounded PPTX slide text in presentation order as uncached chunks of at most 64 KiB. PDF, legacy Office, presentation notes/media, and token-indexed parsing remain unsupported.
+      description: Returns valid UTF-8/ASCII, BOM-marked little- or big-endian UTF-16, bounded HTML visible text, bounded DOCX main-document body text, bounded PPTX slide text in presentation order, or bounded XLSX shared/inline/cached worksheet values in workbook order as uncached chunks of at most 64 KiB. PDF, legacy Office, presentation notes/media, spreadsheet charts/media, and token-indexed parsing remain unsupported.
       responses:
         "200":
           description: Parsed text content page
