@@ -1,0 +1,9 @@
+# 2026-09-16 — Gateway-owned OpenAI Chat Completions Batches
+
+ID: ADR-027 · Status: accepted · Source: delegated technical choice extending the user's API-compatibility requirement
+
+**Context.** ADR-024 established a bounded, gateway-owned OpenAI Batch lifecycle for `/v1/responses`. The official Batch API also accepts `/v1/chat/completions`, and the gateway already has the ordinary Chat routing, translation, authorization, accounting, Files, and durable Batch machinery needed to execute those items without a second queue.
+
+**Decision.** Extend the existing Batch resource to accept `/v1/chat/completions`. Creation requires `batches:manage` plus `chat:generate`; every JSONL line must use `POST`, the selected endpoint, a non-empty `messages` array, one shared public model, and non-streaming execution with storage disabled. Workers persist the endpoint, recheck the creating key's current grants, and call the ordinary Chat path so translation, limits, request history, versioned prices, settlement, and the no-post-dispatch-fallback rule remain authoritative. Chat usage is normalized from prompt/completion fields into the Batch resource's input/output aggregate while output lines preserve the standard Chat Completion body.
+
+**Consequences.** Responses and Chat Completions share the encrypted queue, 1–4-item and 16 MiB input bounds, 24-hour processing deadline, 30-day Batch retention, optional 1-hour through 30-day output retention, cancellation, recovery, and separate success/error Files. The gateway still does not claim OpenAI's Batch discount, provider rate pool, or larger limits. Embeddings, Completions, Moderations, image/video Batch endpoints, and provider-owned Batch execution remain separate contracts. This extends ADR-024 without changing its ownership and lifecycle decisions.

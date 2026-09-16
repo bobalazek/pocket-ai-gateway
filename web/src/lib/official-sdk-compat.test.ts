@@ -146,7 +146,7 @@ describe("official SDK compatibility through the Go gateway", () => {
     await expect(client.uploads.parts.create(cancelled.id, { data: await toFile(Buffer.from("x"), "rejected") })).rejects.toMatchObject({ status: 400 });
   });
 
-  it("runs gateway-owned OpenAI Responses batches", async () => {
+  it("runs gateway-owned OpenAI Responses and Chat Completions batches", async () => {
     const client = openAI();
     const upload = async (content: string, name: string) => client.files.create({
       file: await toFile(Buffer.from(content), name, { type: "application/jsonl" }),
@@ -215,6 +215,33 @@ describe("official SDK compatibility through the Go gateway", () => {
     expect(await client.files.retrieve(completed.output_file_id)).toMatchObject({ purpose: "batch_output" });
     expect(await client.files.retrieve(completed.error_file_id)).toMatchObject({ purpose: "batch_output" });
 
+    const chatInput = await upload([
+      '{"custom_id":"chat-success","method":"POST","url":"/v1/chat/completions","body":{"model":"target-openai","messages":[{"role":"user","content":"Batch chat success"}],"max_completion_tokens":8}}',
+      "",
+    ].join("\n"), "chat-batch.jsonl");
+    const chatCreated = await client.batches.create({
+      input_file_id: chatInput.id,
+      endpoint: "/v1/chat/completions",
+      completion_window: "24h",
+    });
+    const chatCompleted = await waitForTerminal(chatCreated.id);
+    expect(chatCompleted).toMatchObject({
+      endpoint: "/v1/chat/completions",
+      status: "completed",
+      request_counts: { total: 1, completed: 1, failed: 0 },
+      usage: { input_tokens: 2, output_tokens: 1, total_tokens: 3 },
+    });
+    if (!chatCompleted.output_file_id) throw new Error("Chat Batch output File is missing");
+    expect(chatCompleted.error_file_id).toBeNull();
+    expect(await readJSONLines(chatCompleted.output_file_id)).toMatchObject([{
+      custom_id: "chat-success",
+      response: {
+        status_code: 200,
+        request_id: expect.stringMatching(/^req_/),
+        body: { object: "chat.completion", model: "target-openai", usage: { prompt_tokens: 2, completion_tokens: 1, total_tokens: 3 } },
+      },
+      error: null,
+    }]);
     const blockerInput = await upload(
       '{"custom_id":"blocker","method":"POST","url":"/v1/responses","body":{"model":"target-openai","input":"Cancel me blocker","max_output_tokens":8}}\n',
       "blocker-batch.jsonl",

@@ -64,10 +64,6 @@ func (handler *Handler) createOpenAIBatch(response http.ResponseWriter, request 
 	if !ok {
 		return
 	}
-	if !principalHasScope(principal.Scopes, "responses:generate") {
-		handler.writeError(response, "openai", http.StatusForbidden, "permission_denied", "Batch creation requires Responses access")
-		return
-	}
 	body, err := io.ReadAll(http.MaxBytesReader(response, request.Body, maxInferenceBody+1))
 	if err != nil || len(body) > maxInferenceBody {
 		handler.writeError(response, "openai", http.StatusRequestEntityTooLarge, "request_too_large", "Request body exceeds 16 MiB")
@@ -78,8 +74,13 @@ func (handler *Handler) createOpenAIBatch(response http.ResponseWriter, request 
 		handler.writeError(response, "openai", http.StatusBadRequest, "invalid_request", "Request body contains unsupported or invalid fields")
 		return
 	}
-	if input.InputFileID == "" || input.Endpoint != "/v1/responses" || input.CompletionWindow != "24h" {
-		handler.writeError(response, "openai", http.StatusBadRequest, "invalid_request", "input_file_id, endpoint /v1/responses, and completion_window 24h are required")
+	_, scope, _, supportedEndpoint := openAIBatchEndpoint(input.Endpoint)
+	if input.InputFileID == "" || !supportedEndpoint || input.CompletionWindow != "24h" {
+		handler.writeError(response, "openai", http.StatusBadRequest, "invalid_request", "input_file_id, a supported endpoint, and completion_window 24h are required")
+		return
+	}
+	if !principalHasScope(principal.Scopes, scope) {
+		handler.writeError(response, "openai", http.StatusForbidden, "permission_denied", "Batch creation requires access to its endpoint")
 		return
 	}
 	metadata, err := validateChatMetadata(input.Metadata, false)
@@ -109,7 +110,7 @@ func (handler *Handler) createOpenAIBatch(response http.ResponseWriter, request 
 		handler.writeError(response, "openai", http.StatusServiceUnavailable, "gateway_unavailable", "Batch input File is unavailable")
 		return
 	}
-	items, modelID, err := parseOpenAIBatchInput(content)
+	items, modelID, err := parseOpenAIBatchInput(content, input.Endpoint)
 	if err != nil {
 		handler.writeError(response, "openai", http.StatusBadRequest, "invalid_request", err.Error())
 		return
@@ -185,7 +186,21 @@ func (handler *Handler) createOpenAIBatch(response http.ResponseWriter, request 
 	handler.writeOpenAIBatch(response, row)
 }
 
-func parseOpenAIBatchInput(content []byte) ([]openAIBatchInputLine, string, error) {
+func openAIBatchEndpoint(endpoint string) (dialect, scope, upstreamPath string, ok bool) {
+	switch endpoint {
+	case "/v1/responses":
+		return "responses", "responses:generate", "responses", true
+	case "/v1/chat/completions":
+		return "openai", "chat:generate", "chat/completions", true
+	default:
+		return "", "", "", false
+	}
+}
+
+func parseOpenAIBatchInput(content []byte, endpoint string) ([]openAIBatchInputLine, string, error) {
+	if _, _, _, ok := openAIBatchEndpoint(endpoint); !ok {
+		return nil, "", errors.New("batch endpoint is unsupported")
+	}
 	lines := bytes.Split(content, []byte{'\n'})
 	if len(lines) > 0 && len(lines[len(lines)-1]) == 0 {
 		lines = lines[:len(lines)-1]
@@ -208,8 +223,8 @@ func parseOpenAIBatchInput(content []byte) ([]openAIBatchInputLine, string, erro
 			return nil, "", errors.New("custom_id values must be unique")
 		}
 		seen[item.CustomID] = struct{}{}
-		if item.Method != http.MethodPost || item.URL != "/v1/responses" {
-			return nil, "", errors.New("each input File line must use POST /v1/responses")
+		if item.Method != http.MethodPost || item.URL != endpoint {
+			return nil, "", errors.New("each input File line must use POST with the Batch endpoint")
 		}
 		var envelope map[string]json.RawMessage
 		if json.Unmarshal(item.Body, &envelope) != nil || envelope == nil {
@@ -223,15 +238,26 @@ func parseOpenAIBatchInput(content []byte) ([]openAIBatchInputLine, string, erro
 			return nil, "", errors.New("all input File requests must use the same model")
 		}
 		modelID = itemModel
-		for _, field := range []string{"stream", "background"} {
-			if enabled, fieldErr := jsonBoolean(envelope, field, false); fieldErr != nil || enabled {
-				return nil, "", errors.New(field + " must be false or omitted in Batches")
-			}
+		if enabled, fieldErr := jsonBoolean(envelope, "stream", false); fieldErr != nil || enabled {
+			return nil, "", errors.New("stream must be false or omitted in Batches")
 		}
-		for _, field := range []string{"conversation", "previous_response_id"} {
-			raw := bytes.TrimSpace(envelope[field])
-			if len(raw) > 0 && !bytes.Equal(raw, []byte("null")) && !bytes.Equal(raw, []byte(`""`)) {
-				return nil, "", errors.New(field + " is not supported in Batches")
+		if endpoint == "/v1/responses" {
+			if enabled, fieldErr := jsonBoolean(envelope, "background", false); fieldErr != nil || enabled {
+				return nil, "", errors.New("background must be false or omitted in Batches")
+			}
+			for _, field := range []string{"conversation", "previous_response_id"} {
+				raw := bytes.TrimSpace(envelope[field])
+				if len(raw) > 0 && !bytes.Equal(raw, []byte("null")) && !bytes.Equal(raw, []byte(`""`)) {
+					return nil, "", errors.New(field + " is not supported in Batches")
+				}
+			}
+		} else {
+			var messages []json.RawMessage
+			if json.Unmarshal(envelope["messages"], &messages) != nil || len(messages) == 0 {
+				return nil, "", errors.New("chat Batch requests require a non-empty messages array")
+			}
+			if _, exists := envelope["web_search_options"]; exists {
+				return nil, "", errors.New("web_search_options is not supported in Batches")
 			}
 		}
 		if store, storeErr := jsonBoolean(envelope, "store", false); storeErr != nil || store {
@@ -240,10 +266,12 @@ func parseOpenAIBatchInput(content []byte) ([]openAIBatchInputLine, string, erro
 		if containsLocalFileReference(item.Body) {
 			return nil, "", errors.New("gateway File references are not supported in Batch requests")
 		}
-		var responseInput any
-		if raw, exists := envelope["input"]; exists && json.Unmarshal(raw, &responseInput) == nil {
-			if err := rejectCompactReferences(responseInput); err != nil {
-				return nil, "", err
+		if endpoint == "/v1/responses" {
+			var responseInput any
+			if raw, exists := envelope["input"]; exists && json.Unmarshal(raw, &responseInput) == nil {
+				if err := rejectCompactReferences(responseInput); err != nil {
+					return nil, "", err
+				}
 			}
 		}
 		if raw, exists := envelope["tools"]; exists {

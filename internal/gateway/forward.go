@@ -52,6 +52,12 @@ func (handler *Handler) forwardAuthorized(response http.ResponseWriter, request 
 		handler.writeError(response, dialect, http.StatusBadRequest, "unsupported_feature", "web search is supported only by POST /api/openai/v1/responses or POST /api/anthropic/v1/messages")
 		return
 	}
+	if dialect == "openai" && upstreamPath == "chat/completions" {
+		if _, exists := envelope["web_search_options"]; exists {
+			handler.writeError(response, dialect, http.StatusBadRequest, "unsupported_feature", "web search is supported only by POST /api/openai/v1/responses or POST /api/anthropic/v1/messages")
+			return
+		}
+	}
 	var publicID string
 	if publicIDOverride != "" {
 		publicID = publicIDOverride

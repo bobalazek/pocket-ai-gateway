@@ -78,6 +78,61 @@ func TestOpenAIBatchCreateRetrieveListAndCancel(t *testing.T) {
 	_ = key
 }
 
+func TestOpenAIChatBatchUsesSharedDispatchAndAccounting(t *testing.T) {
+	upstream := httptest.NewServer(http.HandlerFunc(func(response http.ResponseWriter, request *http.Request) {
+		if request.URL.Path != "/v1/chat/completions" {
+			http.NotFound(response, request)
+			return
+		}
+		body, _ := io.ReadAll(request.Body)
+		if bytes.Contains(body, []byte(`"background"`)) || !bytes.Contains(body, []byte(`"store":false`)) || !bytes.Contains(body, []byte(`"stream":false`)) {
+			http.Error(response, "invalid normalized request", http.StatusBadRequest)
+			return
+		}
+		response.Header().Set("Content-Type", "application/json")
+		_, _ = io.WriteString(response, `{"id":"chat_provider","object":"chat.completion","model":"provider-model","choices":[{"index":0,"message":{"role":"assistant","content":"Hello"},"finish_reason":"stop"}],"usage":{"prompt_tokens":4,"completion_tokens":2,"total_tokens":6,"prompt_tokens_details":{"cached_tokens":1},"completion_tokens_details":{"reasoning_tokens":1}}}`)
+	}))
+	defer upstream.Close()
+
+	ctx, store, owner, keyService, providerService, usageService := gatewayFixture(t)
+	defer store.Close()
+	connection, model := publishModel(t, ctx, providerService, owner, "openai", upstream.URL+"/v1", "chat-upstream", []string{"chat"})
+	_, secret, err := keyService.Create(ctx, owner.ID, keys.Input{Label: "Chat Batch", Scopes: []string{"batches:manage", "files:manage", "chat:generate"}, ModelPatterns: []string{model.ID}, ConnectionIDs: []string{connection.ID}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	handler := NewWithMasterKey(store.SystemDB(), keyService, providerService, usageService, bytes.Repeat([]byte{7}, 32))
+	mux := http.NewServeMux()
+	handler.Register(mux)
+	input := `{"custom_id":"chat","method":"POST","url":"/v1/chat/completions","body":{"model":"` + model.ID + `","messages":[{"role":"user","content":"Hi"}],"max_tokens":8}}` + "\n"
+	uploaded := performFileUpload(t, mux, secret, "chat-batch.jsonl", []byte(input), map[string]string{"purpose": "batch"}, nil)
+	var file openAIFile
+	if uploaded.Code != http.StatusOK || json.Unmarshal(uploaded.Body.Bytes(), &file) != nil {
+		t.Fatalf("upload=%d %s", uploaded.Code, uploaded.Body.String())
+	}
+	created := performOpenAIBatchRequest(t, mux, http.MethodPost, "/api/openai/v1/batches", secret, `{"input_file_id":"`+file.ID+`","endpoint":"/v1/chat/completions","completion_window":"24h"}`)
+	if created.Code != http.StatusOK {
+		t.Fatalf("create=%d %s", created.Code, created.Body.String())
+	}
+	job, ok := handler.claimOpenAIBatch(ctx)
+	if !ok || job.endpoint != "/v1/chat/completions" {
+		t.Fatalf("claimed=%v endpoint=%q", ok, job.endpoint)
+	}
+	handler.runOpenAIBatch(ctx, job)
+	batch, err := handler.loadOpenAIBatch(ctx, job.keyID, job.batchID)
+	if err != nil || batch.status != "completed" || !batch.usageKnown || batch.inputTokens != 4 || batch.outputTokens != 2 || batch.cachedTokens != 1 || batch.reasoningTokens != 1 || !batch.outputFileID.Valid {
+		t.Fatalf("batch=%#v err=%v", batch, err)
+	}
+	_, output, err := handler.loadOpenAIFileContent(ctx, job.keyID, batch.outputFileID.String)
+	if err != nil || !bytes.Contains(output, []byte(`"object":"chat.completion"`)) || !bytes.Contains(output, []byte(`"model":"`+model.ID+`"`)) {
+		t.Fatalf("output=%s err=%v", output, err)
+	}
+	requests, _, err := usageService.ListRequests(ctx, owner, usage.UsageQuery{})
+	if err != nil || len(requests) != 1 || requests[0].Operation != "chat/completions" || requests[0].Dialect != "openai" || requests[0].State != "succeeded" {
+		t.Fatalf("requests=%#v err=%v", requests, err)
+	}
+}
+
 func TestOpenAIBatchListUsesKeysetPagination(t *testing.T) {
 	ctx, store, owner, keyService, providerService, usageService := gatewayFixture(t)
 	defer store.Close()
@@ -138,6 +193,7 @@ func TestOpenAIBatchValidationScopesAndOwnership(t *testing.T) {
 	}
 	secret := makeKey("All", []string{"batches:manage", "files:manage", "responses:generate"})
 	other := makeKey("Other", []string{"batches:manage", "files:manage", "responses:generate"})
+	noChat := makeKey("No Chat", []string{"batches:manage", "files:manage", "responses:generate"})
 	missingScopes := []string{
 		makeKey("No Batch", []string{"files:manage", "responses:generate"}),
 		makeKey("No Responses", []string{"batches:manage", "files:manage"}),
@@ -153,6 +209,9 @@ func TestOpenAIBatchValidationScopesAndOwnership(t *testing.T) {
 	}
 	validLine := `{"custom_id":"one","method":"POST","url":"/v1/responses","body":{"model":"assistant","input":"x"}}`
 	validFile := fileFor(secret, validLine+"\n")
+	if denied := performOpenAIBatchRequest(t, mux, http.MethodPost, "/api/openai/v1/batches", noChat, `{"input_file_id":"`+validFile+`","endpoint":"/v1/chat/completions","completion_window":"24h"}`); denied.Code != http.StatusForbidden {
+		t.Fatalf("missing chat scope status=%d body=%s", denied.Code, denied.Body.String())
+	}
 	for _, scopedSecret := range missingScopes {
 		if denied := performOpenAIBatchRequest(t, mux, http.MethodPost, "/api/openai/v1/batches", scopedSecret, `{"input_file_id":"`+validFile+`","endpoint":"/v1/responses","completion_window":"24h"}`); denied.Code != http.StatusForbidden {
 			t.Fatalf("missing scopes status=%d body=%s", denied.Code, denied.Body.String())
@@ -331,7 +390,7 @@ func TestOpenAIBatchDoesNotFallbackAndSettlesMalformedSuccessAsFailure(t *testin
 func TestOpenAIBatchAggregateUsageIsNullWhenSuccessOmitsUsage(t *testing.T) {
 	usage := openAIBatchUsage{known: true}
 	line := openAIBatchSuccessLine("batch_req_1234567890123456", "one", http.StatusOK, "req_1", []byte(`{"id":"resp_1","object":"response","status":"completed"}`))
-	if usage.add(line) {
+	if usage.add(line, "/v1/responses") {
 		t.Fatal("missing usage was accepted")
 	}
 	value, err := openAIBatchValue(openAIBatchRow{id: "batch_1234567890123456", inputFileID: "file_1234567890123456", endpoint: "/v1/responses", completionWindow: "24h", modelID: "assistant", status: "completed", metadata: []byte("{}"), requestTotal: 1, requestCompleted: 1, createdAt: 1, inProgressAt: 1, expiresAt: 2, terminalAt: sql.NullInt64{Int64: 2, Valid: true}})
@@ -344,17 +403,43 @@ func TestOpenAIBatchAggregateUsageIsNullWhenSuccessOmitsUsage(t *testing.T) {
 		`{"usage":{"input_tokens":1,"output_tokens":1,"output_tokens_details":{"reasoning_tokens":-1}}}`,
 	} {
 		invalid := openAIBatchUsage{known: true}
-		if invalid.add(openAIBatchSuccessLine("batch_req_1234567890123456", "one", http.StatusOK, "req_1", []byte(body))) {
+		if invalid.add(openAIBatchSuccessLine("batch_req_1234567890123456", "one", http.StatusOK, "req_1", []byte(body)), "/v1/responses") {
 			t.Fatalf("invalid usage accepted: %s", body)
 		}
 	}
 	overflow := openAIBatchUsage{known: true, input: maxOpenAIBatchUsage}
-	if overflow.add(openAIBatchSuccessLine("batch_req_1234567890123456", "one", http.StatusOK, "req_1", []byte(`{"usage":{"input_tokens":1,"output_tokens":0}}`))) {
+	if overflow.add(openAIBatchSuccessLine("batch_req_1234567890123456", "one", http.StatusOK, "req_1", []byte(`{"usage":{"input_tokens":1,"output_tokens":0}}`)), "/v1/responses") {
 		t.Fatal("overflowing usage accepted")
 	}
 	totalOverflow := openAIBatchUsage{known: true, input: maxOpenAIBatchUsage - 1}
-	if totalOverflow.add(openAIBatchSuccessLine("batch_req_1234567890123456", "one", http.StatusOK, "req_1", []byte(`{"usage":{"input_tokens":0,"output_tokens":2}}`))) {
+	if totalOverflow.add(openAIBatchSuccessLine("batch_req_1234567890123456", "one", http.StatusOK, "req_1", []byte(`{"usage":{"input_tokens":0,"output_tokens":2}}`)), "/v1/responses") {
 		t.Fatal("overflowing aggregate total accepted")
+	}
+	chat := openAIBatchUsage{known: true}
+	chatLine := openAIBatchSuccessLine("batch_req_1234567890123456", "chat", http.StatusOK, "req_2", []byte(`{"usage":{"prompt_tokens":4,"completion_tokens":2,"total_tokens":6,"prompt_tokens_details":{"cached_tokens":1},"completion_tokens_details":{"reasoning_tokens":1}}}`))
+	if !chat.add(chatLine, "/v1/chat/completions") || chat.input != 4 || chat.output != 2 || chat.cached != 1 || chat.reasoning != 1 {
+		t.Fatalf("chat usage=%#v", chat)
+	}
+	deepSeek := openAIBatchUsage{known: true}
+	deepSeekLine := openAIBatchSuccessLine("batch_req_1234567890123456", "deepseek", http.StatusOK, "req_3", []byte(`{"usage":{"prompt_tokens":6,"completion_tokens":2,"total_tokens":8,"prompt_cache_hit_tokens":4,"prompt_cache_miss_tokens":2}}`))
+	if !deepSeek.add(deepSeekLine, "/v1/chat/completions") || deepSeek.input != 6 || deepSeek.output != 2 || deepSeek.cached != 4 {
+		t.Fatalf("DeepSeek usage=%#v", deepSeek)
+	}
+	conflict := openAIBatchUsage{known: true}
+	conflictLine := openAIBatchSuccessLine("batch_req_1234567890123456", "conflict", http.StatusOK, "req_4", []byte(`{"usage":{"prompt_tokens":6,"completion_tokens":2,"prompt_tokens_details":{"cached_tokens":3},"prompt_cache_hit_tokens":4}}`))
+	if conflict.add(conflictLine, "/v1/chat/completions") {
+		t.Fatal("conflicting cache usage was accepted")
+	}
+	wrongDialect := openAIBatchUsage{known: true}
+	if wrongDialect.add(openAIBatchSuccessLine("batch_req_1234567890123456", "wrong", http.StatusOK, "req_5", []byte(`{"usage":{"input_tokens":4,"output_tokens":2,"total_tokens":6}}`)), "/v1/chat/completions") {
+		t.Fatal("Responses usage fields were accepted for a Chat Batch")
+	}
+	wrongCacheDetails := openAIBatchUsage{known: true}
+	if wrongCacheDetails.add(openAIBatchSuccessLine("batch_req_1234567890123456", "wrong-cache", http.StatusOK, "req_6", []byte(`{"usage":{"prompt_tokens":4,"completion_tokens":2,"input_tokens_details":{"cached_tokens":1}}}`)), "/v1/chat/completions") {
+		t.Fatal("Responses cache fields were accepted for a Chat Batch")
+	}
+	if wrongCacheDetails.add(openAIBatchSuccessLine("batch_req_1234567890123456", "wrong-cache", http.StatusOK, "req_7", []byte(`{"usage":{"input_tokens":4,"output_tokens":2,"prompt_tokens_details":{"cached_tokens":1}}}`)), "/v1/responses") {
+		t.Fatal("Chat cache fields were accepted for a Responses Batch")
 	}
 }
 
@@ -363,13 +448,29 @@ func TestParseOpenAIBatchInputBounds(t *testing.T) {
 		return `{"custom_id":` + strconv.Quote(customID) + `,"method":"POST","url":"/v1/responses","body":{"model":"assistant","input":"x"}}`
 	}
 	four := strings.Join([]string{line("a"), line("b"), line("c"), line(strings.Repeat("ü", 32))}, "\n") + "\n"
-	items, model, err := parseOpenAIBatchInput([]byte(four))
+	items, model, err := parseOpenAIBatchInput([]byte(four), "/v1/responses")
 	if err != nil || len(items) != 4 || model != "assistant" {
 		t.Fatalf("four items=%d model=%q err=%v", len(items), model, err)
 	}
 	compatibleDisabled := []byte(`{"custom_id":"disabled","method":"POST","url":"/v1/responses","body":{"model":"assistant","input":"x","stream":false,"background":false,"store":false,"conversation":null,"previous_response_id":null}}` + "\n")
-	if _, _, err := parseOpenAIBatchInput(compatibleDisabled); err != nil {
+	if _, _, err := parseOpenAIBatchInput(compatibleDisabled, "/v1/responses"); err != nil {
 		t.Fatalf("disabled fields rejected: %v", err)
+	}
+	chat := []byte(`{"custom_id":"chat","method":"POST","url":"/v1/chat/completions","body":{"model":"assistant","messages":[{"role":"user","content":"x"}],"stream":false,"store":false}}` + "\n")
+	if items, model, err := parseOpenAIBatchInput(chat, "/v1/chat/completions"); err != nil || len(items) != 1 || model != "assistant" {
+		t.Fatalf("chat items=%d model=%q err=%v", len(items), model, err)
+	}
+	if _, _, err := parseOpenAIBatchInput(chat, "/v1/responses"); err == nil {
+		t.Fatal("mismatched Batch endpoint was accepted")
+	}
+	for _, invalidChat := range [][]byte{
+		[]byte(`{"custom_id":"chat","method":"POST","url":"/v1/chat/completions","body":{"model":"assistant"}}` + "\n"),
+		[]byte(`{"custom_id":"chat","method":"POST","url":"/v1/chat/completions","body":{"model":"assistant","messages":[]}}` + "\n"),
+		[]byte(`{"custom_id":"chat","method":"POST","url":"/v1/chat/completions","body":{"model":"assistant","messages":[{"role":"user","content":"search"}],"web_search_options":{}}}` + "\n"),
+	} {
+		if _, _, err := parseOpenAIBatchInput(invalidChat, "/v1/chat/completions"); err == nil {
+			t.Fatal("Chat Batch without messages was accepted")
+		}
 	}
 	invalid := [][]byte{
 		{},
@@ -378,7 +479,7 @@ func TestParseOpenAIBatchInputBounds(t *testing.T) {
 		append([]byte(`{"custom_id":"`), append([]byte{0xff}, []byte(`","method":"POST","url":"/v1/responses","body":{"model":"assistant"}}`)...)...),
 	}
 	for index, content := range invalid {
-		if _, _, err := parseOpenAIBatchInput(content); err == nil {
+		if _, _, err := parseOpenAIBatchInput(content, "/v1/responses"); err == nil {
 			t.Fatalf("invalid case %d accepted", index)
 		}
 	}
