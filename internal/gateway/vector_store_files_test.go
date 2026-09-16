@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"strings"
 	"testing"
+	"unicode/utf8"
 
 	"github.com/bobalazek/pocket-ai-gateway/internal/features/keys"
 )
@@ -63,6 +64,13 @@ func TestOpenAIVectorStoreFileLifecycle(t *testing.T) {
 		t.Fatalf("list status=%d body=%s", listed.Code, listed.Body.String())
 	}
 	resource := path + "/" + file.ID
+	content := performVectorStoreRequest(t, mux, http.MethodGet, resource+"/content", secret, "")
+	if content.Code != http.StatusOK || content.Header().Get("Cache-Control") != "no-store" || content.Body.String() != "{\"data\":[{\"type\":\"text\",\"text\":\"gateway notes\"}],\"object\":\"list\"}\n" {
+		t.Fatalf("content status=%d body=%s", content.Code, content.Body.String())
+	}
+	if foreign := performVectorStoreRequest(t, mux, http.MethodGet, resource+"/content", otherSecret, ""); foreign.Code != http.StatusNotFound {
+		t.Fatalf("foreign content status=%d body=%s", foreign.Code, foreign.Body.String())
+	}
 	updated := performVectorStoreRequest(t, mux, http.MethodPost, resource, secret, `{"attributes":{"kind":"updated"}}`)
 	if updated.Code != http.StatusOK || !strings.Contains(updated.Body.String(), `"kind":"updated"`) {
 		t.Fatalf("update status=%d body=%s", updated.Code, updated.Body.String())
@@ -81,5 +89,26 @@ func TestOpenAIVectorStoreFileLifecycle(t *testing.T) {
 	}
 	if retained := performFileRequest(t, mux, http.MethodGet, "/api/openai/v1/files/"+file.ID, secret, nil, ""); retained.Code != http.StatusOK {
 		t.Fatalf("source file status=%d body=%s", retained.Code, retained.Body.String())
+	}
+}
+
+func TestVectorStoreTextChunksPreserveUTF8WithinBounds(t *testing.T) {
+	input := []byte(strings.Repeat("a", maxVectorStoreContentChunkBytes-1) + "🙂" + strings.Repeat("b", maxVectorStoreContentChunkBytes))
+	chunks, err := vectorStoreTextChunks(input)
+	if err != nil || len(chunks) < 2 {
+		t.Fatalf("chunks=%d error=%v", len(chunks), err)
+	}
+	var rebuilt strings.Builder
+	for _, chunk := range chunks {
+		if len(chunk.Text) > maxVectorStoreContentChunkBytes || !utf8.ValidString(chunk.Text) {
+			t.Fatalf("invalid chunk size=%d", len(chunk.Text))
+		}
+		rebuilt.WriteString(chunk.Text)
+	}
+	if rebuilt.String() != string(input) {
+		t.Fatal("chunks did not preserve source text")
+	}
+	if _, err := vectorStoreTextChunks([]byte{0xff}); err == nil {
+		t.Fatal("binary content was accepted")
 	}
 }

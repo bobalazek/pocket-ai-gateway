@@ -576,6 +576,29 @@ paths:
       operationId: deleteVectorStoreFile
       description: Detaches the File without deleting the source gateway File.
       responses: { "200": { description: Vector Store file deletion object }, "404": { description: Missing, expired, or foreign-key attachment }, default: { description: OpenAI-compatible error } }
+  /vector_stores/{vector_store_id}/files/{file_id}/content:
+    parameters:
+      - { name: vector_store_id, in: path, required: true, schema: { type: string } }
+      - { name: file_id, in: path, required: true, schema: { type: string } }
+    get:
+      operationId: retrieveVectorStoreFileContent
+      description: Returns valid UTF-8 source text as lossless, uncached chunks of at most 64 KiB. Binary document parsing and token-indexed chunking remain unsupported.
+      responses:
+        "200":
+          description: Parsed text content page
+          headers: { Cache-Control: { schema: { type: string, const: no-store } } }
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [object, data]
+                properties:
+                  object: { const: list }
+                  data: { type: array, items: { type: object, required: [type, text], properties: { type: { const: text }, text: { type: string, maxLength: 65536 } }, additionalProperties: false } }
+                additionalProperties: false
+        "400": { description: Source content is not supported UTF-8 text }
+        "404": { description: Missing, expired, or foreign-key attachment }
+        default: { description: OpenAI-compatible error }
   /embeddings:
     post:
       operationId: createEmbedding
