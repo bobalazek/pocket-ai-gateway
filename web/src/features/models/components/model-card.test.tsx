@@ -50,8 +50,8 @@ describe("ModelCard", () => {
         },
       },
       busy: false,
-      preview: vi.fn(),
-      saveRoute: vi.fn(),
+      previewModelRoute: vi.fn(),
+      updateModelRoute: vi.fn(),
     } as unknown as ReturnType<typeof useModels>;
 
     const html = renderToStaticMarkup(<ModelCard item={model} dashboard={dashboard} />);
