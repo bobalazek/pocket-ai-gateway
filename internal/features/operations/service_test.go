@@ -200,6 +200,12 @@ func TestConfigPreviewRejectsUnsafeProviderAndRetentionPreservesEnforcement(t *t
 	if _, err := store.SystemDB().ExecContext(ctx, `INSERT INTO message_batch_items(batch_id,ordinal,custom_id,params_json,reserved_result_bytes) VALUES('msgbatch_old',1,'old_item','{"messages":[]}',1024)`); err != nil {
 		t.Fatal(err)
 	}
+	if _, err := store.SystemDB().ExecContext(ctx, `INSERT INTO openai_uploads(id,owner_user_id,key_id,filename,purpose,mime_type,expected_bytes,file_expiry_seconds,created_at,expires_at) VALUES('upload_old','usr_owner','key_old','old.jsonl','batch','application/jsonl',1,3600,-3600001,-1)`); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.SystemDB().ExecContext(ctx, `INSERT INTO openai_upload_parts(id,upload_id,bytes,ciphertext,nonce,created_at) VALUES('part_old','upload_old',1,?,?,0)`, make([]byte, 17), make([]byte, 12)); err != nil {
+		t.Fatal(err)
+	}
 	if _, err := store.SystemDB().ExecContext(ctx, `INSERT INTO openai_files(id,owner_user_id,key_id,filename,purpose,bytes,ciphertext,nonce,created_at,expires_at) VALUES('file_old','usr_owner','key_old','old.jsonl','batch',0,?,?,0,3600000)`, make([]byte, 16), make([]byte, 12)); err != nil {
 		t.Fatal(err)
 	}
@@ -228,6 +234,9 @@ func TestConfigPreviewRejectsUnsafeProviderAndRetentionPreservesEnforcement(t *t
 	}
 	if retentionCounts["message_batches"] != 1 {
 		t.Fatalf("retained message batch count = %d", retentionCounts["message_batches"])
+	}
+	if retentionCounts["openai_uploads"] != 1 {
+		t.Fatalf("retained OpenAI upload count = %d", retentionCounts["openai_uploads"])
 	}
 	if retentionCounts["openai_files"] != 1 {
 		t.Fatalf("retained OpenAI file count = %d", retentionCounts["openai_files"])
@@ -270,6 +279,12 @@ func TestConfigPreviewRejectsUnsafeProviderAndRetentionPreservesEnforcement(t *t
 	_ = store.SystemDB().QueryRowContext(ctx, `SELECT COUNT(*) FROM message_batch_items`).Scan(&batchItems)
 	if batches != 0 || batchItems != 0 {
 		t.Fatalf("expired message batches left batches=%d items=%d", batches, batchItems)
+	}
+	var uploads, uploadParts int
+	_ = store.SystemDB().QueryRowContext(ctx, `SELECT COUNT(*) FROM openai_uploads`).Scan(&uploads)
+	_ = store.SystemDB().QueryRowContext(ctx, `SELECT COUNT(*) FROM openai_upload_parts`).Scan(&uploadParts)
+	if uploads != 0 || uploadParts != 0 {
+		t.Fatalf("expired OpenAI uploads left uploads=%d parts=%d", uploads, uploadParts)
 	}
 	var files int
 	if err := store.SystemDB().QueryRowContext(ctx, `SELECT COUNT(*) FROM openai_files`).Scan(&files); err != nil || files != 0 {
@@ -318,6 +333,12 @@ func TestConfigPreviewRejectsUnsafeProviderAndRetentionPreservesEnforcement(t *t
 	if _, err := store.SystemDB().ExecContext(ctx, `INSERT INTO message_batch_items(batch_id,ordinal,custom_id,params_json,reserved_result_bytes) VALUES('msgbatch_due',1,'due_item','{"messages":[]}',1024)`); err != nil {
 		t.Fatal(err)
 	}
+	if _, err := store.SystemDB().ExecContext(ctx, `INSERT INTO openai_uploads(id,owner_user_id,key_id,filename,purpose,mime_type,expected_bytes,file_expiry_seconds,created_at,expires_at) VALUES('upload_due','usr_owner','key_old','due.jsonl','batch','application/jsonl',1,3600,-3600001,-1)`); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.SystemDB().ExecContext(ctx, `INSERT INTO openai_upload_parts(id,upload_id,bytes,ciphertext,nonce,created_at) VALUES('part_due','upload_due',1,?,?,0)`, make([]byte, 17), make([]byte, 12)); err != nil {
+		t.Fatal(err)
+	}
 	if _, err := store.SystemDB().ExecContext(ctx, `INSERT INTO openai_files(id,owner_user_id,key_id,filename,purpose,bytes,ciphertext,nonce,created_at,expires_at) VALUES('file_due','usr_owner','key_old','due.jsonl','batch',0,?,?,0,3600000)`, make([]byte, 16), make([]byte, 12)); err != nil {
 		t.Fatal(err)
 	}
@@ -343,6 +364,11 @@ func TestConfigPreviewRejectsUnsafeProviderAndRetentionPreservesEnforcement(t *t
 	_ = store.SystemDB().QueryRowContext(ctx, `SELECT COUNT(*) FROM message_batch_items`).Scan(&batchItems)
 	if batches != 0 || batchItems != 0 {
 		t.Fatalf("scheduled message batch retention left batches=%d items=%d", batches, batchItems)
+	}
+	_ = store.SystemDB().QueryRowContext(ctx, `SELECT COUNT(*) FROM openai_uploads`).Scan(&uploads)
+	_ = store.SystemDB().QueryRowContext(ctx, `SELECT COUNT(*) FROM openai_upload_parts`).Scan(&uploadParts)
+	if uploads != 0 || uploadParts != 0 {
+		t.Fatalf("scheduled OpenAI upload retention left uploads=%d parts=%d", uploads, uploadParts)
 	}
 	if err := store.SystemDB().QueryRowContext(ctx, `SELECT COUNT(*) FROM openai_files`).Scan(&files); err != nil || files != 0 {
 		t.Fatalf("scheduled OpenAI file retention left files=%d error=%v", files, err)

@@ -1,5 +1,5 @@
 openapi: 3.1.0
-info: { title: Pocket AI Gateway OpenAI-Compatible API, version: 0.9.0 }
+info: { title: Pocket AI Gateway OpenAI-Compatible API, version: 0.10.0 }
 servers: [{ url: /api/openai/v1 }]
 security: [{ bearerAuth: [] }]
 paths:
@@ -343,6 +343,74 @@ paths:
         "200": { description: Cancelling or cancelled gateway-owned Batch, content: { application/json: { schema: { $ref: "#/components/schemas/Batch" } } } }
         "404": { description: Missing or foreign-key Batch }
         default: { description: OpenAI-compatible error }
+  /uploads:
+    post:
+      operationId: createOpenAIUpload
+      description: >-
+        Creates a gateway-owned multipart Upload for the requesting API key. The bounded first contract
+        requires purpose=batch, a .jsonl filename, mime_type application/jsonl, and a declared byte count
+        from 1 through 16 MiB. The pending Upload expires one hour after creation. Optional expires_after
+        controls the completed File lifetime from one hour through 30 days. Every operation requires
+        files:manage; no part or completed File is sent to a provider or entered into inference accounting.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/UploadCreateRequest" }
+      responses:
+        "200": { description: Pending gateway-owned Upload, content: { application/json: { schema: { $ref: "#/components/schemas/Upload" } } } }
+        default: { description: OpenAI-compatible error }
+  /uploads/{upload_id}/parts:
+    parameters: [{ name: upload_id, in: path, required: true, schema: { type: string, pattern: "^upload_" } }]
+    post:
+      operationId: createOpenAIUploadPart
+      description: >-
+        Adds one non-empty encrypted Part to a pending same-key Upload. Each Part is at most 16 MiB and an
+        Upload accepts at most 16 Parts. Parts may be created in any order; completion supplies the final order.
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [data]
+              properties:
+                data: { type: string, format: binary, description: Non-empty Part bytes, at most 16 MiB }
+      responses:
+        "200": { description: Encrypted gateway-owned Upload Part, content: { application/json: { schema: { $ref: "#/components/schemas/UploadPart" } } } }
+        "400": { description: Upload is expired or terminal, Part is empty, or Part bounds are invalid }
+        "404": { description: Upload is missing or owned by another key }
+        default: { description: OpenAI-compatible error }
+  /uploads/{upload_id}/complete:
+    parameters: [{ name: upload_id, in: path, required: true, schema: { type: string, pattern: "^upload_" } }]
+    post:
+      operationId: completeOpenAIUpload
+      description: >-
+        Completes a pending same-key Upload by concatenating the listed Parts in the caller-supplied order.
+        Every Part ID must belong to the Upload, may appear once, and the resulting byte count must exactly
+        match the declared Upload bytes. The result is a processed purpose=batch File. The optional OpenAI
+        non-empty md5 field is rejected in this constrained first slice.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/UploadCompleteRequest" }
+      responses:
+        "200": { description: Completed Upload with its ready gateway-owned File, content: { application/json: { schema: { $ref: "#/components/schemas/Upload" } } } }
+        "400": { description: Upload is expired or terminal, Part selection is invalid, or byte total does not match }
+        "404": { description: Upload is missing or owned by another key }
+        default: { description: OpenAI-compatible error }
+  /uploads/{upload_id}/cancel:
+    parameters: [{ name: upload_id, in: path, required: true, schema: { type: string, pattern: "^upload_" } }]
+    post:
+      operationId: cancelOpenAIUpload
+      description: Cancels a pending same-key Upload and permanently removes its encrypted Parts.
+      responses:
+        "200": { description: Cancelled gateway-owned Upload, content: { application/json: { schema: { $ref: "#/components/schemas/Upload" } } } }
+        "400": { description: Upload is expired, completed, or already cancelled }
+        "404": { description: Upload is missing or owned by another key }
+        default: { description: OpenAI-compatible error }
   /files:
     post:
       operationId: createOpenAIFile
@@ -427,6 +495,66 @@ paths:
       responses: { "200": { description: Native OpenAI moderation response }, default: { description: OpenAI-compatible error } }
 components:
   schemas:
+    UploadCreateRequest:
+      type: object
+      additionalProperties: false
+      required: [bytes, filename, mime_type, purpose]
+      properties:
+        bytes: { type: integer, minimum: 1, maximum: 16777216, description: Exact completed plaintext byte count }
+        filename: { type: string, minLength: 7, maxLength: 512, pattern: "\\.jsonl$" }
+        mime_type: { const: application/jsonl }
+        purpose: { const: batch }
+        expires_after: { $ref: "#/components/schemas/UploadFileExpiresAfter" }
+    UploadFileExpiresAfter:
+      type: object
+      additionalProperties: false
+      required: [anchor, seconds]
+      properties:
+        anchor: { const: created_at }
+        seconds: { type: integer, minimum: 3600, maximum: 2592000 }
+    UploadCompleteRequest:
+      type: object
+      additionalProperties: false
+      required: [part_ids]
+      properties:
+        part_ids:
+          type: array
+          minItems: 1
+          maxItems: 16
+          uniqueItems: true
+          items: { type: string, pattern: "^part_" }
+          description: Caller-supplied concatenation order
+        md5:
+          type: [string, "null"]
+          maxLength: 0
+          description: May be omitted, null, or empty; checksum validation is unsupported and non-empty values are rejected
+    Upload:
+      type: object
+      additionalProperties: false
+      required: [id, object, bytes, created_at, expires_at, filename, purpose, status]
+      properties:
+        id: { type: string, pattern: "^upload_" }
+        object: { const: upload }
+        bytes: { type: integer, minimum: 1, maximum: 16777216, description: Declared completed byte count }
+        created_at: { type: integer, minimum: 0, description: Unix timestamp in seconds }
+        expires_at: { type: integer, minimum: 0, description: Pending Upload deadline, one hour after creation }
+        filename: { type: string, minLength: 7, maxLength: 512, pattern: "\\.jsonl$" }
+        purpose: { const: batch }
+        status: { type: string, enum: [pending, completed, cancelled, expired] }
+        file:
+          oneOf:
+            - $ref: "#/components/schemas/FileObject"
+            - { type: "null" }
+          description: Ready purpose=batch File on successful completion; otherwise null or omitted
+    UploadPart:
+      type: object
+      additionalProperties: false
+      required: [id, object, created_at, upload_id]
+      properties:
+        id: { type: string, pattern: "^part_" }
+        object: { const: upload.part }
+        created_at: { type: integer, minimum: 0, description: Unix timestamp in seconds }
+        upload_id: { type: string, pattern: "^upload_" }
     BatchCreateRequest:
       type: object
       additionalProperties: false

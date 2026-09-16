@@ -118,3 +118,27 @@ func TestSharedCapacityIncludesOpenAIBatchParentAndEncryptedItems(t *testing.T) 
 		t.Fatalf("terminal OpenAI batch parent count error=%v", err)
 	}
 }
+
+func TestSharedCapacityIncludesPendingOpenAIUploads(t *testing.T) {
+	ctx, store, owner, _, _, _ := gatewayFixture(t)
+	defer store.Close()
+	now := time.Now().UnixMilli()
+	if _, err := store.SystemDB().ExecContext(ctx, `INSERT INTO api_keys(id,owner_user_id,label,state,scopes_json,created_at,updated_at) VALUES('key_upload_capacity',?,'OpenAI Upload','active','[]',?,?)`, owner.ID, now, now); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.SystemDB().ExecContext(ctx, `INSERT INTO openai_uploads(id,owner_user_id,key_id,filename,purpose,mime_type,expected_bytes,file_expiry_seconds,created_at,expires_at) VALUES('upload_capacity',?,'key_upload_capacity','batch.jsonl','batch','application/jsonl',1,3600,?,?)`, owner.ID, now, now+int64(time.Hour/time.Millisecond)); err != nil {
+		t.Fatal(err)
+	}
+	if err := checkRetainedResourceCapacity(ctx, store.SystemDB(), owner.ID, "key_upload_capacity", retainedKeyJobs-1, 0); err != nil {
+		t.Fatalf("pending upload below count capacity error=%v", err)
+	}
+	if err := checkRetainedResourceCapacity(ctx, store.SystemDB(), owner.ID, "key_upload_capacity", retainedKeyJobs, 0); !errors.Is(err, errRetainedResourceLimit) {
+		t.Fatalf("pending upload count capacity error=%v", err)
+	}
+	if _, err := store.SystemDB().ExecContext(ctx, `UPDATE openai_uploads SET status='completed',completed_at=? WHERE id='upload_capacity'`, now); err != nil {
+		t.Fatal(err)
+	}
+	if err := checkRetainedResourceCapacity(ctx, store.SystemDB(), owner.ID, "key_upload_capacity", retainedKeyJobs, 0); err != nil {
+		t.Fatalf("completed upload reserved capacity error=%v", err)
+	}
+}
