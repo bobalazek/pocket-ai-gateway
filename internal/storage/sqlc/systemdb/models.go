@@ -349,6 +349,14 @@ type OpenaiVectorStore struct {
 	ExpiresAt        sql.NullInt64 `json:"expires_at"`
 }
 
+type OpenaiVectorStoreFile struct {
+	VectorStoreID        string `json:"vector_store_id"`
+	FileID               string `json:"file_id"`
+	AttributesJson       []byte `json:"attributes_json"`
+	ChunkingStrategyJson []byte `json:"chunking_strategy_json"`
+	CreatedAt            int64  `json:"created_at"`
+}
+
 type OperationSetting struct {
 	Singleton            int64  `json:"singleton"`
 	BackupEnabled        int64  `json:"backup_enabled"`

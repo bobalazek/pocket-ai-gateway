@@ -415,7 +415,10 @@ func (handler *Handler) listVectorStores(response http.ResponseWriter, request *
 	writeJSON(response, result)
 }
 
-const vectorStoreSelect = `SELECT id,name,metadata_json,created_at,last_active_at,expires_after_days,expires_at FROM openai_vector_stores`
+const vectorStoreSelect = `SELECT id,name,metadata_json,created_at,last_active_at,expires_after_days,expires_at,
+	(SELECT COALESCE(SUM(openai_files.bytes),0) FROM openai_vector_store_files JOIN openai_files ON openai_files.id=openai_vector_store_files.file_id WHERE openai_vector_store_files.vector_store_id=openai_vector_stores.id AND openai_files.expires_at>unixepoch()*1000),
+	(SELECT COUNT(*) FROM openai_vector_store_files JOIN openai_files ON openai_files.id=openai_vector_store_files.file_id WHERE openai_vector_store_files.vector_store_id=openai_vector_stores.id AND openai_files.expires_at>unixepoch()*1000)
+	FROM openai_vector_stores`
 
 type vectorStoreScanner interface{ Scan(...any) error }
 
@@ -437,8 +440,9 @@ func scanVectorStore(scanner vectorStoreScanner) (vectorStore, error) {
 	var item vectorStore
 	var metadata []byte
 	var createdAt, lastActive int64
+	var completed int64
 	var days, expiresAt sql.NullInt64
-	err := scanner.Scan(&item.ID, &item.Name, &metadata, &createdAt, &lastActive, &days, &expiresAt)
+	err := scanner.Scan(&item.ID, &item.Name, &metadata, &createdAt, &lastActive, &days, &expiresAt, &item.UsageBytes, &completed)
 	if err != nil {
 		return item, err
 	}
@@ -446,6 +450,7 @@ func scanVectorStore(scanner vectorStoreScanner) (vectorStore, error) {
 		return item, errors.New("invalid Vector Store metadata")
 	}
 	item.Object, item.Status, item.CreatedAt = "vector_store", "completed", createdAt/1000
+	item.FileCounts.Completed, item.FileCounts.Total = completed, completed
 	activeSeconds := lastActive / 1000
 	item.LastActiveAt = &activeSeconds
 	if days.Valid {

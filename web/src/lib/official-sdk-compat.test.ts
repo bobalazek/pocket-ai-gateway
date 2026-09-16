@@ -200,9 +200,41 @@ describe("official SDK compatibility through the Go gateway", () => {
     const listed = [];
     for await (const store of client.vectorStores.list({ limit: 1, order: "asc" })) listed.push(store.id);
     expect(listed).toEqual(expect.arrayContaining([first.id, second.id]));
+
+    const source = await client.files.create({
+      file: await toFile(Buffer.from("vector store notes"), "vector-store.txt", { type: "text/plain" }),
+      purpose: "user_data",
+    });
+    const attached = await client.vectorStores.files.create(first.id, {
+      file_id: source.id,
+      attributes: { suite: "sdk", priority: 2, active: true },
+      chunking_strategy: { type: "auto" },
+    });
+    expect(attached).toMatchObject({
+      id: source.id,
+      object: "vector_store.file",
+      vector_store_id: first.id,
+      status: "completed",
+      usage_bytes: source.bytes,
+      attributes: { suite: "sdk", priority: 2, active: true },
+      chunking_strategy: { type: "other" },
+    });
+    expect(await client.vectorStores.files.retrieve(source.id, { vector_store_id: first.id })).toMatchObject({ id: source.id });
+    expect(await client.vectorStores.files.update(source.id, { vector_store_id: first.id, attributes: { suite: "updated" } })).toMatchObject({
+      attributes: { suite: "updated" },
+    });
+    expect((await client.vectorStores.files.list(first.id)).data.map((file) => file.id)).toContain(source.id);
+    expect(await client.vectorStores.retrieve(first.id)).toMatchObject({
+      usage_bytes: source.bytes,
+      file_counts: { completed: 1, total: 1 },
+    });
     await expect(openAI(otherApiKey).vectorStores.retrieve(first.id)).rejects.toMatchObject({ status: 404 });
+    await expect(openAI(otherApiKey).vectorStores.files.retrieve(source.id, { vector_store_id: first.id })).rejects.toMatchObject({ status: 404 });
     await expect(openAI(noFilesApiKey).vectorStores.list()).rejects.toMatchObject({ status: 403 });
     await expect(client.vectorStores.create({ file_ids: ["file_missing"] })).rejects.toMatchObject({ status: 400, code: "unsupported_feature" });
+    expect(await client.vectorStores.files.delete(source.id, { vector_store_id: first.id })).toEqual({ id: source.id, object: "vector_store.file.deleted", deleted: true });
+    expect((await client.vectorStores.retrieve(first.id)).file_counts.total).toBe(0);
+    await client.files.delete(source.id);
     expect(await client.vectorStores.delete(first.id)).toEqual({ id: first.id, object: "vector_store.deleted", deleted: true });
     expect(await client.vectorStores.delete(second.id)).toEqual({ id: second.id, object: "vector_store.deleted", deleted: true });
   });

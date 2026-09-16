@@ -519,6 +519,63 @@ paths:
             application/octet-stream: { schema: { type: string, format: binary } }
         "404": { description: Missing, expired, or foreign-key file }
         default: { description: OpenAI-compatible error }
+  /vector_stores:
+    post:
+      operationId: createVectorStore
+      description: Creates a bounded gateway-owned Vector Store for the requesting key. Non-empty file_ids and static chunking remain unsupported.
+      requestBody: { required: true, content: { application/json: { schema: { type: object, properties: { name: { type: string, maxLength: 256 }, description: { type: string, maxLength: 4096 }, metadata: { type: [object, "null"], maxProperties: 16 }, expires_after: { type: object, required: [anchor, days], properties: { anchor: { const: last_active_at }, days: { type: integer, minimum: 1, maximum: 365 } }, additionalProperties: false } }, additionalProperties: false } } } }
+      responses: { "200": { description: Gateway-owned Vector Store }, default: { description: OpenAI-compatible error } }
+    get:
+      operationId: listVectorStores
+      parameters:
+        - { name: after, in: query, schema: { type: string } }
+        - { name: before, in: query, schema: { type: string } }
+        - { name: limit, in: query, schema: { type: integer, minimum: 1, maximum: 100, default: 20 } }
+        - { name: order, in: query, schema: { type: string, enum: [asc, desc], default: desc } }
+      responses: { "200": { description: Cursor page of same-key Vector Stores }, default: { description: OpenAI-compatible error } }
+  /vector_stores/{vector_store_id}:
+    parameters: [{ name: vector_store_id, in: path, required: true, schema: { type: string } }]
+    get:
+      operationId: retrieveVectorStore
+      responses: { "200": { description: Same-key Vector Store }, "404": { description: Missing, expired, or foreign-key Vector Store }, default: { description: OpenAI-compatible error } }
+    post:
+      operationId: updateVectorStore
+      responses: { "200": { description: Updated same-key Vector Store }, "404": { description: Missing, expired, or foreign-key Vector Store }, default: { description: OpenAI-compatible error } }
+    delete:
+      operationId: deleteVectorStore
+      responses: { "200": { description: Vector Store deletion object }, "404": { description: Missing, expired, or foreign-key Vector Store }, default: { description: OpenAI-compatible error } }
+  /vector_stores/{vector_store_id}/files:
+    parameters: [{ name: vector_store_id, in: path, required: true, schema: { type: string } }]
+    post:
+      operationId: createVectorStoreFile
+      description: Attaches an unexpired same-key gateway File. Auto chunking is accepted and reported as other because parsed content is not created.
+      requestBody: { required: true, content: { application/json: { schema: { type: object, required: [file_id], properties: { file_id: { type: string }, attributes: { type: [object, "null"], maxProperties: 16 }, chunking_strategy: { type: object, required: [type], properties: { type: { const: auto } }, additionalProperties: false } }, additionalProperties: false } } } }
+      responses: { "200": { description: Completed Vector Store file attachment }, "404": { description: Missing or foreign-key Vector Store or File }, default: { description: OpenAI-compatible error } }
+    get:
+      operationId: listVectorStoreFiles
+      parameters:
+        - { name: after, in: query, schema: { type: string } }
+        - { name: before, in: query, schema: { type: string } }
+        - { name: limit, in: query, schema: { type: integer, minimum: 1, maximum: 100, default: 20 } }
+        - { name: order, in: query, schema: { type: string, enum: [asc, desc], default: desc } }
+        - { name: filter, in: query, schema: { type: string, enum: [in_progress, completed, failed, cancelled] } }
+      responses: { "200": { description: Cursor page of active same-key attachments }, "404": { description: Missing, expired, or foreign-key Vector Store }, default: { description: OpenAI-compatible error } }
+  /vector_stores/{vector_store_id}/files/{file_id}:
+    parameters:
+      - { name: vector_store_id, in: path, required: true, schema: { type: string } }
+      - { name: file_id, in: path, required: true, schema: { type: string } }
+    get:
+      operationId: retrieveVectorStoreFile
+      responses: { "200": { description: Same-key Vector Store file attachment }, "404": { description: Missing, expired, or foreign-key attachment }, default: { description: OpenAI-compatible error } }
+    post:
+      operationId: updateVectorStoreFile
+      description: Replaces the attachment's bounded scalar attributes.
+      requestBody: { required: true, content: { application/json: { schema: { type: object, required: [attributes], properties: { attributes: { type: [object, "null"], maxProperties: 16 } }, additionalProperties: false } } } }
+      responses: { "200": { description: Updated attachment }, "404": { description: Missing, expired, or foreign-key attachment }, default: { description: OpenAI-compatible error } }
+    delete:
+      operationId: deleteVectorStoreFile
+      description: Detaches the File without deleting the source gateway File.
+      responses: { "200": { description: Vector Store file deletion object }, "404": { description: Missing, expired, or foreign-key attachment }, default: { description: OpenAI-compatible error } }
   /embeddings:
     post:
       operationId: createEmbedding
