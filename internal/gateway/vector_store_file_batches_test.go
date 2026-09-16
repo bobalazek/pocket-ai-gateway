@@ -79,3 +79,32 @@ func TestOpenAIVectorStoreFileBatchLifecycleAndAtomicity(t *testing.T) {
 		t.Fatalf("duplicate status=%d body=%s", duplicate.Code, duplicate.Body.String())
 	}
 }
+
+func TestOpenAIVectorStoreCreateWithFilesIsAtomic(t *testing.T) {
+	ctx, store, owner, keyService, providerService, usageService := gatewayFixture(t)
+	defer store.Close()
+	_, secret, err := keyService.Create(ctx, owner.ID, keys.Input{Label: "Vector Store create files", Scopes: []string{"files:manage", "vector_stores:manage"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	mux := http.NewServeMux()
+	NewWithMasterKey(store.SystemDB(), keyService, providerService, usageService, bytes.Repeat([]byte{7}, 32)).Register(mux)
+	uploaded := performFileUpload(t, mux, secret, "created-with-store.txt", []byte("store content"), map[string]string{"purpose": "user_data"}, nil)
+	var file openAIFile
+	if uploaded.Code != http.StatusOK || json.Unmarshal(uploaded.Body.Bytes(), &file) != nil {
+		t.Fatalf("upload status=%d body=%s", uploaded.Code, uploaded.Body.String())
+	}
+	created := performVectorStoreRequest(t, mux, http.MethodPost, "/api/openai/v1/vector_stores", secret, `{"name":"Ready","file_ids":["`+file.ID+`"],"chunking_strategy":{"type":"auto"}}`)
+	var item vectorStore
+	if created.Code != http.StatusOK || json.Unmarshal(created.Body.Bytes(), &item) != nil || item.FileCounts.Completed != 1 || item.FileCounts.Total != 1 || item.UsageBytes != file.Bytes {
+		t.Fatalf("create status=%d body=%s", created.Code, created.Body.String())
+	}
+	failed := performVectorStoreRequest(t, mux, http.MethodPost, "/api/openai/v1/vector_stores", secret, `{"name":"Rollback","file_ids":["`+file.ID+`","file_missing"]}`)
+	if failed.Code != http.StatusNotFound {
+		t.Fatalf("failed status=%d body=%s", failed.Code, failed.Body.String())
+	}
+	var count int
+	if err = store.SystemDB().QueryRowContext(ctx, `SELECT COUNT(*) FROM openai_vector_stores WHERE name='Rollback'`).Scan(&count); err != nil || count != 0 {
+		t.Fatalf("rollback stores=%d error=%v", count, err)
+	}
+}

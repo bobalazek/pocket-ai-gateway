@@ -127,8 +127,9 @@ func TestOpenAIVectorStoreValidationAndExpiry(t *testing.T) {
 		body string
 		code string
 	}{
-		{`{"file_ids":["file_local"]}`, "unsupported_feature"},
-		{`{"chunking_strategy":{"type":"auto"}}`, "unsupported_feature"},
+		{`{"chunking_strategy":{"type":"auto"}}`, "invalid_request"},
+		{`{"file_ids":[],"chunking_strategy":{"type":"auto"}}`, "invalid_request"},
+		{`{"file_ids":["file_local"],"chunking_strategy":{"type":"static","static":{"max_chunk_size_tokens":800,"chunk_overlap_tokens":400}}}`, "unsupported_feature"},
 		{`{"file_ids":null}`, "invalid_request"},
 		{`{"expires_after":{"anchor":"created_at","days":1}}`, "invalid_request"},
 		{`{"expires_after":{"anchor":"last_active_at","days":366}}`, "invalid_request"},
