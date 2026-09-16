@@ -190,7 +190,7 @@ func validAnthropicWebSearchDomain(value string) bool {
 }
 
 func anthropicWebSearchTargetEligibility(target providers.Target) (bool, string) {
-	if !nativeTarget("anthropic", target.Adapter) || target.Adapter != "anthropic" || target.Preset != "anthropic" {
+	if !providers.NativeTarget("anthropic", target.Adapter) || target.Adapter != "anthropic" || target.Preset != "anthropic" {
 		return false, "web_search_native_required"
 	}
 	if !slices.Contains(target.Capabilities, "chat") || !slices.Contains(target.UpstreamCapabilities, "chat") || !slices.Contains(target.Capabilities, "web_search") || !slices.Contains(target.UpstreamCapabilities, "web_search") {

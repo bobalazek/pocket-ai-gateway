@@ -21,7 +21,7 @@ Evaluate policy using controlled mock latency/failure/price inputs before live t
 
 - One routed gateway path now owns target eligibility, deterministic strategy ordering, live admission checks, pre-response retry, per-attempt settlement, shared deadlines, jitter, observations, and circuit exclusion across OpenAI, Anthropic, Responses, and Gemini entry points.
 - Public models store versioned route targets, weights, priorities, free-only policy, selection reasons, and safe rejection metadata. Fixed and embedding routes accept one enabled target; free-only prices expire after 24 hours and are atomically rechecked. Deterministic tests cover fallback, cost, latency, weighted/fixed ordering, free-only exclusion/freshness, circuit opening, and request history.
-- OpenAI, Anthropic, Gemini, OpenRouter, and credential-free local Ollama presets are available. Operator-triggered or opt-in scheduled GitHub catalog refresh accepts at most 1 MiB and 5,000 validated metadata entries and never publishes or grants them.
+- OpenAI, Anthropic, Gemini, OpenRouter, Z.AI, MiniMax, credential-free local Ollama, and the documented Phase 8 provider presets are available. Operator-triggered or opt-in scheduled GitHub catalog refresh accepts at most 1 MiB and 5,000 validated metadata entries and never publishes or grants them.
 - The dashboard exposes presets, route editing, input-aware route preview, catalog source/schedule/status, bounded candidate details and provenance, capability context, and request selection explanations through the typed API client.
 
 ### Preset certification record

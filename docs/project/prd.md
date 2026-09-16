@@ -78,7 +78,7 @@ Members may create narrower keys, never raise their own ceiling. New keys share 
 
 Manage multiple connections per provider, credentials/secret references, base URL, explicit local-network permission, timeouts, and approved custom headers. UI-entered secrets are encrypted and never readable in full after saving. Missing external secrets disable the connection visibly.
 
-Initial stable integrations: native OpenAI, Anthropic, and Gemini, plus OpenRouter, generic OpenAI-compatible, and Ollama. Gemini's OpenAI-compatible interface is an additional preset, not a substitute for native Gemini client/provider support. A named preset is supported only for operations verified in its published matrix.
+Initial stable integrations: native OpenAI, Anthropic, and Gemini, plus OpenRouter, Z.AI, MiniMax, generic OpenAI-compatible, and Ollama. Gemini's OpenAI-compatible interface is an additional preset, not a substitute for native Gemini client/provider support. A named preset is supported only for operations verified in its published matrix.
 
 Tests distinguish configuration validation, model discovery, and potentially billable inference. Do not issue billable test prompts automatically.
 

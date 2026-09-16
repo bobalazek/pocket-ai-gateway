@@ -102,9 +102,6 @@ func writeJSON(w http.ResponseWriter, value any) {
 	w.Header().Set("Cache-Control", "no-store")
 	_ = json.NewEncoder(w).Encode(value)
 }
-func nativeAdapter(dialect, adapter string) bool {
-	return dialect == adapter || (dialect == "openai" && adapter == "openai_compatible")
-}
 func hasCapability(values []string, scope string) bool {
 	return providers.SupportsScope(values, scope)
 }

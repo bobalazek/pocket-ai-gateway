@@ -339,7 +339,7 @@ func decodeCanonicalResult(protocol string, raw []byte) (canonicalResult, error)
 			return result, err
 		}
 		result.Parts = append(result.Parts, parts...)
-		if message["reasoning"] != nil {
+		if message["reasoning"] != nil || message["reasoning_content"] != nil || message["reasoning_details"] != nil {
 			return result, errors.New("upstream returned provider-affine content that cannot be translated")
 		}
 		result.Refusal = stringValue(message["refusal"])

@@ -41,7 +41,7 @@ type responseFileSearchResultItem struct {
 }
 
 func fileSearchTargetEligibility(target providers.Target) (bool, string) {
-	if !nativeTarget("responses", target.Adapter) {
+	if !providers.NativeTarget("responses", target.Adapter) {
 		return false, "file_search_native_responses_required"
 	}
 	if !slices.Contains(target.Capabilities, "chat") || !slices.Contains(target.UpstreamCapabilities, "chat") {

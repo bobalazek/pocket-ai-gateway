@@ -1237,7 +1237,7 @@ components:
       type: object
       required: [id, label, adapter, adapter_label, base_url_required, credential_required, private_network, operations, capabilities, capability_details, documentation_url, reviewed_at]
       properties:
-        id: { type: string, enum: [openai, anthropic, gemini, openrouter, ollama, mistral, groq, deepseek, xai, together, fireworks, cohere, perplexity, azure-openai, bedrock, vertex] }
+        id: { type: string, enum: [openai, anthropic, gemini, openrouter, zai, minimax, ollama, mistral, groq, deepseek, xai, together, fireworks, cohere, perplexity, azure-openai, bedrock, vertex] }
         label: { type: string }
         adapter: { type: string, enum: [openai, anthropic, gemini, openai_compatible] }
         adapter_label: { type: string }
@@ -1261,7 +1261,7 @@ components:
             preset: { type: string, enum: [custom], default: custom }
         - required: [preset]
           properties:
-            preset: { type: string, enum: [openai, anthropic, gemini, openrouter, ollama, mistral, groq, deepseek, xai, together, fireworks, cohere, perplexity] }
+            preset: { type: string, enum: [openai, anthropic, gemini, openrouter, zai, minimax, ollama, mistral, groq, deepseek, xai, together, fireworks, cohere, perplexity] }
         - required: [preset, base_url]
           properties:
             preset: { type: string, enum: [azure-openai, bedrock, vertex] }
@@ -1272,7 +1272,7 @@ components:
         enabled: { type: boolean }
         allow_private_network: { type: boolean }
         timeout_ms: { type: integer, minimum: 1000, maximum: 600000 }
-        preset: { type: string, enum: [custom, openai, anthropic, gemini, openrouter, ollama, mistral, groq, deepseek, xai, together, fireworks, cohere, perplexity, azure-openai, bedrock, vertex], default: custom }
+        preset: { type: string, enum: [custom, openai, anthropic, gemini, openrouter, zai, minimax, ollama, mistral, groq, deepseek, xai, together, fireworks, cohere, perplexity, azure-openai, bedrock, vertex], default: custom }
     ProviderConnection:
       allOf:
         - { $ref: "#/components/schemas/ProviderConnectionInput" }

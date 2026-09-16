@@ -374,7 +374,7 @@ func decodeStreamDelta(target string, payload []byte) (streamDelta, error) {
 		}
 		choice := objectMap(choices[0])
 		delta := objectMap(choice["delta"])
-		if delta["reasoning"] != nil {
+		if delta["reasoning"] != nil || delta["reasoning_content"] != nil || delta["reasoning_details"] != nil {
 			return result, errors.New("upstream stream contains provider-affine content")
 		}
 		result.Text = stringValue(delta["content"])

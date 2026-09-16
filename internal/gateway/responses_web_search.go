@@ -45,7 +45,7 @@ func containsHostedWebSearchTool(raw json.RawMessage) bool {
 }
 
 func webSearchTargetEligibility(target providers.Target) (bool, string) {
-	if !nativeTarget("responses", target.Adapter) || target.Adapter != "openai" || target.Preset != "openai" {
+	if !providers.NativeTarget("responses", target.Adapter) || target.Adapter != "openai" || target.Preset != "openai" {
 		return false, "web_search_native_required"
 	}
 	if !slices.Contains(target.Capabilities, "chat") || !slices.Contains(target.UpstreamCapabilities, "chat") || !slices.Contains(target.Capabilities, "web_search") || !slices.Contains(target.UpstreamCapabilities, "web_search") {
