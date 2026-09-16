@@ -146,7 +146,7 @@ describe("official SDK compatibility through the Go gateway", () => {
     await expect(client.uploads.parts.create(cancelled.id, { data: await toFile(Buffer.from("x"), "rejected") })).rejects.toMatchObject({ status: 400 });
   });
 
-  it("runs gateway-owned OpenAI Responses, Chat Completions, and Embeddings batches", async () => {
+  it("runs gateway-owned OpenAI Responses, Chat Completions, Embeddings, and Moderation batches", async () => {
     const client = openAI();
     const upload = async (content: string, name: string) => client.files.create({
       file: await toFile(Buffer.from(content), name, { type: "application/jsonl" }),
@@ -273,6 +273,37 @@ describe("official SDK compatibility through the Go gateway", () => {
             { object: "embedding", embedding: [0.3, 0.4], index: 1 },
           ],
           usage: { prompt_tokens: 2, total_tokens: 2 },
+        },
+      },
+      error: null,
+    }]);
+
+    const moderationInput = await upload(
+      '{"custom_id":"moderation-success","method":"POST","url":"/v1/moderations","body":{"model":"target-openai","input":["violent text"]}}\n',
+      "moderation-batch.jsonl",
+    );
+    const moderationCreated = await client.batches.create({
+      input_file_id: moderationInput.id,
+      endpoint: "/v1/moderations",
+      completion_window: "24h",
+    });
+    const moderationCompleted = await waitForTerminal(moderationCreated.id);
+    expect(moderationCompleted).toMatchObject({
+      endpoint: "/v1/moderations",
+      status: "completed",
+      request_counts: { total: 1, completed: 1, failed: 0 },
+      usage: null,
+    });
+    if (!moderationCompleted.output_file_id) throw new Error("Moderation Batch output File is missing");
+    expect(await readJSONLines(moderationCompleted.output_file_id)).toMatchObject([{
+      custom_id: "moderation-success",
+      response: {
+        status_code: 200,
+        request_id: expect.stringMatching(/^req_/),
+        body: {
+          id: "modr_1",
+          model: "target-openai",
+          results: [{ flagged: true, categories: { violence: true }, category_scores: { violence: 0.9 } }],
         },
       },
       error: null,

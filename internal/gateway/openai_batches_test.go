@@ -194,6 +194,129 @@ func TestOpenAIEmbeddingBatchUsesSharedDispatchAndAccounting(t *testing.T) {
 	}
 }
 
+func TestOpenAIModerationBatchUsesSharedDispatchAndEstimatedAccounting(t *testing.T) {
+	var calls atomic.Int64
+	input := `[{"type":"text","text":"violent text"},{"type":"image_url","image_url":{"url":"https://example.com/image.png"}}]`
+	upstream := httptest.NewServer(http.HandlerFunc(func(response http.ResponseWriter, request *http.Request) {
+		calls.Add(1)
+		if request.Method != http.MethodPost || request.URL.Path != "/v1/moderations" || request.Header.Get("Authorization") != "Bearer provider-secret" {
+			http.Error(response, "invalid request target", http.StatusBadRequest)
+			return
+		}
+		var body map[string]json.RawMessage
+		if json.NewDecoder(request.Body).Decode(&body) != nil || string(body["model"]) != `"moderation-upstream"` || string(body["input"]) != input {
+			http.Error(response, "invalid request", http.StatusBadRequest)
+			return
+		}
+		for _, field := range []string{"store", "stream", "background", "max_tokens", "max_output_tokens", "messages"} {
+			if _, exists := body[field]; exists {
+				http.Error(response, "unexpected generation field", http.StatusBadRequest)
+				return
+			}
+		}
+		response.Header().Set("Content-Type", "application/json")
+		_, _ = io.WriteString(response, `{"id":"modr_provider","model":"omni-moderation-latest","results":[{"flagged":true,"categories":{"harassment":false,"harassment/threatening":false,"hate":false,"hate/threatening":false,"illicit":false,"illicit/violent":false,"self-harm":false,"self-harm/instructions":false,"self-harm/intent":false,"sexual":false,"sexual/minors":false,"violence":true,"violence/graphic":false},"category_scores":{"violence":0.9,"violence/graphic":0.1},"category_applied_input_types":{"violence":["text","image"]}}]}`)
+	}))
+	defer upstream.Close()
+
+	ctx, store, owner, keyService, providerService, usageService := gatewayFixture(t)
+	defer store.Close()
+	connection, model := publishModel(t, ctx, providerService, owner, "openai", upstream.URL+"/v1", "moderation-upstream", []string{"moderations"})
+	_, secret, err := keyService.Create(ctx, owner.ID, keys.Input{Label: "Moderation Batch", Scopes: []string{"batches:manage", "files:manage", "moderations:classify"}, ModelPatterns: []string{model.ID}, ConnectionIDs: []string{connection.ID}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	handler := NewWithMasterKey(store.SystemDB(), keyService, providerService, usageService, bytes.Repeat([]byte{10}, 32))
+	mux := http.NewServeMux()
+	handler.Register(mux)
+	line := `{"custom_id":"moderation","method":"POST","url":"/v1/moderations","body":{"model":"` + model.ID + `","input":` + input + `}}` + "\n"
+	uploaded := performFileUpload(t, mux, secret, "moderation-batch.jsonl", []byte(line), map[string]string{"purpose": "batch"}, nil)
+	var file openAIFile
+	if uploaded.Code != http.StatusOK || json.Unmarshal(uploaded.Body.Bytes(), &file) != nil {
+		t.Fatalf("upload=%d %s", uploaded.Code, uploaded.Body.String())
+	}
+	created := performOpenAIBatchRequest(t, mux, http.MethodPost, "/api/openai/v1/batches", secret, `{"input_file_id":"`+file.ID+`","endpoint":"/v1/moderations","completion_window":"24h"}`)
+	if created.Code != http.StatusOK {
+		t.Fatalf("create=%d %s", created.Code, created.Body.String())
+	}
+	job, ok := handler.claimOpenAIBatch(ctx)
+	if !ok || job.endpoint != "/v1/moderations" {
+		t.Fatalf("claimed=%v endpoint=%q", ok, job.endpoint)
+	}
+	handler.runOpenAIBatch(ctx, job)
+	batch, err := handler.loadOpenAIBatch(ctx, job.keyID, job.batchID)
+	if err != nil || batch.status != "completed" || batch.usageKnown || !batch.outputFileID.Valid || calls.Load() != 1 {
+		t.Fatalf("batch=%#v calls=%d err=%v", batch, calls.Load(), err)
+	}
+	_, output, err := handler.loadOpenAIFileContent(ctx, job.keyID, batch.outputFileID.String)
+	if err != nil || !bytes.Contains(output, []byte(`"model":"`+model.ID+`"`)) || bytes.Contains(output, []byte("omni-moderation-latest")) || !bytes.Contains(output, []byte(`"violence/graphic":false`)) || !bytes.Contains(output, []byte(`"category_applied_input_types":{"violence":["text","image"]}`)) {
+		t.Fatalf("output=%s err=%v", output, err)
+	}
+	requests, _, err := usageService.ListRequests(ctx, owner, usage.UsageQuery{})
+	if err != nil || len(requests) != 1 || requests[0].Operation != "moderations" || requests[0].Dialect != "openai" || requests[0].ModelID != model.ID || requests[0].State != "succeeded" || len(requests[0].Attempts) != 1 {
+		t.Fatalf("requests=%#v err=%v", requests, err)
+	}
+	attempt := requests[0].Attempts[0]
+	if attempt.TargetOperation != "moderations" || attempt.UpstreamID != "moderation-upstream" || attempt.UsageStatus != "estimated" || attempt.InputTokens == nil || *attempt.InputTokens <= 0 || attempt.OutputTokens == nil || *attempt.OutputTokens != 0 {
+		t.Fatalf("attempt=%#v", attempt)
+	}
+}
+
+func TestOpenAIModerationBatchEnforcesLineAndInputCardinality(t *testing.T) {
+	for name, lines := range map[string][]string{
+		"line count": {
+			`{"custom_id":"one","method":"POST","url":"/v1/moderations","body":{"model":"assistant","input":"one"}}`,
+			`{"custom_id":"two","method":"POST","url":"/v1/moderations","body":{"model":"assistant","input":"two"}}`,
+		},
+		"input cardinality": {
+			`{"custom_id":"one","method":"POST","url":"/v1/moderations","body":{"model":"assistant","input":["one","two"]}}`,
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			var calls atomic.Int64
+			upstream := httptest.NewServer(http.HandlerFunc(func(response http.ResponseWriter, request *http.Request) {
+				calls.Add(1)
+				_, _ = io.WriteString(response, `{"id":"modr_provider","model":"provider","results":[]}`)
+			}))
+			defer upstream.Close()
+			ctx, store, owner, keyService, providerService, usageService := gatewayFixture(t)
+			defer store.Close()
+			connection, model := publishModel(t, ctx, providerService, owner, "openai", upstream.URL+"/v1", "moderation-upstream", []string{"moderations"})
+			if _, err := usageService.CreatePolicy(ctx, owner, usage.PolicyInput{ScopeKind: "instance", Metric: "batch_items", Algorithm: "ceiling", LimitUnits: 1}); err != nil {
+				t.Fatal(err)
+			}
+			_, secret, err := keyService.Create(ctx, owner.ID, keys.Input{Label: "Moderation ceiling", Scopes: []string{"batches:manage", "files:manage", "moderations:classify"}, ModelPatterns: []string{model.ID}, ConnectionIDs: []string{connection.ID}})
+			if err != nil {
+				t.Fatal(err)
+			}
+			handler := NewWithMasterKey(store.SystemDB(), keyService, providerService, usageService, bytes.Repeat([]byte{11}, 32))
+			mux := http.NewServeMux()
+			handler.Register(mux)
+			content := strings.ReplaceAll(strings.Join(lines, "\n")+"\n", `"assistant"`, strconv.Quote(model.ID))
+			uploaded := performFileUpload(t, mux, secret, "moderation-ceiling.jsonl", []byte(content), map[string]string{"purpose": "batch"}, nil)
+			var file openAIFile
+			if uploaded.Code != http.StatusOK || json.Unmarshal(uploaded.Body.Bytes(), &file) != nil {
+				t.Fatalf("upload=%d %s", uploaded.Code, uploaded.Body.String())
+			}
+			created := performOpenAIBatchRequest(t, mux, http.MethodPost, "/api/openai/v1/batches", secret, `{"input_file_id":"`+file.ID+`","endpoint":"/v1/moderations","completion_window":"24h"}`)
+			if created.Code != http.StatusOK {
+				t.Fatalf("create=%d %s", created.Code, created.Body.String())
+			}
+			for range lines {
+				job, ok := handler.claimOpenAIBatch(ctx)
+				if !ok {
+					t.Fatal("Batch item was not claimable")
+				}
+				handler.runOpenAIBatch(ctx, job)
+			}
+			var failed, completed int
+			if err := store.SystemDB().QueryRowContext(ctx, `SELECT request_failed,request_completed FROM openai_batches`).Scan(&failed, &completed); err != nil || failed != len(lines) || completed != 0 || calls.Load() != 0 {
+				t.Fatalf("failed=%d completed=%d calls=%d err=%v", failed, completed, calls.Load(), err)
+			}
+		})
+	}
+}
+
 func TestOpenAIBatchListUsesKeysetPagination(t *testing.T) {
 	ctx, store, owner, keyService, providerService, usageService := gatewayFixture(t)
 	defer store.Close()
@@ -256,6 +379,7 @@ func TestOpenAIBatchValidationScopesAndOwnership(t *testing.T) {
 	other := makeKey("Other", []string{"batches:manage", "files:manage", "responses:generate"})
 	noChat := makeKey("No Chat", []string{"batches:manage", "files:manage", "responses:generate"})
 	noEmbeddings := makeKey("No Embeddings", []string{"batches:manage", "files:manage", "responses:generate"})
+	noModerations := makeKey("No Moderations", []string{"batches:manage", "files:manage", "responses:generate"})
 	missingScopes := []string{
 		makeKey("No Batch", []string{"files:manage", "responses:generate"}),
 		makeKey("No Responses", []string{"batches:manage", "files:manage"}),
@@ -276,6 +400,9 @@ func TestOpenAIBatchValidationScopesAndOwnership(t *testing.T) {
 	}
 	if denied := performOpenAIBatchRequest(t, mux, http.MethodPost, "/api/openai/v1/batches", noEmbeddings, `{"input_file_id":"`+validFile+`","endpoint":"/v1/embeddings","completion_window":"24h"}`); denied.Code != http.StatusForbidden {
 		t.Fatalf("missing embeddings scope status=%d body=%s", denied.Code, denied.Body.String())
+	}
+	if denied := performOpenAIBatchRequest(t, mux, http.MethodPost, "/api/openai/v1/batches", noModerations, `{"input_file_id":"`+validFile+`","endpoint":"/v1/moderations","completion_window":"24h"}`); denied.Code != http.StatusForbidden {
+		t.Fatalf("missing moderations scope status=%d body=%s", denied.Code, denied.Body.String())
 	}
 	for _, scopedSecret := range missingScopes {
 		if denied := performOpenAIBatchRequest(t, mux, http.MethodPost, "/api/openai/v1/batches", scopedSecret, `{"input_file_id":"`+validFile+`","endpoint":"/v1/responses","completion_window":"24h"}`); denied.Code != http.StatusForbidden {
@@ -575,6 +702,30 @@ func TestParseOpenAIBatchInputBounds(t *testing.T) {
 		content := []byte(`{"custom_id":"embedding","method":"POST","url":"/v1/embeddings","body":` + body + `}` + "\n")
 		if _, _, err := parseOpenAIBatchInput(content, "/v1/embeddings"); err == nil {
 			t.Fatalf("invalid embedding body accepted: %s", body)
+		}
+	}
+	for _, body := range []string{
+		`{"model":"assistant","input":"text"}`,
+		`{"model":"assistant","input":["one","two"]}`,
+		`{"model":"assistant","input":[{"type":"text","text":"caption"},{"type":"image_url","image_url":{"url":"https://example.com/image.png"}}]}`,
+	} {
+		content := []byte(`{"custom_id":"moderation","method":"POST","url":"/v1/moderations","body":` + body + `}` + "\n")
+		if items, model, err := parseOpenAIBatchInput(content, "/v1/moderations"); err != nil || len(items) != 1 || model != "assistant" {
+			t.Fatalf("moderation body=%s items=%d model=%q err=%v", body, len(items), model, err)
+		}
+	}
+	for _, body := range []string{
+		`{"model":"assistant"}`,
+		`{"model":"assistant","input":null}`,
+		`{"model":"assistant","input":[]}`,
+		`{"model":"assistant","input":42}`,
+		`{"model":"assistant","input":["text",{"type":"text","text":"mixed"}]}`,
+		`{"model":"assistant","input":[{"type":"image_url","image_url":{}}]}`,
+		`{"model":"assistant","input":"text","stream":false}`,
+	} {
+		content := []byte(`{"custom_id":"moderation","method":"POST","url":"/v1/moderations","body":` + body + `}` + "\n")
+		if _, _, err := parseOpenAIBatchInput(content, "/v1/moderations"); err == nil {
+			t.Fatalf("invalid moderation body accepted: %s", body)
 		}
 	}
 	for _, invalidChat := range [][]byte{

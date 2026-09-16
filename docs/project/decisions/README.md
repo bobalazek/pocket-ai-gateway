@@ -34,6 +34,7 @@ Each record states status/source, context, decision, and consequences. A recomme
 | ADR-026 | [Gateway-owned OpenAI multipart Uploads](2026-09-16-gateway-owned-openai-uploads.md) | Accepted bounded Phase 8 contract |
 | ADR-027 | [Gateway-owned OpenAI Chat Completions Batches](2026-09-16-gateway-owned-openai-chat-completions-batches.md) | Accepted bounded Phase 8 contract extending ADR-024 |
 | ADR-028 | [Gateway-owned OpenAI Embeddings Batches](2026-09-16-gateway-owned-openai-embedding-batches.md) | Accepted bounded Phase 8 contract extending ADR-024 and ADR-027 |
+| ADR-029 | [Gateway-owned OpenAI Moderations Batches](2026-09-16-gateway-owned-openai-moderation-batches.md) | Accepted bounded Phase 8 contract extending ADR-024, ADR-027, and ADR-028 |
 
 Historical: [initial proposal](2026-09-14-initial-proposal.md), superseded by the records above where they differ. Its A/P/D/M identifiers are historical references only; current documents use ADR IDs.
 
