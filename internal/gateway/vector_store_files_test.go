@@ -139,6 +139,20 @@ func TestVectorStoreDOCXContentExtraction(t *testing.T) {
 	}
 }
 
+func TestVectorStorePPTXContentExtraction(t *testing.T) {
+	presentation := vectorStoreTestPPTX(t)
+	chunks, err := vectorStoreContentChunks("DECK.PPTX", presentation)
+	if err != nil || len(chunks) != 1 || chunks[0].Text != "Opening\nDetails\tline\n" {
+		t.Fatalf("chunks=%#v error=%v", chunks, err)
+	}
+	if _, err := vectorStoreContentChunks("invalid.pptx", []byte("not a zip")); err == nil {
+		t.Fatal("invalid PPTX was accepted")
+	}
+	if _, err := vectorStoreContentChunks("traversal.pptx", vectorStoreTestPPTXTarget(t, "../outside.xml")); err == nil {
+		t.Fatal("PPTX package traversal was accepted")
+	}
+}
+
 func TestOpenAIVectorStoreDOCXContentAndSearch(t *testing.T) {
 	ctx, store, owner, keyService, providerService, usageService := gatewayFixture(t)
 	defer store.Close()
@@ -168,6 +182,35 @@ func TestOpenAIVectorStoreDOCXContentAndSearch(t *testing.T) {
 	}
 }
 
+func TestOpenAIVectorStorePPTXContentAndSearch(t *testing.T) {
+	ctx, store, owner, keyService, providerService, usageService := gatewayFixture(t)
+	defer store.Close()
+	_, secret, err := keyService.Create(ctx, owner.ID, keys.Input{Label: "PPTX search", Scopes: []string{"files:manage", "vector_stores:manage"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	mux := http.NewServeMux()
+	NewWithMasterKey(store.SystemDB(), keyService, providerService, usageService, bytes.Repeat([]byte{6}, 32)).Register(mux)
+	uploaded := performFileUpload(t, mux, secret, "slides.pptx", vectorStoreTestPPTX(t), map[string]string{"purpose": "user_data"}, nil)
+	var file openAIFile
+	if uploaded.Code != http.StatusOK || json.Unmarshal(uploaded.Body.Bytes(), &file) != nil {
+		t.Fatalf("upload status=%d body=%s", uploaded.Code, uploaded.Body.String())
+	}
+	created := performVectorStoreRequest(t, mux, http.MethodPost, "/api/openai/v1/vector_stores", secret, `{"name":"PPTX","file_ids":["`+file.ID+`"]}`)
+	var item vectorStore
+	if created.Code != http.StatusOK || json.Unmarshal(created.Body.Bytes(), &item) != nil {
+		t.Fatalf("create status=%d body=%s", created.Code, created.Body.String())
+	}
+	content := performVectorStoreRequest(t, mux, http.MethodGet, "/api/openai/v1/vector_stores/"+item.ID+"/files/"+file.ID+"/content", secret, "")
+	if content.Code != http.StatusOK || !strings.Contains(content.Body.String(), `"text":"Opening\nDetails\tline\n"`) {
+		t.Fatalf("content status=%d body=%s", content.Code, content.Body.String())
+	}
+	searched := performVectorStoreRequest(t, mux, http.MethodPost, "/api/openai/v1/vector_stores/"+item.ID+"/search", secret, `{"query":"details"}`)
+	if searched.Code != http.StatusOK || !strings.Contains(searched.Body.String(), `"file_id":"`+file.ID+`"`) {
+		t.Fatalf("search status=%d body=%s", searched.Code, searched.Body.String())
+	}
+}
+
 func vectorStoreTestDOCX(t *testing.T) []byte {
 	t.Helper()
 	var document bytes.Buffer
@@ -181,4 +224,33 @@ func vectorStoreTestDOCX(t *testing.T) []byte {
 		t.Fatal(err)
 	}
 	return document.Bytes()
+}
+
+func vectorStoreTestPPTX(t *testing.T) []byte {
+	return vectorStoreTestPPTXTarget(t, "slides/slide1.xml")
+}
+
+func vectorStoreTestPPTXTarget(t *testing.T, firstTarget string) []byte {
+	t.Helper()
+	parts := map[string]string{
+		"ppt/presentation.xml":            `<p:presentation xmlns:p="http://schemas.openxmlformats.org/presentationml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"><p:sldIdLst><p:sldId id="256" r:id="rId2"/><p:sldId id="257" r:id="rId1"/></p:sldIdLst></p:presentation>`,
+		"ppt/_rels/presentation.xml.rels": `<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/slide" Target="` + firstTarget + `"/><Relationship Id="rId2" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/slide" Target="slides/slide2.xml"/></Relationships>`,
+		"ppt/slides/slide1.xml":           `<p:sld xmlns:p="http://schemas.openxmlformats.org/presentationml/2006/main" xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main"><p:cSld><a:p><a:r><a:t>Details</a:t><a:tab/><a:t>line</a:t></a:r></a:p></p:cSld></p:sld>`,
+		"ppt/slides/slide2.xml":           `<p:sld xmlns:p="http://schemas.openxmlformats.org/presentationml/2006/main" xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main"><p:cSld><a:p><a:r><a:t>Opening</a:t></a:r></a:p></p:cSld></p:sld>`,
+	}
+	var presentation bytes.Buffer
+	archive := zip.NewWriter(&presentation)
+	for name, body := range parts {
+		entry, err := archive.Create(name)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err := entry.Write([]byte(body)); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := archive.Close(); err != nil {
+		t.Fatal(err)
+	}
+	return presentation.Bytes()
 }

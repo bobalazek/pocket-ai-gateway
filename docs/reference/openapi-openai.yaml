@@ -548,7 +548,7 @@ paths:
     parameters: [{ name: vector_store_id, in: path, required: true, schema: { type: string } }]
     post:
       operationId: searchVectorStore
-      description: Backend-only lexical search over parsed UTF-8 or DOCX body-text chunks. Explicit ranker none, nested attribute filters, score thresholds, and up to 50 deterministic results are supported. Query rewriting and embedding-backed rankers are rejected.
+      description: Backend-only lexical search over parsed UTF-8, DOCX body-text, or PPTX slide-text chunks. Explicit ranker none, nested attribute filters, score thresholds, and up to 50 deterministic results are supported. Query rewriting and embedding-backed rankers are rejected.
       requestBody:
         required: true
         content:
@@ -572,7 +572,7 @@ paths:
     parameters: [{ name: vector_store_id, in: path, required: true, schema: { type: string } }]
     post:
       operationId: createVectorStoreFile
-      description: Attaches an unexpired same-key gateway File. Auto chunking is accepted and reported as other because parsed content is not created.
+      description: Attaches an unexpired same-key gateway File. Auto chunking is accepted and reported as other because no token-indexed chunk metadata is persisted.
       requestBody: { required: true, content: { application/json: { schema: { type: object, required: [file_id], properties: { file_id: { type: string }, attributes: { type: [object, "null"], maxProperties: 16 }, chunking_strategy: { type: object, required: [type], properties: { type: { const: auto } }, additionalProperties: false } }, additionalProperties: false } } } }
       responses: { "200": { description: Completed Vector Store file attachment }, "404": { description: Missing or foreign-key Vector Store or File }, default: { description: OpenAI-compatible error } }
     get:
@@ -606,7 +606,7 @@ paths:
       - { name: file_id, in: path, required: true, schema: { type: string } }
     get:
       operationId: retrieveVectorStoreFileContent
-      description: Returns valid UTF-8 source text or bounded DOCX main-document body text as uncached chunks of at most 64 KiB. PDF, legacy Office, presentation/spreadsheet, and token-indexed parsing remain unsupported.
+      description: Returns valid UTF-8 source text, bounded DOCX main-document body text, or bounded PPTX slide text in presentation order as uncached chunks of at most 64 KiB. PDF, legacy Office, spreadsheets, presentation notes/media, and token-indexed parsing remain unsupported.
       responses:
         "200":
           description: Parsed text content page
@@ -620,7 +620,7 @@ paths:
                   object: { const: list }
                   data: { type: array, items: { type: object, required: [type, text], properties: { type: { const: text }, text: { type: string, maxLength: 65536 } }, additionalProperties: false } }
                 additionalProperties: false
-        "400": { description: Source content is not supported UTF-8 text }
+        "400": { description: Source content format is unsupported or malformed }
         "404": { description: Missing, expired, or foreign-key attachment }
         default: { description: OpenAI-compatible error }
   /vector_stores/{vector_store_id}/file_batches:
