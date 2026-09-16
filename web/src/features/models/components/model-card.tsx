@@ -1,3 +1,5 @@
+import type { FormEvent } from "react";
+
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -16,11 +18,37 @@ export function ModelCard({ item, dashboard }: { item: CatalogModel | PublicMode
   const maximumTargets = model.routing_policy?.max_targets_by_strategy[strategy] ?? 1;
   const strategyLabels = Object.fromEntries(model.routing_policy.strategies.map((option) => [option.id, option.label]));
 
+  function previewRoute(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    const form = new FormData(event.currentTarget);
+    void dashboard.previewModelRoute(model, {
+      operation: String(form.get("operation")),
+      streaming: form.get("streaming") === "on",
+      estimated_input_tokens: Number(form.get("estimated_input_tokens")),
+      estimated_output_tokens: Number(form.get("estimated_output_tokens")),
+    });
+  }
+
+  function updateRoute(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    const form = new FormData(event.currentTarget);
+    void dashboard.updateModelRoute(model, {
+      strategy: String(form.get("strategy")) as PublicModel["routing_strategy"],
+      free_only: form.get("free_only") === "on",
+      targets: form.getAll("target").map(String).map((targetID) => ({
+        upstream_model_id: targetID,
+        priority: Number(form.get(`priority:${targetID}`)),
+        weight: Number(form.get(`weight:${targetID}`)),
+        enabled: true,
+      })),
+    });
+  }
+
   return (
     <Card className="panel">
       <div className="resource-row-main"><div><strong>{item.label}</strong><code>{item.id}</code><small>{item.adapter_label} · {item.capability_details.map((capability) => capability.label).join(", ")}{dashboard.manager ? ` · ${strategyLabels[model.routing_strategy] ?? model.routing_strategy}` : ""}</small></div></div>
       {dashboard.manager && (
-        <form className="route-preview-controls" onSubmit={(event) => dashboard.previewModelRoute(event, model)}>
+        <form className="route-preview-controls" onSubmit={previewRoute}>
           <div className="field"><Label htmlFor={`preview-operation-${model.id}`}>Operation</Label><Input id={`preview-operation-${model.id}`} name="operation" placeholder="Operation path" required /></div>
           <div className="field"><Label htmlFor={`preview-input-${model.id}`}>Input tokens</Label><Input id={`preview-input-${model.id}`} name="estimated_input_tokens" type="number" min="0" defaultValue="1000" required /></div>
           <div className="field"><Label htmlFor={`preview-output-${model.id}`}>Output tokens</Label><Input id={`preview-output-${model.id}`} name="estimated_output_tokens" type="number" min="0" defaultValue="500" required /></div>
@@ -31,7 +59,7 @@ export function ModelCard({ item, dashboard }: { item: CatalogModel | PublicMode
       {dashboard.manager && (
         <details className="grant-editor">
           <summary>Routing strategy and targets</summary>
-          <form onSubmit={(event) => dashboard.updateModelRoute(event, model)}>
+          <form onSubmit={updateRoute}>
             <div className="inline-fields">
               <div className="field"><Label htmlFor={`strategy-${model.id}`}>Strategy</Label><select id={`strategy-${model.id}`} name="strategy" className="select" value={strategy} onChange={(event) => dashboard.selectStrategy(model.id, event.target.value as typeof strategy)}>{model.routing_policy.strategies.map((option) => <option key={option.id} value={option.id}>{option.label}</option>)}</select></div>
               {model.routing_policy.free_only_allowed && <label className="checkbox-row"><input name="free_only" type="checkbox" defaultChecked={model.free_only} /> {model.routing_policy.free_only_label}</label>}

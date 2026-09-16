@@ -1,3 +1,5 @@
+import type { FormEvent } from "react";
+
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Label } from "@/components/ui/label";
@@ -7,10 +9,24 @@ import type { useModels } from "@/features/models/hooks/use-models";
 type ModelsModel = ReturnType<typeof useModels>;
 
 export function PublishModelPanel({ model }: { model: ModelsModel }) {
+  async function submit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    const element = event.currentTarget;
+    const form = new FormData(element);
+    const published = await model.publishModel({
+      id: String(form.get("id")),
+      label: String(form.get("label")),
+      description: String(form.get("description")),
+      target_model_id: String(form.get("target_model_id")),
+      capabilities: form.getAll("capabilities").map(String),
+    });
+    if (published) element.reset();
+  }
+
   return (
     <Card className="panel">
       <h2>Publish model</h2>
-      <form onSubmit={model.publishModel}>
+      <form onSubmit={submit}>
         <div className="inline-fields"><ModelField id="id" label="Public model ID" required /><ModelField id="label" label="Display name" required /></div>
         <ModelField id="description" label="Description" />
         <div className="field">

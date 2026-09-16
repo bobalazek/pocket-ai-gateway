@@ -8,7 +8,7 @@ import { GatewayAPIError, pocketAIGatewayAdmin } from "@/lib/pocket-ai-gateway-a
 
 const failureText = (error: unknown, fallback: string) => error instanceof GatewayAPIError ? error.message : fallback;
 
-export function useModelsData(canManage: boolean) {
+export function useModelsData(canManage: boolean, search: string) {
   const [models, setModels] = useState<(CatalogModel | PublicModel)[]>([]);
   const [targets, setTargets] = useState<UpstreamModel[]>([]);
   const [availableTargets, setAvailableTargets] = useState<Record<string, UpstreamModel[]>>({});
@@ -27,7 +27,7 @@ export function useModelsData(canManage: boolean) {
     setBusy(true);
     try {
       if (!canManage) {
-        const result = await pocketAIGatewayAdmin.models.publicModels();
+        const result = await pocketAIGatewayAdmin.models.publicModels(search);
         if (current !== generation.current) return;
         setModels(result.data);
         setTargets([]);
@@ -37,20 +37,15 @@ export function useModelsData(canManage: boolean) {
         setCatalogState(null);
         setCatalogCursor("");
       } else {
-        const [managed, connections, catalogResult] = await Promise.all([
-          pocketAIGatewayAdmin.models.managedModels(),
-          pocketAIGatewayAdmin.models.connections(),
+        const [managed, catalogResult] = await Promise.all([
+          pocketAIGatewayAdmin.models.managedModels(search),
           pocketAIGatewayAdmin.models.catalog(),
-        ]);
-        const [upstreamPages, routePages] = await Promise.all([
-          Promise.all(connections.data.map((item) => pocketAIGatewayAdmin.models.upstreamModels(item.id))),
-          Promise.all(managed.data.map((model) => pocketAIGatewayAdmin.models.routeConfig(model.id))),
         ]);
         if (current !== generation.current) return;
         setModels(managed.data);
-        setTargets(upstreamPages.flatMap((page) => page.data));
-        setRoutes(Object.fromEntries(routePages.map((page) => [page.model.id, page.targets])));
-        setAvailableTargets(Object.fromEntries(routePages.map((page) => [page.model.id, page.available_targets])));
+        setTargets(managed.publish_targets);
+        setRoutes(managed.routes);
+        setAvailableTargets(managed.available_targets);
         setCatalog(catalogResult.data);
         setCatalogState(catalogResult.state);
         setCatalogCursor(catalogResult.next_cursor);
@@ -62,7 +57,7 @@ export function useModelsData(canManage: boolean) {
     } finally {
       if (current === generation.current) setBusy(false);
     }
-  }, [canManage]);
+  }, [canManage, search]);
 
   useEffect(() => { void load(); }, [load]);
 
