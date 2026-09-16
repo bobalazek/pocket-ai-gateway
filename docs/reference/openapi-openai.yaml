@@ -522,8 +522,8 @@ paths:
   /vector_stores:
     post:
       operationId: createVectorStore
-      description: Creates a bounded gateway-owned Vector Store for the requesting key. Non-empty file_ids and static chunking remain unsupported.
-      requestBody: { required: true, content: { application/json: { schema: { type: object, properties: { name: { type: string, maxLength: 256 }, description: { type: string, maxLength: 4096 }, metadata: { type: [object, "null"], maxProperties: 16 }, expires_after: { type: object, required: [anchor, days], properties: { anchor: { const: last_active_at }, days: { type: integer, minimum: 1, maximum: 365 } }, additionalProperties: false } }, additionalProperties: false } } } }
+      description: Creates a bounded gateway-owned Vector Store for the requesting key and atomically attaches optional same-key file_ids. Static token chunking remains unsupported.
+      requestBody: { required: true, content: { application/json: { schema: { type: object, properties: { name: { type: string, maxLength: 256 }, description: { type: string, maxLength: 4096 }, metadata: { type: [object, "null"], maxProperties: 16 }, expires_after: { type: object, required: [anchor, days], properties: { anchor: { const: last_active_at }, days: { type: integer, minimum: 1, maximum: 365 } }, additionalProperties: false }, file_ids: { type: array, maxItems: 2000, uniqueItems: true, items: { type: string, minLength: 1 } }, chunking_strategy: { type: object, required: [type], properties: { type: { const: auto } }, additionalProperties: false } }, additionalProperties: false } } } }
       responses: { "200": { description: Gateway-owned Vector Store }, default: { description: OpenAI-compatible error } }
     get:
       operationId: listVectorStores

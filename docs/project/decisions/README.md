@@ -49,6 +49,7 @@ Each record states status/source, context, decision, and consequences. A recomme
 | ADR-041 | [Gateway-owned Vector Store text content](2026-09-16-vector-store-text-content.md) | Accepted bounded Phase 8 contract extending ADR-039 |
 | ADR-042 | [Backend-owned Vector Store text search](2026-09-16-vector-store-server-search.md) | Accepted bounded Phase 8 contract extending ADR-039 and ADR-041 |
 | ADR-043 | [Gateway-owned Vector Store file batches](2026-09-16-gateway-owned-vector-store-file-batches.md) | Accepted bounded Phase 8 contract extending ADR-039 |
+| ADR-044 | [Atomic Vector Store creation with Files](2026-09-16-vector-store-create-with-files.md) | Accepted bounded Phase 8 contract extending ADR-039 and ADR-043 |
 
 Historical: [initial proposal](2026-09-14-initial-proposal.md), superseded by the records above where they differ. Its A/P/D/M identifiers are historical references only; current documents use ADR IDs.
 

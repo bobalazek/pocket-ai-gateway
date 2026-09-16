@@ -238,10 +238,16 @@ describe("official SDK compatibility through the Go gateway", () => {
     expect(search.data[0]?.score).toBeGreaterThan(0);
     expect(search.data[0]?.content).toEqual([{ type: "text", text: "vector store notes" }]);
 
-    const batchSources = await Promise.all([
-      client.files.create({ file: await toFile(Buffer.from("first batch note"), "batch-first.txt", { type: "text/plain" }), purpose: "user_data" }),
-      client.files.create({ file: await toFile(Buffer.from("second batch note"), "batch-second.txt", { type: "text/plain" }), purpose: "user_data" }),
-    ]);
+    const batchSources = [];
+    for (const [name, content] of [["batch-first.txt", "first batch note"], ["batch-second.txt", "second batch note"]] as const) {
+      batchSources.push(await client.files.create({ file: await toFile(Buffer.from(content), name, { type: "text/plain" }), purpose: "user_data" }));
+    }
+    const createdWithFiles = await client.vectorStores.create({
+      name: "Created with files",
+      file_ids: batchSources.map((file) => file.id),
+      chunking_strategy: { type: "auto" },
+    });
+    expect(createdWithFiles).toMatchObject({ status: "completed", file_counts: { completed: 2, total: 2 } });
     const batch = await client.vectorStores.fileBatches.createAndPoll(first.id, {
       file_ids: batchSources.map((file) => file.id),
       attributes: { suite: "batch" },
@@ -266,11 +272,12 @@ describe("official SDK compatibility through the Go gateway", () => {
     await expect(openAI(otherApiKey).vectorStores.retrieve(first.id)).rejects.toMatchObject({ status: 404 });
     await expect(openAI(otherApiKey).vectorStores.files.retrieve(source.id, { vector_store_id: first.id })).rejects.toMatchObject({ status: 404 });
     await expect(openAI(noFilesApiKey).vectorStores.list()).rejects.toMatchObject({ status: 403 });
-    await expect(client.vectorStores.create({ file_ids: ["file_missing"] })).rejects.toMatchObject({ status: 400, code: "unsupported_feature" });
+    await expect(client.vectorStores.create({ file_ids: ["file_missing"] })).rejects.toMatchObject({ status: 404, code: "not_found" });
     expect(await client.vectorStores.files.delete(source.id, { vector_store_id: first.id })).toEqual({ id: source.id, object: "vector_store.file.deleted", deleted: true });
     expect((await client.vectorStores.retrieve(first.id)).file_counts.total).toBe(2);
     await client.files.delete(source.id);
     expect(await client.vectorStores.delete(first.id)).toEqual({ id: first.id, object: "vector_store.deleted", deleted: true });
+    expect(await client.vectorStores.delete(createdWithFiles.id)).toMatchObject({ id: createdWithFiles.id, deleted: true });
     await Promise.all(batchSources.map((file) => client.files.delete(file.id)));
     expect(await client.vectorStores.delete(second.id)).toEqual({ id: second.id, object: "vector_store.deleted", deleted: true });
   });

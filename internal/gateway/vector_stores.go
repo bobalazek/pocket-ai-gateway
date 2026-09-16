@@ -6,7 +6,6 @@ import (
 	"database/sql"
 	"encoding/json"
 	"errors"
-	"fmt"
 	"io"
 	"net/http"
 	"strconv"
@@ -46,8 +45,7 @@ type vectorStore struct {
 }
 
 var (
-	errVectorStoreBodyTooLarge  = errors.New("request body exceeds 64 KiB")
-	errVectorStoreFileIngestion = errors.New("vector store file ingestion is not supported")
+	errVectorStoreBodyTooLarge = errors.New("request body exceeds 64 KiB")
 )
 
 func (handler *Handler) vectorStorePrincipal(response http.ResponseWriter, request *http.Request) (keys.Principal, bool) {
@@ -87,12 +85,13 @@ func (handler *Handler) createVectorStore(response http.ResponseWriter, request 
 	if err == nil {
 		err = expiryErr
 	}
+	var files []vectorStoreFileBatchInput
 	if err == nil {
-		err = validateVectorStoreFiles(fields)
+		files, err = parseVectorStoreCreateFiles(fields)
 	}
 	if err != nil {
 		code := "invalid_request"
-		if errors.Is(err, errVectorStoreFileIngestion) {
+		if errors.Is(err, errVectorStoreStaticChunking) {
 			code = "unsupported_feature"
 		}
 		handler.writeError(response, "openai", http.StatusBadRequest, code, err.Error())
@@ -118,10 +117,20 @@ func (handler *Handler) createVectorStore(response http.ResponseWriter, request 
 	if err == nil {
 		_, err = tx.ExecContext(request.Context(), `INSERT INTO openai_vector_stores(id,owner_user_id,key_id,name,description,metadata_json,created_at,last_active_at,expires_after_days,expires_at) VALUES(?,?,?,?,?,?,?,?,?,?)`, id, principal.OwnerUserID, principal.KeyID, name, description, metadataJSON, now, now, days, expiresAt)
 	}
+	for _, file := range files {
+		if err != nil {
+			break
+		}
+		err = attachVectorStoreFile(request.Context(), tx, principal.OwnerUserID, principal.KeyID, id, file.fileID, "", file.attributes, file.chunking, now)
+	}
 	if err == nil {
 		err = tx.Commit()
 	}
 	if err != nil {
+		if len(files) > 0 {
+			handler.writeVectorStoreFileMutationError(response, err, "attached during Vector Store creation")
+			return
+		}
 		if errors.Is(err, errRetainedResourceLimit) {
 			handler.writeError(response, "openai", http.StatusTooManyRequests, "rate_limit_exceeded", "Stored inference resource retention limit reached")
 			return
@@ -192,23 +201,28 @@ func parseVectorStoreExpiry(raw json.RawMessage, nullable bool) (*vectorStoreExp
 	return &value, nil
 }
 
-func validateVectorStoreFiles(fields map[string]json.RawMessage) error {
-	if _, exists := fields["chunking_strategy"]; exists {
-		return fmt.Errorf("%w: chunking_strategy requires file ingestion", errVectorStoreFileIngestion)
+func parseVectorStoreCreateFiles(fields map[string]json.RawMessage) ([]vectorStoreFileBatchInput, error) {
+	raw, exists := fields["file_ids"]
+	if !exists {
+		if _, chunking := fields["chunking_strategy"]; chunking {
+			return nil, errors.New("chunking_strategy requires non-empty file_ids")
+		}
+		return nil, nil
 	}
-	if raw, exists := fields["file_ids"]; exists {
-		if bytes.Equal(bytes.TrimSpace(raw), []byte("null")) {
-			return errors.New("file_ids must be an array")
-		}
-		var ids []string
-		if json.Unmarshal(raw, &ids) != nil {
-			return errors.New("file_ids must be an array")
-		}
-		if len(ids) > 0 {
-			return fmt.Errorf("%w: non-empty file_ids require file ingestion", errVectorStoreFileIngestion)
-		}
+	if bytes.Equal(bytes.TrimSpace(raw), []byte("null")) {
+		return nil, errors.New("file_ids must be an array")
 	}
-	return nil
+	var ids []string
+	if json.Unmarshal(raw, &ids) != nil {
+		return nil, errors.New("file_ids must be an array")
+	}
+	if len(ids) == 0 {
+		if _, chunking := fields["chunking_strategy"]; chunking {
+			return nil, errors.New("chunking_strategy requires non-empty file_ids")
+		}
+		return nil, nil
+	}
+	return parseVectorStoreFileBatchIDs(fields)
 }
 
 func (handler *Handler) getVectorStore(response http.ResponseWriter, request *http.Request) {
