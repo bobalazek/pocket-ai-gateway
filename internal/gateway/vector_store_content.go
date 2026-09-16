@@ -16,9 +16,9 @@ import (
 )
 
 const (
-	maxVectorStoreContentChunkBytes = 64 << 10
-	maxVectorStoreOOXMLBytes        = 16 << 20
-	maxVectorStoreOOXMLEntries      = 1024
+	maxVectorStoreContentChunkBytes  = 64 << 10
+	maxVectorStoreParsedContentBytes = 16 << 20
+	maxVectorStoreOOXMLEntries       = 1024
 )
 
 const (
@@ -88,6 +88,12 @@ func vectorStoreContentChunks(filename string, content []byte) ([]vectorStoreCon
 			return nil, err
 		}
 		content = text
+	case strings.HasSuffix(strings.ToLower(filename), ".html"):
+		text, err := vectorStoreHTMLText(content)
+		if err != nil {
+			return nil, err
+		}
+		content = text
 	}
 	return vectorStoreTextChunks(content)
 }
@@ -106,10 +112,10 @@ func vectorStoreDOCXText(content []byte) ([]byte, error) {
 			document = file
 		}
 	}
-	if document == nil || document.UncompressedSize64 > maxVectorStoreOOXMLBytes {
+	if document == nil || document.UncompressedSize64 > maxVectorStoreParsedContentBytes {
 		return nil, errors.New("DOCX body document is missing or exceeds 16 MiB")
 	}
-	return vectorStoreOOXMLPartText(document, "DOCX", "document", wordprocessingMLNamespace, strictWordprocessingMLNamespace, wordprocessingMLNamespace, strictWordprocessingMLNamespace, maxVectorStoreOOXMLBytes)
+	return vectorStoreOOXMLPartText(document, "DOCX", "document", wordprocessingMLNamespace, strictWordprocessingMLNamespace, wordprocessingMLNamespace, strictWordprocessingMLNamespace, maxVectorStoreParsedContentBytes)
 }
 
 func vectorStorePPTXText(content []byte) ([]byte, error) {
@@ -125,7 +131,7 @@ func vectorStorePPTXText(content []byte) ([]byte, error) {
 		files[file.Name] = file
 	}
 	presentation, relationships := files["ppt/presentation.xml"], files["ppt/_rels/presentation.xml.rels"]
-	if presentation == nil || relationships == nil || presentation.UncompressedSize64 > maxVectorStoreOOXMLBytes || relationships.UncompressedSize64 > maxVectorStoreOOXMLBytes {
+	if presentation == nil || relationships == nil || presentation.UncompressedSize64 > maxVectorStoreParsedContentBytes || relationships.UncompressedSize64 > maxVectorStoreParsedContentBytes {
 		return nil, errors.New("PPTX presentation metadata is missing or exceeds 16 MiB")
 	}
 	targets, err := vectorStorePPTXRelationshipTargets(relationships)
@@ -145,11 +151,11 @@ func vectorStorePPTXText(content []byte) ([]byte, error) {
 		}
 		seen[name] = struct{}{}
 		slide := files[name]
-		if slide == nil || slide.UncompressedSize64 > uint64(maxVectorStoreOOXMLBytes)-declared {
+		if slide == nil || slide.UncompressedSize64 > uint64(maxVectorStoreParsedContentBytes)-declared {
 			return nil, errors.New("PPTX slide content is missing or exceeds 16 MiB")
 		}
 		declared += slide.UncompressedSize64
-		slideText, partErr := vectorStoreOOXMLPartText(slide, "PPTX", "sld", presentationMLNamespace, strictPresentationMLNamespace, drawingMLNamespace, strictDrawingMLNamespace, maxVectorStoreOOXMLBytes-text.Len())
+		slideText, partErr := vectorStoreOOXMLPartText(slide, "PPTX", "sld", presentationMLNamespace, strictPresentationMLNamespace, drawingMLNamespace, strictDrawingMLNamespace, maxVectorStoreParsedContentBytes-text.Len())
 		if partErr != nil {
 			return nil, partErr
 		}
@@ -365,7 +371,7 @@ func vectorStoreUTF8Text(content []byte) ([]byte, error) {
 			order = binary.LittleEndian
 		}
 		var text strings.Builder
-		text.Grow(min(len(content), maxVectorStoreOOXMLBytes))
+		text.Grow(min(len(content), maxVectorStoreParsedContentBytes))
 		for offset := 2; offset < len(content); offset += 2 {
 			unit := order.Uint16(content[offset : offset+2])
 			character := rune(unit)
@@ -383,7 +389,7 @@ func vectorStoreUTF8Text(content []byte) ([]byte, error) {
 			if character == 0 {
 				return nil, errors.New("parsed text cannot contain NUL characters")
 			}
-			if text.Len()+utf8.RuneLen(character) > maxVectorStoreOOXMLBytes {
+			if text.Len()+utf8.RuneLen(character) > maxVectorStoreParsedContentBytes {
 				return nil, errors.New("parsed text exceeds 16 MiB")
 			}
 			text.WriteRune(character)

@@ -181,6 +181,9 @@ func TestOpenAIVectorStoreParsedContentAndSearch(t *testing.T) {
 		{name: "UTF-16", filename: "notes.txt", want: "Café gateway\n", query: "gateway", content: func(t *testing.T) []byte { return vectorStoreTestUTF16("Café gateway\n", binary.LittleEndian) }},
 		{name: "DOCX", filename: "notes.docx", want: "First\tcell\nSecond\n", query: "second", content: vectorStoreTestDOCX},
 		{name: "PPTX", filename: "slides.pptx", want: "Opening\nDetails\tline\n", query: "details", content: vectorStoreTestPPTX},
+		{name: "HTML", filename: "docs.html", want: "Pocket AI Gateway\nRoutes requests safely.", query: "safely", content: func(*testing.T) []byte {
+			return []byte(`<main><h1>Pocket AI Gateway</h1><p>Routes requests safely.</p><script>ignore()</script></main>`)
+		}},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
