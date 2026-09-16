@@ -1,6 +1,7 @@
 package gateway
 
 import (
+	"archive/zip"
 	"bytes"
 	"encoding/json"
 	"net/http"
@@ -125,4 +126,59 @@ func TestVectorStoreTextChunksPreserveUTF8WithinBounds(t *testing.T) {
 	if _, err := vectorStoreTextChunks([]byte{0xff}); err == nil {
 		t.Fatal("binary content was accepted")
 	}
+}
+
+func TestVectorStoreDOCXContentExtraction(t *testing.T) {
+	document := vectorStoreTestDOCX(t)
+	chunks, err := vectorStoreContentChunks("NOTES.DOCX", document)
+	if err != nil || len(chunks) != 1 || chunks[0].Text != "First\tcell\nSecond\n" {
+		t.Fatalf("chunks=%#v error=%v", chunks, err)
+	}
+	if _, err := vectorStoreContentChunks("invalid.docx", []byte("not a zip")); err == nil {
+		t.Fatal("invalid DOCX was accepted")
+	}
+}
+
+func TestOpenAIVectorStoreDOCXContentAndSearch(t *testing.T) {
+	ctx, store, owner, keyService, providerService, usageService := gatewayFixture(t)
+	defer store.Close()
+	_, secret, err := keyService.Create(ctx, owner.ID, keys.Input{Label: "DOCX search", Scopes: []string{"files:manage", "vector_stores:manage"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	mux := http.NewServeMux()
+	NewWithMasterKey(store.SystemDB(), keyService, providerService, usageService, bytes.Repeat([]byte{6}, 32)).Register(mux)
+	uploaded := performFileUpload(t, mux, secret, "notes.docx", vectorStoreTestDOCX(t), map[string]string{"purpose": "user_data"}, nil)
+	var file openAIFile
+	if uploaded.Code != http.StatusOK || json.Unmarshal(uploaded.Body.Bytes(), &file) != nil {
+		t.Fatalf("upload status=%d body=%s", uploaded.Code, uploaded.Body.String())
+	}
+	created := performVectorStoreRequest(t, mux, http.MethodPost, "/api/openai/v1/vector_stores", secret, `{"name":"DOCX","file_ids":["`+file.ID+`"]}`)
+	var item vectorStore
+	if created.Code != http.StatusOK || json.Unmarshal(created.Body.Bytes(), &item) != nil {
+		t.Fatalf("create status=%d body=%s", created.Code, created.Body.String())
+	}
+	content := performVectorStoreRequest(t, mux, http.MethodGet, "/api/openai/v1/vector_stores/"+item.ID+"/files/"+file.ID+"/content", secret, "")
+	if content.Code != http.StatusOK || !strings.Contains(content.Body.String(), `"text":"First\tcell\nSecond\n"`) {
+		t.Fatalf("content status=%d body=%s", content.Code, content.Body.String())
+	}
+	searched := performVectorStoreRequest(t, mux, http.MethodPost, "/api/openai/v1/vector_stores/"+item.ID+"/search", secret, `{"query":"second"}`)
+	if searched.Code != http.StatusOK || !strings.Contains(searched.Body.String(), `"file_id":"`+file.ID+`"`) {
+		t.Fatalf("search status=%d body=%s", searched.Code, searched.Body.String())
+	}
+}
+
+func vectorStoreTestDOCX(t *testing.T) []byte {
+	t.Helper()
+	var document bytes.Buffer
+	archive := zip.NewWriter(&document)
+	entry, err := archive.Create("word/document.xml")
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = entry.Write([]byte(`<w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"><w:body><w:p><w:r><w:t>First</w:t><w:tab/><w:t>cell</w:t></w:r></w:p><w:p><w:r><w:t>Second</w:t><w:br/></w:r></w:p></w:body></w:document>`))
+	if err != nil || archive.Close() != nil {
+		t.Fatal(err)
+	}
+	return document.Bytes()
 }
