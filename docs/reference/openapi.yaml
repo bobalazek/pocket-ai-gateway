@@ -457,7 +457,7 @@ paths:
     get:
       operationId: listProviderTypes
       responses:
-        "200": { description: Supported adapters and capabilities, content: { application/json: { schema: { type: object, required: [data], properties: { data: { type: array, items: { type: object, required: [id, capabilities], properties: { id: { type: string }, capabilities: { type: array, items: { type: string } } } } } } } } } }
+        "200": { description: Supported adapters and capabilities, content: { application/json: { schema: { type: object, required: [data], properties: { data: { type: array, items: { $ref: "#/components/schemas/ProviderAdapter" } } } } } } }
         "401": { $ref: "#/components/responses/Unauthorized" }
         "503": { $ref: "#/components/responses/ServiceUnavailable" }
         default: { $ref: "#/components/responses/Error" }
@@ -465,7 +465,7 @@ paths:
     get:
       operationId: listProviderPresets
       responses:
-        "200": { description: Built-in provider connection presets, content: { application/json: { schema: { type: object, required: [data], properties: { data: { type: array, items: { $ref: "#/components/schemas/ProviderPreset" } } } } } } }
+        "200": { description: Built-in provider connection presets and adapter presentation metadata, content: { application/json: { schema: { type: object, required: [data, adapters], properties: { data: { type: array, items: { $ref: "#/components/schemas/ProviderPreset" } }, adapters: { type: array, items: { $ref: "#/components/schemas/ProviderAdapter" } } } } } } }
         "401": { $ref: "#/components/responses/Unauthorized" }
         "503": { $ref: "#/components/responses/ServiceUnavailable" }
         default: { $ref: "#/components/responses/Error" }
@@ -1213,14 +1213,24 @@ components:
         resource_id: { type: string }
         detail_json: { type: string, description: Redacted structured audit detail }
         created_at: { type: string, format: date-time }
+    ProviderAdapter:
+      type: object
+      required: [id, label, default, capabilities]
+      properties:
+        id: { type: string, enum: [openai, anthropic, gemini, openai_compatible] }
+        label: { type: string }
+        default: { type: boolean }
+        capabilities: { type: array, items: { type: string } }
     ProviderPreset:
       type: object
-      required: [id, label, adapter, base_url_required, credential_required, private_network, operations, capabilities, documentation_url, reviewed_at]
+      required: [id, label, adapter, adapter_label, base_url_required, credential_required, private_network, operations, capabilities, documentation_url, reviewed_at]
       properties:
         id: { type: string, enum: [openai, anthropic, gemini, openrouter, ollama, mistral, groq, deepseek, xai, together, fireworks, cohere, perplexity, azure-openai, bedrock, vertex] }
         label: { type: string }
         adapter: { type: string, enum: [openai, anthropic, gemini, openai_compatible] }
+        adapter_label: { type: string }
         base_url: { type: string, format: uri }
+        base_url_example: { type: string, format: uri }
         base_url_required: { type: boolean, description: True when the installation must supply a resource-specific base URL }
         credential_required: { type: boolean }
         private_network: { type: boolean }
@@ -1254,9 +1264,10 @@ components:
       allOf:
         - { $ref: "#/components/schemas/ProviderConnectionInput" }
         - type: object
-          required: [id, preset, capabilities, credential_required, credential_state, revision, created_at, updated_at]
+          required: [id, preset, adapter_label, capabilities, credential_required, credential_state, revision, created_at, updated_at]
           properties:
             id: { type: string }
+            adapter_label: { type: string }
             capabilities: { type: array, items: { type: string } }
             credential_required: { type: boolean }
             credential_state: { type: string, enum: [missing, stored, external] }
@@ -1274,12 +1285,13 @@ components:
         active: { type: boolean }
     VisibleModel:
       type: object
-      required: [id, label, description, adapter, capabilities]
+      required: [id, label, description, adapter, adapter_label, capabilities]
       properties:
         id: { type: string }
         label: { type: string }
         description: { type: string }
         adapter: { type: string }
+        adapter_label: { type: string }
         capabilities: { type: array, items: { type: string } }
     PublicModelInput:
       type: object
@@ -1307,13 +1319,22 @@ components:
             routing_policy:
               type: object
               additionalProperties: false
-              required: [allowed_strategies, max_targets_by_strategy, free_only_allowed]
+              required: [allowed_strategies, max_targets_by_strategy, free_only_allowed, strategies]
               properties:
                 allowed_strategies: { type: array, minItems: 1, items: { $ref: "#/components/schemas/RouteStrategy" } }
                 max_targets_by_strategy:
                   type: object
                   additionalProperties: { type: integer, minimum: 1, maximum: 32 }
                 free_only_allowed: { type: boolean }
+                strategies:
+                  type: array
+                  minItems: 1
+                  items:
+                    type: object
+                    required: [id, label]
+                    properties:
+                      id: { $ref: "#/components/schemas/RouteStrategy" }
+                      label: { type: string }
     RouteStrategy: { type: string, enum: [fixed, ordered_fallback, weighted, lowest_cost, lowest_latency] }
     RouteTargetInput:
       type: object

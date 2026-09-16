@@ -3,19 +3,21 @@
 import { useEffect, useState, type FormEvent } from "react";
 
 import { useGatewayUser } from "@/components/setup-gate";
-import type { ProviderConnection, ProviderPreset } from "@/features/providers/types/providers.types";
+import type { ProviderAdapter, ProviderConnection, ProviderPreset } from "@/features/providers/types/providers.types";
 import { GatewayAPIError, pocketAIGatewayAdmin } from "@/lib/pocket-ai-gateway-admin.client";
 
 export function useProviders() {
   const user = useGatewayUser();
   const [items, setItems] = useState<ProviderConnection[]>([]);
   const [presets, setPresets] = useState<ProviderPreset[]>([]);
+  const [adapters, setAdapters] = useState<ProviderAdapter[]>([]);
   const [selectedPreset, setSelectedPreset] = useState("");
-  const [adapter, setAdapter] = useState<ProviderConnection["adapter"]>("openai");
+  const [adapter, setAdapter] = useState<ProviderConnection["adapter"]>("");
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
   const selected = presets.find((preset) => preset.id === selectedPreset);
   const fail = (failure: unknown, fallback: string) => setError(failure instanceof GatewayAPIError ? failure.message : fallback);
+  const defaultAdapter = (options = adapters) => options.find((item) => item.default)?.id ?? options[0]?.id ?? "";
 
   async function load() {
     try {
@@ -25,6 +27,8 @@ export function useProviders() {
       ]);
       setItems(connections.data);
       setPresets(availablePresets.data);
+      setAdapters(availablePresets.adapters);
+      setAdapter((current) => current || defaultAdapter(availablePresets.adapters));
       setError("");
     } catch (failure) {
       fail(failure, "Providers are unavailable");
@@ -42,7 +46,7 @@ export function useProviders() {
       await pocketAIGatewayAdmin.providers.createConnection({ name: String(form.get("name")), preset: String(form.get("preset")), adapter: String(form.get("adapter")) as ProviderConnection["adapter"], base_url: String(form.get("base_url")), enabled: true, allow_private_network: form.get("allow_private_network") === "on", timeout_ms: Number(form.get("timeout_ms")) });
       element.reset();
       setSelectedPreset("");
-      setAdapter("openai");
+      setAdapter(defaultAdapter());
       await load();
     } catch (failure) { fail(failure, "Connection could not be created"); } finally { setBusy(false); }
   }
@@ -84,8 +88,8 @@ export function useProviders() {
   function choosePreset(value: string) {
     const preset = value === "custom" ? "" : value;
     setSelectedPreset(preset);
-    setAdapter(presets.find((item) => item.id === preset)?.adapter ?? "openai");
+    setAdapter(presets.find((item) => item.id === preset)?.adapter ?? defaultAdapter());
   }
 
-  return { user, items, presets, selectedPreset, adapter, setAdapter, selected, error, busy, create, credential, addModel, toggle, choosePreset };
+  return { user, items, presets, adapters, selectedPreset, adapter, setAdapter, selected, error, busy, create, credential, addModel, toggle, choosePreset };
 }

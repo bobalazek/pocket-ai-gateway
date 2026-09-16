@@ -1,7 +1,8 @@
 export type ProviderConnection = {
   id: string;
   name: string;
-  adapter: "openai" | "anthropic" | "gemini" | "openai_compatible";
+  adapter: string;
+  adapter_label: string;
   base_url: string;
   enabled: boolean;
   allow_private_network: boolean;
@@ -15,11 +16,20 @@ export type ProviderConnection = {
   updated_at: string;
 };
 
+export type ProviderAdapter = {
+  id: string;
+  label: string;
+  default: boolean;
+  capabilities: string[];
+};
+
 export type ProviderPreset = {
   id: string;
   label: string;
   adapter: ProviderConnection["adapter"];
+  adapter_label: string;
   base_url?: string;
+  base_url_example?: string;
   base_url_required: boolean;
   credential_required: boolean;
   private_network: boolean;

@@ -162,8 +162,8 @@ func TestCatalogValidationAndPresets(t *testing.T) {
 	}
 	available := Presets()
 	for _, preset := range available {
-		if len(preset.Capabilities) == 0 {
-			t.Errorf("%s preset has no published capabilities", preset.ID)
+		if len(preset.Capabilities) == 0 || preset.AdapterLabel == "" || preset.BaseURLRequired && preset.BaseURLExample == "" {
+			t.Errorf("%s preset has incomplete published metadata", preset.ID)
 		}
 	}
 	if !containsString(availableCapabilities("anthropic", "anthropic"), "web_fetch") || containsString(availableCapabilities("custom", "anthropic"), "web_fetch") {
@@ -236,7 +236,7 @@ func TestCatalogValidationAndPresets(t *testing.T) {
 
 func TestRoutingPolicyIsDerivedByTheBackend(t *testing.T) {
 	embedding := routingPolicy([]string{"embeddings"})
-	if len(embedding.AllowedStrategies) != 1 || embedding.AllowedStrategies[0] != "fixed" || embedding.MaxTargetsByStrategy["fixed"] != 1 || !embedding.FreeOnlyAllowed {
+	if len(embedding.AllowedStrategies) != 1 || embedding.AllowedStrategies[0] != "fixed" || embedding.MaxTargetsByStrategy["fixed"] != 1 || len(embedding.Strategies) != 1 || embedding.Strategies[0].Label != "Fixed target" || !embedding.FreeOnlyAllowed {
 		t.Fatalf("embedding routing policy = %#v", embedding)
 	}
 	chat := routingPolicy([]string{"chat"})

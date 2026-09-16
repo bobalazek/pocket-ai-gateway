@@ -2,7 +2,6 @@ import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { routeStrategies } from "@/features/models/components/model-fields";
 import type { useModels } from "@/features/models/hooks/use-models";
 import type { CatalogModel, PublicModel } from "@/features/models/types/models.types";
 
@@ -17,10 +16,10 @@ export function ModelCard({ item, dashboard }: { item: CatalogModel | PublicMode
 
   return (
     <Card className="panel">
-      <div className="resource-row-main"><div><strong>{item.label}</strong><code>{item.id}</code><small>{item.adapter} · {item.capabilities.join(", ")}{dashboard.manager ? ` · ${model.routing_strategy.replaceAll("_", " ")}` : ""}</small></div></div>
+      <div className="resource-row-main"><div><strong>{item.label}</strong><code>{item.id}</code><small>{item.adapter_label} · {item.capabilities.join(", ")}{dashboard.manager ? ` · ${model.routing_policy.strategies.find((option) => option.id === model.routing_strategy)?.label ?? model.routing_strategy}` : ""}</small></div></div>
       {dashboard.manager && (
         <form className="route-preview-controls" onSubmit={(event) => dashboard.preview(event, model)}>
-          <div className="field"><Label htmlFor={`preview-operation-${model.id}`}>Operation</Label><Input id={`preview-operation-${model.id}`} name="operation" defaultValue="chat/completions" required /></div>
+          <div className="field"><Label htmlFor={`preview-operation-${model.id}`}>Operation</Label><Input id={`preview-operation-${model.id}`} name="operation" placeholder="Operation path" required /></div>
           <div className="field"><Label htmlFor={`preview-input-${model.id}`}>Input tokens</Label><Input id={`preview-input-${model.id}`} name="estimated_input_tokens" type="number" min="0" defaultValue="1000" required /></div>
           <div className="field"><Label htmlFor={`preview-output-${model.id}`}>Output tokens</Label><Input id={`preview-output-${model.id}`} name="estimated_output_tokens" type="number" min="0" defaultValue="500" required /></div>
           <label className="checkbox-row"><input name="streaming" type="checkbox" /> Streaming</label>
@@ -32,7 +31,7 @@ export function ModelCard({ item, dashboard }: { item: CatalogModel | PublicMode
           <summary>Routing strategy and targets</summary>
           <form onSubmit={(event) => dashboard.saveRoute(event, model)}>
             <div className="inline-fields">
-              <div className="field"><Label htmlFor={`strategy-${model.id}`}>Strategy</Label><select id={`strategy-${model.id}`} name="strategy" className="select" value={strategy} onChange={(event) => dashboard.selectStrategy(model.id, event.target.value as typeof strategy)}>{routeStrategies.filter((option) => model.routing_policy.allowed_strategies.includes(option.value)).map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}</select></div>
+              <div className="field"><Label htmlFor={`strategy-${model.id}`}>Strategy</Label><select id={`strategy-${model.id}`} name="strategy" className="select" value={strategy} onChange={(event) => dashboard.selectStrategy(model.id, event.target.value as typeof strategy)}>{model.routing_policy.strategies.map((option) => <option key={option.id} value={option.id}>{option.label}</option>)}</select></div>
               {model.routing_policy.free_only_allowed && <label className="checkbox-row"><input name="free_only" type="checkbox" defaultChecked={model.free_only} /> Require verified zero provider pricing</label>}
             </div>
             <div className="resource-list">
