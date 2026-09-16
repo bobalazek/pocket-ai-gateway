@@ -204,7 +204,7 @@ Base path /api/v1/. Server-side session cookies authorize browser operations; se
 | Usage/unknowns | GET /usage, GET /usage/unresolved, POST /admin/usage/adjustments | Scoped reads with separate token/cache/web-search-call counters and known/unknown cost; audited privileged adjustments |
 | Repricing | POST /admin/usage/reprice-preview, POST /admin/usage/reprice | Bounded synchronous preview and idempotent historical adjustments |
 | Unknown reconciliation | POST /admin/usage/reconciliations | Audited token/cost facts that release uncertain reservations |
-| Catalog refresh | GET/PUT /admin/catalog, POST /admin/catalog/refresh | Configured GitHub source, bounded data only, scheduled refresh off by default; candidates never publish automatically |
+| Catalog refresh | GET/PUT /admin/catalog, POST /admin/catalog/refresh | Cursor-paginated candidates, configured GitHub source, bounded data only, scheduled refresh off by default; candidates never publish automatically |
 | Audit/settings | GET /admin/audit, GET/PATCH /admin/settings | Privileged views; owner-only secret/backup/security policy fields |
 | Import/export | POST /admin/config/preview, POST /admin/config/import, GET /admin/config/export | Owner; versioned, redacted, transactional |
 | Backup jobs | GET/POST /admin/backups, GET /admin/backups/{id} | Local/S3 destination; owner and recent authentication for artifact access |

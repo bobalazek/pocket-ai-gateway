@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"database/sql"
+	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"io"
@@ -15,7 +16,10 @@ import (
 	"github.com/bobalazek/pocket-ai-gateway/internal/features/auth"
 )
 
-const maxCatalogBytes = 1 << 20
+const (
+	maxCatalogBytes = 1 << 20
+	catalogPageSize = 50
+)
 
 type Preset struct {
 	ID                 string             `json:"id"`
@@ -251,23 +255,35 @@ func applyPreset(input ConnectionInput) ConnectionInput {
 	return input
 }
 
-func (service *Service) Catalog(ctx context.Context, actor auth.User) ([]CatalogCandidate, CatalogState, error) {
+func (service *Service) Catalog(ctx context.Context, actor auth.User, cursor string) ([]CatalogCandidate, CatalogState, string, error) {
 	if err := requireManager(ctx, service.database, &actor); err != nil {
-		return nil, CatalogState{}, err
+		return nil, CatalogState{}, "", err
 	}
-	rows, err := service.database.QueryContext(ctx, "SELECT provider,model_id,label,capabilities_json,input_nanos_per_million,output_nanos_per_million,free,source,source_version,discovered_at FROM catalog_candidates ORDER BY provider,model_id")
+	afterProvider, afterModel, err := decodeCatalogCursor(cursor)
 	if err != nil {
-		return nil, CatalogState{}, err
+		return nil, CatalogState{}, "", errors.New("cursor must be valid")
 	}
-	defer rows.Close()
-	items := make([]CatalogCandidate, 0)
+	rows, err := service.database.QueryContext(ctx, `SELECT provider,model_id,label,capabilities_json,input_nanos_per_million,output_nanos_per_million,free,source,source_version,discovered_at
+		FROM catalog_candidates
+		WHERE (? = '' OR provider > ? OR (provider = ? AND model_id > ?))
+		ORDER BY provider,model_id LIMIT ?`, afterProvider, afterProvider, afterProvider, afterModel, catalogPageSize+1)
+	if err != nil {
+		return nil, CatalogState{}, "", err
+	}
+	items := make([]CatalogCandidate, 0, catalogPageSize)
+	next := ""
 	for rows.Next() {
 		var item CatalogCandidate
 		var raw string
 		var input, output sql.NullInt64
 		var discovered int64
 		if err := rows.Scan(&item.Provider, &item.ModelID, &item.Label, &raw, &input, &output, &item.Free, &item.Source, &item.SourceVersion, &discovered); err != nil {
-			return nil, CatalogState{}, err
+			return nil, CatalogState{}, "", err
+		}
+		if len(items) == catalogPageSize {
+			last := items[len(items)-1]
+			next = encodeCatalogCursor(last.Provider, last.ModelID)
+			break
 		}
 		_ = json.Unmarshal([]byte(raw), &item.Capabilities)
 		item.CapabilityDetails = capabilityDetails(item.Capabilities)
@@ -281,10 +297,34 @@ func (service *Service) Catalog(ctx context.Context, actor auth.User) ([]Catalog
 		items = append(items, item)
 	}
 	if err := rows.Err(); err != nil {
-		return nil, CatalogState{}, err
+		rows.Close()
+		return nil, CatalogState{}, "", err
+	}
+	if err := rows.Close(); err != nil {
+		return nil, CatalogState{}, "", err
 	}
 	state, err := service.catalogState(ctx)
-	return items, state, err
+	return items, state, next, err
+}
+
+func encodeCatalogCursor(provider, modelID string) string {
+	raw, _ := json.Marshal([2]string{provider, modelID})
+	return base64.RawURLEncoding.EncodeToString(raw)
+}
+
+func decodeCatalogCursor(value string) (string, string, error) {
+	if value == "" {
+		return "", "", nil
+	}
+	raw, err := base64.RawURLEncoding.DecodeString(value)
+	if err != nil {
+		return "", "", err
+	}
+	var cursor [2]string
+	if err = json.Unmarshal(raw, &cursor); err != nil || cursor[0] == "" || cursor[1] == "" {
+		return "", "", errors.New("invalid cursor")
+	}
+	return cursor[0], cursor[1], nil
 }
 
 func (service *Service) ConfigureCatalog(ctx context.Context, actor auth.User, sourceURL string, enabled bool, interval int64) (CatalogState, error) {

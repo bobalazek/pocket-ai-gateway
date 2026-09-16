@@ -17,6 +17,7 @@ export function useModelsData(canManage: boolean) {
   const [selectedStrategies, setSelectedStrategies] = useState<Record<string, RouteStrategy>>({});
   const [catalog, setCatalog] = useState<CatalogCandidate[]>([]);
   const [catalogState, setCatalogState] = useState<CatalogState | null>(null);
+  const [catalogCursor, setCatalogCursor] = useState("");
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
   const generation = useRef(0);
@@ -34,6 +35,7 @@ export function useModelsData(canManage: boolean) {
         setRoutes({});
         setCatalog([]);
         setCatalogState(null);
+        setCatalogCursor("");
       } else {
         const [managed, connections, catalogResult] = await Promise.all([
           pocketAIGatewayAdmin.models.managedModels(),
@@ -51,6 +53,7 @@ export function useModelsData(canManage: boolean) {
         setAvailableTargets(Object.fromEntries(routePages.map((page) => [page.model.id, page.available_targets])));
         setCatalog(catalogResult.data);
         setCatalogState(catalogResult.state);
+        setCatalogCursor(catalogResult.next_cursor);
       }
       setSelectedStrategies({});
       setError("");
@@ -67,6 +70,23 @@ export function useModelsData(canManage: boolean) {
   const publishCapabilities = targetsByID[selectedTarget]?.capability_details ?? [];
   const selectStrategy = (modelID: string, strategy: RouteStrategy) => setSelectedStrategies((current) => ({ ...current, [modelID]: strategy }));
 
+  const loadMoreCatalog = useCallback(async () => {
+    if (!catalogCursor) return;
+    const current = generation.current;
+    setBusy(true);
+    try {
+      const page = await pocketAIGatewayAdmin.models.catalog(catalogCursor);
+      if (current !== generation.current) return;
+      setCatalog((items) => [...items, ...page.data]);
+      setCatalogCursor(page.next_cursor);
+      setError("");
+    } catch (failure) {
+      if (current === generation.current) setError(failureText(failure, "The next catalog page could not be loaded"));
+    } finally {
+      if (current === generation.current) setBusy(false);
+    }
+  }, [catalogCursor]);
+
   return {
     models,
     targets,
@@ -78,10 +98,12 @@ export function useModelsData(canManage: boolean) {
     routes,
     catalog,
     catalogState,
+    catalogCursor,
     setCatalogState,
     publishCapabilities,
     error,
     busy,
     load,
+    loadMoreCatalog,
   };
 }

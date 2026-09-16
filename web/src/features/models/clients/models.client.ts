@@ -1,4 +1,4 @@
-import type { CatalogCandidate, CatalogModel, CatalogState, PublicModel, RoutePlan, RoutePreviewInput, RouteStrategy, RouteTargetInput } from "@/features/models/types/models.types";
+import type { CatalogModel, CatalogPage, CatalogState, PublicModel, RoutePlan, RoutePreviewInput, RouteStrategy, RouteTargetInput } from "@/features/models/types/models.types";
 import type { ProviderConnection, UpstreamModel } from "@/features/providers/types/providers.types";
 import { gatewayTransport } from "@/lib/api-client";
 
@@ -11,7 +11,7 @@ export const modelsClient = {
   routeConfig: (id: string) => gatewayTransport.request<{ model: PublicModel; targets: RouteTargetInput[]; available_targets: UpstreamModel[] }>(`/api/v1/admin/models/${encodeURIComponent(id)}/route`),
   updateRoute: (model: PublicModel, input: { strategy: RouteStrategy; free_only: boolean; targets: RouteTargetInput[] }) => gatewayTransport.request<{ model: PublicModel }>(`/api/v1/admin/models/${encodeURIComponent(model.id)}/route`, { method: "PUT", revision: model.revision, body: input }),
   previewRoute: (id: string, input: RoutePreviewInput) => gatewayTransport.request<{ route: RoutePlan }>(`/api/v1/admin/models/${encodeURIComponent(id)}/route-preview`, { method: "POST", body: input }),
-  catalog: () => gatewayTransport.request<{ data: CatalogCandidate[]; state: CatalogState }>("/api/v1/admin/catalog"),
+  catalog: (cursor = "") => gatewayTransport.request<CatalogPage>(`/api/v1/admin/catalog${cursor ? `?cursor=${encodeURIComponent(cursor)}` : ""}`),
   configureCatalog: (input: { source_url: string; refresh_enabled: boolean; refresh_interval_hours: number }) => gatewayTransport.request<{ state: CatalogState }>("/api/v1/admin/catalog", { method: "PUT", body: input }),
   refreshCatalog: () => gatewayTransport.request<{ state: CatalogState }>("/api/v1/admin/catalog/refresh", { method: "POST" }),
 };

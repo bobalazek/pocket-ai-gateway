@@ -11,9 +11,9 @@ describe("modelsClient", () => {
     const request = vi.spyOn(gatewayTransport, "request").mockResolvedValue({});
     await modelsClient.routeConfig("assistant/unsafe");
     await modelsClient.updateRoute({ id: "assistant", revision: 4 } as PublicModel, { strategy: "ordered_fallback", free_only: false, targets: [] });
-    await modelsClient.catalog();
+    await modelsClient.catalog("next/page");
     expect(request.mock.calls[0][0]).toBe("/api/v1/admin/models/assistant%2Funsafe/route");
     expect(request.mock.calls[1]).toEqual(["/api/v1/admin/models/assistant/route", expect.objectContaining({ revision: 4 })]);
-    expect(request.mock.calls[2][0]).toBe("/api/v1/admin/catalog");
+    expect(request.mock.calls[2][0]).toBe("/api/v1/admin/catalog?cursor=next%2Fpage");
   });
 });
