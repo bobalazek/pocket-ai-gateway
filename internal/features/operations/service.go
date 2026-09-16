@@ -100,6 +100,11 @@ func New(store *storage.Store, providerService *providers.Service, version strin
 	return &Service{store: store, providers: providerService, version: version, getenv: getenv, started: time.Now()}
 }
 
+func (service *Service) Recover(ctx context.Context) error {
+	_, err := service.store.SystemDB().ExecContext(ctx, `UPDATE backup_jobs SET state='failed',error='backup outcome unknown after process restart or restore',finished_at=? WHERE state='running'`, time.Now().UnixMilli())
+	return err
+}
+
 func (service *Service) Settings(ctx context.Context) (Settings, error) {
 	var value Settings
 	var enabled bool
@@ -365,7 +370,7 @@ func (service *Service) RunDue(ctx context.Context) error {
 		return err
 	}
 	var latest sql.NullInt64
-	if err := service.store.SystemDB().QueryRowContext(ctx, `SELECT MAX(started_at) FROM backup_jobs`).Scan(&latest); err != nil {
+	if err := service.store.SystemDB().QueryRowContext(ctx, `SELECT MAX(started_at) FROM backup_jobs WHERE state='succeeded'`).Scan(&latest); err != nil {
 		return err
 	}
 	if latest.Valid && time.Since(time.UnixMilli(latest.Int64)) < time.Duration(settings.BackupIntervalHours)*time.Hour {

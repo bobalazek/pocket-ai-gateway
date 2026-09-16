@@ -541,6 +541,94 @@ func TestS3UploadSignsAndRetries(t *testing.T) {
 	}
 }
 
+func TestS3BackupUploadsEncryptedPairedSnapshotThatRestores(t *testing.T) {
+	ctx := context.Background()
+	root := t.TempDir()
+	dataDir := filepath.Join(root, "data")
+	store, err := storage.Open(ctx, dataDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+	if _, err := store.SystemDB().ExecContext(ctx, `INSERT INTO gateway_metadata(key,value) VALUES('s3_system','system-value')`); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.DataDB().ExecContext(ctx, `INSERT INTO projection_metadata(key,value) VALUES('s3_data','data-value')`); err != nil {
+		t.Fatal(err)
+	}
+	masterKey := []byte("01234567890123456789012345678901")
+	if err := os.WriteFile(filepath.Join(dataDir, "master.key"), masterKey, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	staging := filepath.Join(root, "staging")
+	if _, err := store.SystemDB().ExecContext(ctx, `UPDATE operation_settings SET backup_destination='s3',local_directory=?,s3_endpoint='http://127.0.0.1:9000',s3_region='us-east-1',s3_bucket='bucket',s3_prefix='backups',s3_access_key_env='ACCESS',s3_secret_key_env='SECRET' WHERE singleton=1`, staging); err != nil {
+		t.Fatal(err)
+	}
+
+	backupKey := make([]byte, 32)
+	if _, err := rand.Read(backupKey); err != nil {
+		t.Fatal(err)
+	}
+	environment := map[string]string{
+		"POCKET_AI_GATEWAY_BACKUP_KEY": base64.StdEncoding.EncodeToString(backupKey),
+		"ACCESS":                       "access",
+		"SECRET":                       "secret",
+	}
+	var uploaded []byte
+	var objectPath string
+	previousClient := s3Client
+	t.Cleanup(func() { s3Client = previousClient })
+	s3Client = &http.Client{Transport: roundTripFunc(func(request *http.Request) (*http.Response, error) {
+		objectPath = request.URL.Path
+		body, readErr := io.ReadAll(request.Body)
+		if readErr != nil {
+			return nil, readErr
+		}
+		uploaded = body
+		return &http.Response{StatusCode: http.StatusNoContent, Body: io.NopCloser(strings.NewReader("")), Header: make(http.Header)}, nil
+	})}
+	service := New(store, providers.New(store.SystemDB(), masterKey), "test", func(name string) string { return environment[name] })
+	job, err := service.RunBackup(ctx, "")
+	if err != nil || job.State != "succeeded" || job.Destination != "s3" || len(uploaded) == 0 || objectPath != "/bucket/backups/"+job.ArchiveName {
+		t.Fatalf("backup = %+v, object = %q, uploaded = %d, error = %v", job, objectPath, len(uploaded), err)
+	}
+	if _, err := os.Stat(filepath.Join(staging, job.ArchiveName)); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("S3 staging archive remains: %v", err)
+	}
+	jobs, err := service.ListBackups(ctx)
+	if err != nil || len(jobs) != 1 || jobs[0].ID != job.ID || jobs[0].State != "succeeded" || jobs[0].Checksum != job.Checksum {
+		t.Fatalf("stored backup jobs = %+v, error = %v", jobs, err)
+	}
+	archive := filepath.Join(root, job.ArchiveName)
+	if err := os.WriteFile(archive, uploaded, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	checksum, size, err := hashArchive(ctx, archive)
+	if err != nil || checksum != job.Checksum || size != job.SizeBytes {
+		t.Fatalf("uploaded archive = %q/%d, job = %q/%d, error = %v", checksum, size, job.Checksum, job.SizeBytes, err)
+	}
+	restoredDir := filepath.Join(root, "restored")
+	if err := storage.RestoreEncryptedSnapshot(ctx, archive, restoredDir, backupKey); err != nil {
+		t.Fatal(err)
+	}
+	restored, err := storage.Open(ctx, restoredDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer restored.Close()
+	var systemValue, dataValue string
+	if err := restored.SystemDB().QueryRowContext(ctx, `SELECT value FROM gateway_metadata WHERE key='s3_system'`).Scan(&systemValue); err != nil || systemValue != "system-value" {
+		t.Fatalf("restored system value = %q, error = %v", systemValue, err)
+	}
+	if err := restored.DataDB().QueryRowContext(ctx, `SELECT value FROM projection_metadata WHERE key='s3_data'`).Scan(&dataValue); err != nil || dataValue != "data-value" {
+		t.Fatalf("restored data value = %q, error = %v", dataValue, err)
+	}
+	gotMasterKey, err := os.ReadFile(filepath.Join(restoredDir, "master.key"))
+	if err != nil || string(gotMasterKey) != string(masterKey) {
+		t.Fatalf("restored master key mismatch: %v", err)
+	}
+}
+
 func TestArchiveHashHonorsCancellation(t *testing.T) {
 	filename := filepath.Join(t.TempDir(), "archive")
 	if err := os.WriteFile(filename, []byte("content"), 0o600); err != nil {
@@ -573,6 +661,61 @@ func TestBackupFailureIsRecorded(t *testing.T) {
 	jobs, err := service.ListBackups(ctx)
 	if err != nil || len(jobs) != 1 || jobs[0].State != "failed" || jobs[0].Error == "" {
 		t.Fatalf("jobs = %+v, error = %v", jobs, err)
+	}
+}
+
+func TestRecoverMarksRunningBackupsInterrupted(t *testing.T) {
+	ctx := context.Background()
+	store, err := storage.Open(ctx, filepath.Join(t.TempDir(), "data"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+	now := time.Now().UnixMilli()
+	if _, err := store.SystemDB().ExecContext(ctx, `INSERT INTO backup_jobs(id,state,destination,archive_name,started_at) VALUES('bak_running','running','local','running.pagbak',?)`, now); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.SystemDB().ExecContext(ctx, `INSERT INTO backup_jobs(id,state,destination,archive_name,started_at,finished_at) VALUES('bak_succeeded','succeeded','local','succeeded.pagbak',?,?)`, now-1, now); err != nil {
+		t.Fatal(err)
+	}
+	service := New(store, providers.New(store.SystemDB(), make([]byte, 32)), "test", func(string) string { return "" })
+	if err := service.Recover(ctx); err != nil {
+		t.Fatal(err)
+	}
+	var state, message string
+	var finished sql.NullInt64
+	if err := store.SystemDB().QueryRowContext(ctx, `SELECT state,error,finished_at FROM backup_jobs WHERE id='bak_running'`).Scan(&state, &message, &finished); err != nil || state != "failed" || message != "backup outcome unknown after process restart or restore" || !finished.Valid {
+		t.Fatalf("recovered backup = %q/%q/%v, error = %v", state, message, finished, err)
+	}
+	if err := store.SystemDB().QueryRowContext(ctx, `SELECT state FROM backup_jobs WHERE id='bak_succeeded'`).Scan(&state); err != nil || state != "succeeded" {
+		t.Fatalf("completed backup state = %q, error = %v", state, err)
+	}
+}
+
+func TestScheduledBackupRetriesAfterFailedAttempt(t *testing.T) {
+	ctx := context.Background()
+	store, err := storage.Open(ctx, filepath.Join(t.TempDir(), "data"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+	now := time.Now()
+	if _, err := store.SystemDB().ExecContext(ctx, `UPDATE operation_settings SET backup_enabled=1,backup_interval_hours=24 WHERE singleton=1`); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.SystemDB().ExecContext(ctx, `INSERT INTO backup_jobs(id,state,destination,archive_name,started_at,finished_at) VALUES('bak_old','succeeded','local','old.pagbak',?,?)`, now.Add(-25*time.Hour).UnixMilli(), now.Add(-25*time.Hour).UnixMilli()); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.SystemDB().ExecContext(ctx, `INSERT INTO backup_jobs(id,state,destination,archive_name,error,started_at,finished_at) VALUES('bak_failed','failed','local','failed.pagbak','failed',?,?)`, now.UnixMilli(), now.UnixMilli()); err != nil {
+		t.Fatal(err)
+	}
+	service := New(store, providers.New(store.SystemDB(), make([]byte, 32)), "test", func(string) string { return "" })
+	if err := service.RunDue(ctx); err == nil {
+		t.Fatal("scheduled backup was suppressed by a failed attempt")
+	}
+	var jobs int
+	if err := store.SystemDB().QueryRowContext(ctx, `SELECT COUNT(*) FROM backup_jobs`).Scan(&jobs); err != nil || jobs != 3 {
+		t.Fatalf("backup jobs = %d, error = %v", jobs, err)
 	}
 }
 

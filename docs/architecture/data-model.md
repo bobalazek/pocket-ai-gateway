@@ -4,7 +4,7 @@ Logical schema for implementation. Phases 1–2 migrations cover the local store
 
 ## Conventions
 
-Use two stores: system.db for identity/configuration and authoritative admission/accounting, and data.db for rich history and analytical projections. Both default to local SQLite; each can explicitly use a certified remote libSQL/Turso backend. Settings holds only small typed instance settings that do not need relational ownership.
+Use two stores: system.db for identity/configuration and authoritative admission/accounting, and data.db for rich history and analytical projections. Both use local SQLite in v0.1. A future remote libSQL/Turso backend requires separate certification before it can be selected. Settings holds only small typed instance settings that do not need relational ownership.
 
 IDs are stable, opaque, randomly generated identifiers. Public names are mutable presentation/API aliases, never authorization IDs. Timestamps are UTC integer milliseconds internally and RFC 3339 in management responses. Durations use explicit units.
 

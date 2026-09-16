@@ -4,12 +4,16 @@ import (
 	"bytes"
 	"context"
 	"crypto/rand"
+	"database/sql"
 	"encoding/base64"
 	"io"
+	"net"
+	"net/http"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/bobalazek/pocket-ai-gateway/internal/features/auth"
 	"github.com/bobalazek/pocket-ai-gateway/internal/storage"
@@ -148,6 +152,69 @@ func TestServeRejectsEncryptedFilesWithoutMasterKey(t *testing.T) {
 	}
 	if _, err = os.Stat(filepath.Join(dataDir, "master.key")); !os.IsNotExist(err) {
 		t.Fatalf("missing master key was replaced: %v", err)
+	}
+}
+
+func TestServeRecoversInterruptedBackupJobs(t *testing.T) {
+	dataDir := filepath.Join(t.TempDir(), "data")
+	store, err := storage.Open(context.Background(), dataDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.SystemDB().Exec(`INSERT INTO backup_jobs(id,state,destination,archive_name,started_at) VALUES('bak_interrupted','running','local','interrupted.pagbak',1)`); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	listener, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	address := listener.Addr().String()
+	if err := listener.Close(); err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan error, 1)
+	go func() { done <- serve(ctx, "test", Config{Listen: address, DataDir: dataDir}, io.Discard) }()
+	client := &http.Client{Timeout: 100 * time.Millisecond}
+	deadline := time.Now().Add(2 * time.Second)
+	for {
+		response, requestErr := client.Get("http://" + address + "/readyz")
+		if requestErr == nil {
+			_ = response.Body.Close()
+			if response.StatusCode == http.StatusOK {
+				break
+			}
+		}
+		select {
+		case serveErr := <-done:
+			t.Fatalf("serve stopped before readiness: %v", serveErr)
+		default:
+		}
+		if time.Now().After(deadline) {
+			cancel()
+			t.Fatal("serve did not become ready")
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	database, err := sql.Open("sqlite", filepath.Join(dataDir, "system.db"))
+	if err != nil {
+		cancel()
+		t.Fatal(err)
+	}
+	defer database.Close()
+	var state, message string
+	var finished sql.NullInt64
+	if err = database.QueryRow(`SELECT state,error,finished_at FROM backup_jobs WHERE id='bak_interrupted'`).Scan(&state, &message, &finished); err != nil || state != "failed" || message != "backup outcome unknown after process restart or restore" || !finished.Valid {
+		cancel()
+		t.Fatalf("backup was not recovered: %q/%q/%v, error = %v", state, message, finished, err)
+	}
+	cancel()
+	if err := <-done; err != nil {
+		t.Fatal(err)
 	}
 }
 

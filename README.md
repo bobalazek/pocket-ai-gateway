@@ -27,7 +27,11 @@ docker compose up --build -d
 docker compose logs gateway
 ```
 
-Open [http://localhost:8080/_/](http://localhost:8080/_/). Compose keeps gateway data and backups in persistent named volumes.
+Open [http://localhost:8080/_/](http://localhost:8080/_/). Compose keeps `/data` and the default `/data_backups` directory in separate persistent named volumes.
+
+The image starts the gateway by default. Set `POCKET_AI_GATEWAY_PUBLIC_URL` to the external HTTPS origin when deploying behind a proxy.
+
+Run the container backup/restore journey locally with `./scripts/compose-e2e.sh`. It builds the production image, completes onboarding, creates an encrypted paired-store backup, restores it into a clean volume, and verifies the restored account after restart.
 
 ### Build once, run one executable
 

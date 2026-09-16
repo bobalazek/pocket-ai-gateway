@@ -1,6 +1,6 @@
 # Implementation phases
 
-Status: Phases 1 through 7 are complete. Phase 8 is in progress.
+Status: Phases 1 through 7 are complete. Phase 8 is closed for this release with optional live-provider, remote-database, and additional vendor-resource expansion explicitly deferred.
 
 ## Build order
 
@@ -30,7 +30,7 @@ Effort bands are relative implementation sizes, not calendar promises: S is a bo
 | 4 | Native OpenAI/Anthropic/Gemini features and provider/model configuration | Providers, Models, request history, basic playground | L / medium | Optional test credentials |
 | 5 | All three protocol families, tools/streams, and translated Responses | Compatibility/error explanations and request detail | XL / medium-low | Pinned SDKs, cost-limited provider tests |
 | 6 | Provider presets, catalog, all routing strategies | Route preview, strategy controls, catalog/price refresh | L / medium | Provider certification evidence |
-| 7 | Remote-store certification, local/S3 recovery, Docker/binaries, security | Settings, backups, audit, recovery guidance | XL / medium | Signing/release setup, security contact, optional remote test accounts |
+| 7 | Local SQLite authority, local/S3 recovery, Docker/binaries, security | Settings, backups, audit, recovery guidance | XL / medium | Signing/release setup and security contact |
 | 8 | Broader providers, remaining API parity, optional safe self-update | New presets and explicit update flow | XL / low until probes | Cloud accounts/auth flows and platform evidence |
 
 ## Phase specifications
@@ -46,7 +46,7 @@ Each phase file contains backend work items, frontend scope, requirements, depen
 | 5 | [Compatibility, translation, and usable alpha](phase-05-cross-protocol-compatibility.md) | Complete |
 | 6 | [Routing strategies and provider catalog](phase-06-routing-provider-catalog.md) | Complete |
 | 7 | [Operations, security, and v0.1 release](phase-07-operations-release.md) | Complete |
-| 8 | [Broader providers, full API inventory, and optional self-update](phase-08-provider-api-expansion.md) | In progress |
+| 8 | [Provider expansion, compatibility inventory, and optional self-update](phase-08-provider-api-expansion.md) | Closed; optional expansion deferred |
 
 ## Requirement coverage
 
@@ -66,7 +66,7 @@ This table assigns each requirement to delivery phases. Phase 1 provides only th
 | COST-01 | 3, 4, 6 |
 | ROUTE-01 | 4 fixed, 6 strategies/fallback |
 | DATA-01 | 1–5, 7 |
-| DATA-02 | 1 local stores, 3 outbox, 7 remote certification/recovery |
+| DATA-02 | 1 local stores, 3 outbox, 7 local recovery; optional remote certification deferred by ADR-051 |
 | COST-02 | 3 historical pricing, 6 catalog price source, 7 retention/recovery |
 | UI-01 | 1–7, paired with backend slices |
 | SEC-01 | 1–7, applied as each boundary is introduced |
@@ -98,4 +98,4 @@ Normal CI never needs paid providers. Live tests are isolated, explicitly enable
 
 Implement one bounded work item at a time in this repository. Update its status and evidence after checks pass. Review financial/security/data-loss boundaries before declaring the containing phase complete. Do not generate all future directories, tables, interfaces, or placeholder endpoints upfront.
 
-The next action is Phase 8 provider/API expansion and explicit updates.
+The v0.1 implementation phases are complete and Phase 8 is closed with its optional expansion recorded as future work. Remaining release actions require maintainer credentials or an explicit future scope decision and are tracked in the [human tasks](../project/human-tasks.md), [release checklist](../project/release-checklist.md), and [API parity inventory](../project/api-parity-inventory.md).

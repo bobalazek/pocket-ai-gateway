@@ -210,6 +210,9 @@ func serve(ctx context.Context, version string, cfg Config, logOutput io.Writer)
 	keyService := keys.New(stores.SystemDB())
 	gatewayHandler := gateway.NewWithMasterKey(stores.SystemDB(), keyService, providerService, usageService, masterKey, publicOrigin)
 	operationService := operations.New(stores, providerService, version, os.Getenv)
+	if err := operationService.Recover(ctx); err != nil {
+		return fmt.Errorf("recover backup jobs: %w", err)
+	}
 	if err := usageService.Recover(ctx); err != nil {
 		return fmt.Errorf("recover usage accounting: %w", err)
 	}

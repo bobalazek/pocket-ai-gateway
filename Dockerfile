@@ -16,14 +16,18 @@ COPY go.mod go.sum ./
 RUN go mod download
 COPY . .
 COPY --from=dashboard /src/web/out ./web/out
-RUN CGO_ENABLED=0 go build -trimpath -ldflags "-s -w -X=main.version=${VERSION}" -o /pocket-ai-gateway ./cmd/pocket-ai-gateway && mkdir /data /backups
+RUN CGO_ENABLED=0 go build -trimpath -ldflags "-s -w -X=main.version=${VERSION}" -o /pocket-ai-gateway ./cmd/pocket-ai-gateway && mkdir /data /data_backups /backups
 
 FROM gcr.io/distroless/static-debian12:nonroot
+ENV POCKET_AI_GATEWAY_LISTEN=0.0.0.0:8080 \
+    POCKET_AI_GATEWAY_DATA_DIR=/data \
+    POCKET_AI_GATEWAY_PUBLIC_URL=http://localhost:8080
 COPY --from=builder --chown=nonroot:nonroot /pocket-ai-gateway /usr/local/bin/pocket-ai-gateway
 COPY --from=builder /src/LICENSE /src/THIRD_PARTY_NOTICES.md /usr/share/licenses/pocket-ai-gateway/
 COPY --from=builder --chown=nonroot:nonroot /data /data
+COPY --from=builder --chown=nonroot:nonroot /data_backups /data_backups
 COPY --from=builder --chown=nonroot:nonroot /backups /backups
-VOLUME ["/data", "/backups"]
+VOLUME ["/data", "/data_backups", "/backups"]
 EXPOSE 8080
 ENTRYPOINT ["/usr/local/bin/pocket-ai-gateway"]
-CMD ["help"]
+CMD ["serve", "--allow-insecure-http"]

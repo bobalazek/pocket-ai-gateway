@@ -18,7 +18,8 @@ cd pocket-ai-gateway
 Create a private, persistent data directory owned by the service account:
 
 ```sh
-sudo install -d -m 0700 -o pocket-gateway -g pocket-gateway /var/lib/pocket-ai-gateway
+sudo install -d -m 0700 -o pocket-gateway -g pocket-gateway \
+  /var/lib/pocket-ai-gateway /var/lib/pocket-ai-gateway_backups
 sudo install -m 0755 dist/pocket-ai-gateway /usr/local/bin/pocket-ai-gateway
 ```
 
@@ -66,7 +67,7 @@ NoNewPrivileges=true
 PrivateTmp=true
 ProtectSystem=strict
 ProtectHome=true
-ReadWritePaths=/var/lib/pocket-ai-gateway /var/backups/pocket-ai-gateway
+ReadWritePaths=/var/lib/pocket-ai-gateway /var/lib/pocket-ai-gateway_backups
 
 [Install]
 WantedBy=multi-user.target
@@ -89,21 +90,15 @@ docker compose up --build -d
 docker compose logs gateway
 ```
 
-It stores `/data` and `/backups` in separate named volumes. Set `POCKET_AI_GATEWAY_BACKUP_KEY` in the Compose environment, then choose `/backups` as the local backup directory in **Settings**.
+It stores `/data` and the default `/data_backups` directory in separate named volumes. The backup volume is also mounted at the former `/backups` path so existing saved settings keep working during upgrade. Set `POCKET_AI_GATEWAY_BACKUP_KEY` in the Compose environment to enable manual encrypted backups; enable and schedule recurring backups in **Settings**.
 
-For production, run the container behind HTTPS and replace the local command with the public origin:
+For production, run the container behind HTTPS and set the public origin:
 
 ```yaml
 services:
   gateway:
-    command:
-      - serve
-      - --listen
-      - 0.0.0.0:8080
-      - --data-dir
-      - /data
-      - --public-url
-      - https://gateway.example.com
+    environment:
+      POCKET_AI_GATEWAY_PUBLIC_URL: https://gateway.example.com
 ```
 
 Publish the container port only to the reverse-proxy host or private container network. Never share one SQLite volume between replicas, hosts, or overlapping gateway processes.
