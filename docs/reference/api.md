@@ -57,7 +57,7 @@ Compatible responses keep their native usage fields. After admission, every forw
 | POST /api/openai/v1/embeddings | OpenAI embedding inputs/indexes/encoding/dimensions/usage |
 | POST /api/openai/v1/moderations | Native OpenAI moderation request and taxonomy; no streaming or cross-provider translation |
 | GET /api/openai/v1/models and /models/{id} beneath that root | OpenAI model list/detail; authorized public models |
-| POST /api/anthropic/v1/messages | Anthropic message/content blocks, stop reasons, usage, typed content stream, and bounded native JSON/SSE `web_search_20250305` with `messages:web_search` |
+| POST /api/anthropic/v1/messages | Anthropic message/content blocks, stop reasons, usage, typed content stream with a stable public model alias, and bounded native JSON/SSE `web_search_20250305` with `messages:web_search` |
 | POST /api/anthropic/v1/messages/count_tokens | Target-appropriate counting; no invented exact cross-model token count |
 | POST/GET /api/anthropic/v1/messages/batches | Create a key-owned batch of 1–4 ordinary non-streaming Messages in a 16 MiB submission, or list the creating key's batches with cursor pagination |
 | GET/DELETE /api/anthropic/v1/messages/batches/{id} | Poll or delete an ended gateway-owned Message Batch |

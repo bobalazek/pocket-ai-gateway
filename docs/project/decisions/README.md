@@ -30,6 +30,7 @@ Each record states status/source, context, decision, and consequences. A recomme
 | ADR-022 | [Go package boundaries](2026-09-15-go-package-boundaries.md) | Delegated technical choice |
 | ADR-023 | [Gateway-owned OpenAI batch files](2026-09-15-gateway-owned-openai-batch-files.md) | Accepted bounded Phase 8 contract |
 | ADR-024 | [Gateway-owned OpenAI Responses Batches](2026-09-15-gateway-owned-openai-responses-batches.md) | Accepted bounded Phase 8 contract |
+| ADR-025 | [Anthropic streams use the public model alias](2026-09-15-anthropic-stream-public-model.md) | Technical choice superseding only ADR-020's complete-message_start preservation |
 
 Historical: [initial proposal](2026-09-14-initial-proposal.md), superseded by the records above where they differ. Its A/P/D/M identifiers are historical references only; current documents use ADR IDs.
 

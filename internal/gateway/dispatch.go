@@ -43,7 +43,7 @@ func permanentSettlementError(err error) bool {
 	return errors.Is(err, usage.ErrConflict) || errors.Is(err, usage.ErrNotFound)
 }
 
-func (handler *Handler) dispatch(response http.ResponseWriter, request *http.Request, target providers.Target, relative string, body []byte, stream bool, dialect string, captureStreamTail bool, releaseDispatch func()) (int, []byte, error) {
+func (handler *Handler) dispatch(response http.ResponseWriter, request *http.Request, target providers.Target, relative string, body []byte, stream bool, dialect, publicModel string, captureStreamTail bool, releaseDispatch func()) (int, []byte, error) {
 	released := false
 	release := func() {
 		if !released {
@@ -117,7 +117,11 @@ func (handler *Handler) dispatch(response http.ResponseWriter, request *http.Req
 		window = &headTailCapture{head: limitedCapture{limit: 1 << 20}, tail: tailCapture{limit: maxInferenceBody}}
 		captureWriter = window
 	}
-	_, err = io.Copy(flushWriter{writer: response, flusher: flusher}, io.TeeReader(result.Body, captureWriter))
+	if dialect == "anthropic" {
+		err = copyAnthropicStream(io.MultiWriter(flushWriter{writer: response, flusher: flusher}, captureWriter), result.Body, publicModel)
+	} else {
+		_, err = io.Copy(flushWriter{writer: response, flusher: flusher}, io.TeeReader(result.Body, captureWriter))
+	}
 	raw := capture.Bytes()
 	if tail != nil {
 		raw = tail.Bytes()
