@@ -114,7 +114,9 @@ func checkRetainedResourceCapacity(ctx context.Context, query responseQueryer, o
 			UNION ALL
 			SELECT openai_batches.owner_user_id,openai_batches.key_id,length(openai_batch_items.request_ciphertext)+length(openai_batch_items.request_nonce)+CASE WHEN openai_batch_items.state IN ('queued','claimed','dispatching','settling') THEN MAX(openai_batch_items.reserved_result_bytes,COALESCE(length(openai_batch_items.result_ciphertext),0)+COALESCE(length(openai_batch_items.result_nonce),0)) ELSE COALESCE(length(openai_batch_items.result_ciphertext),0)+COALESCE(length(openai_batch_items.result_nonce),0) END AS size
 			FROM openai_batch_items JOIN openai_batches ON openai_batches.id=openai_batch_items.batch_id WHERE openai_batches.retention_expires_at>?
-		)`, ownerID, ownerID, keyID, keyID, maxInferenceBody, time.Now().UnixMilli(), time.Now().UnixMilli(), time.Now().UnixMilli(), time.Now().UnixMilli(), time.Now().UnixMilli(), time.Now().UnixMilli(), time.Now().UnixMilli()).Scan(&count, &size, &ownerCount, &ownerSize, &keyCount, &keySize)
+			UNION ALL
+			SELECT owner_user_id,key_id,length(name)+length(description)+length(metadata_json) AS size FROM openai_vector_stores WHERE expires_at IS NULL OR expires_at>?
+		)`, ownerID, ownerID, keyID, keyID, maxInferenceBody, time.Now().UnixMilli(), time.Now().UnixMilli(), time.Now().UnixMilli(), time.Now().UnixMilli(), time.Now().UnixMilli(), time.Now().UnixMilli(), time.Now().UnixMilli(), time.Now().UnixMilli()).Scan(&count, &size, &ownerCount, &ownerSize, &keyCount, &keySize)
 	if err != nil {
 		return err
 	}

@@ -37,3 +37,9 @@ func TestOpenAIFilesScopeIsAnInferenceScope(t *testing.T) {
 		t.Fatal("files:manage was rejected")
 	}
 }
+
+func TestOpenAIVectorStoresScopeIsAnInferenceScope(t *testing.T) {
+	if !ValidInferenceScope("vector_stores:manage") {
+		t.Fatal("vector_stores:manage was rejected")
+	}
+}
