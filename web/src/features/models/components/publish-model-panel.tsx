@@ -10,7 +10,7 @@ export function PublishModelPanel({ model }: { model: ModelsModel }) {
   return (
     <Card className="panel">
       <h2>Publish model</h2>
-      <form onSubmit={model.create}>
+      <form onSubmit={model.publishModel}>
         <div className="inline-fields"><ModelField id="id" label="Public model ID" required /><ModelField id="label" label="Display name" required /></div>
         <ModelField id="description" label="Description" />
         <div className="field">

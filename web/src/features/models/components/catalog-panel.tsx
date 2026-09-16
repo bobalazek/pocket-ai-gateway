@@ -15,7 +15,7 @@ export function CatalogPanel({ model }: { model: ModelsModel }) {
     <Card className="panel">
       <h2>Provider catalog</h2>
       <p className="help-text">Refresh imports bounded metadata candidates only. Review a candidate below, then <Link href="/providers/">add its model to the matching provider</Link> and publish the stable public ID above. Local model and price entries remain authoritative.</p>
-      <form onSubmit={model.saveCatalog}>
+      <form onSubmit={model.updateCatalog}>
         <ModelField id="source_url" label="GitHub catalog JSON URL" type="url" defaultValue={state.source_url} />
         <div className="inline-fields"><ModelField id="refresh_interval_hours" label="Refresh interval (hours)" type="number" defaultValue={String(state.refresh_interval_hours)} required /><label className="checkbox-row"><input name="refresh_enabled" type="checkbox" defaultChecked={state.refresh_enabled} /> Enable scheduled refresh</label></div>
         <div className="button-row"><Button disabled={model.busy}>Save catalog settings</Button><Button type="button" variant="outline" disabled={model.busy || !state.source_url} onClick={model.refreshCatalog}>Refresh now</Button></div>
