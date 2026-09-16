@@ -75,33 +75,42 @@ func (handler *Handler) vectorStoreFileContent(response http.ResponseWriter, req
 }
 
 func vectorStoreContentChunks(filename string, content []byte) ([]vectorStoreContent, error) {
+	lowerName := strings.ToLower(filename)
 	switch {
-	case strings.HasSuffix(strings.ToLower(filename), ".docx"):
+	case strings.HasSuffix(lowerName, ".docx"):
 		text, err := vectorStoreDOCXText(content)
 		if err != nil {
 			return nil, err
 		}
 		content = text
-	case strings.HasSuffix(strings.ToLower(filename), ".pptx"):
+	case strings.HasSuffix(lowerName, ".pptx"):
 		text, err := vectorStorePPTXText(content)
 		if err != nil {
 			return nil, err
 		}
 		content = text
-	case strings.HasSuffix(strings.ToLower(filename), ".xlsx"):
+	case strings.HasSuffix(lowerName, ".xlsx"):
 		text, err := vectorStoreXLSXText(content)
 		if err != nil {
 			return nil, err
 		}
 		content = text
-	case strings.HasSuffix(strings.ToLower(filename), ".html"):
+	case strings.HasSuffix(lowerName, ".html"):
 		text, err := vectorStoreHTMLText(content)
 		if err != nil {
 			return nil, err
 		}
 		content = text
+	case strings.HasSuffix(lowerName, ".pdf") || vectorStorePDFHeader(content):
+		return nil, errors.New("PDF content is not supported")
+	case strings.HasSuffix(lowerName, ".doc"), strings.HasSuffix(lowerName, ".ppt"), strings.HasSuffix(lowerName, ".xls"), bytes.HasPrefix(content, []byte{0xd0, 0xcf, 0x11, 0xe0, 0xa1, 0xb1, 0x1a, 0xe1}):
+		return nil, errors.New("legacy Office content is not supported")
 	}
 	return vectorStoreTextChunks(content)
+}
+
+func vectorStorePDFHeader(content []byte) bool {
+	return len(content) >= 8 && bytes.HasPrefix(content, []byte("%PDF-")) && content[5] >= '1' && content[5] <= '2' && content[6] == '.' && content[7] >= '0' && content[7] <= '9'
 }
 
 func vectorStoreDOCXText(content []byte) ([]byte, error) {

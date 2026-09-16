@@ -148,6 +148,63 @@ func TestVectorStoreTextChunksDecodeUTF16(t *testing.T) {
 	}
 }
 
+func TestVectorStoreRejectsUnsupportedBinaryFormats(t *testing.T) {
+	for _, test := range []struct {
+		filename string
+		content  []byte
+	}{
+		{"paper.pdf", []byte("plain text")},
+		{"PAPER.PDF", []byte("plain text")},
+		{"paper.txt", []byte("%PDF-1.7\nASCII body")},
+		{"legacy.doc", []byte("plain text")},
+		{"legacy.PPT", []byte("plain text")},
+		{"legacy.xls", []byte("plain text")},
+		{"disguised.txt", []byte{0xd0, 0xcf, 0x11, 0xe0, 0xa1, 0xb1, 0x1a, 0xe1}},
+	} {
+		if _, err := vectorStoreContentChunks(test.filename, test.content); err == nil {
+			t.Fatalf("%s was accepted", test.filename)
+		}
+	}
+	chunks, err := vectorStoreContentChunks("notes.unknown", []byte("ordinary UTF-8 text"))
+	if err != nil || len(chunks) != 1 || chunks[0].Text != "ordinary UTF-8 text" {
+		t.Fatalf("generic text chunks=%#v error=%v", chunks, err)
+	}
+	chunks, err = vectorStoreContentChunks("pdf-notes.txt", []byte("PDF files begin with %PDF-1.7"))
+	if err != nil || len(chunks) != 1 || chunks[0].Text != "PDF files begin with %PDF-1.7" {
+		t.Fatalf("PDF documentation chunks=%#v error=%v", chunks, err)
+	}
+}
+
+func TestOpenAIVectorStoreRejectsPDFContentAndSearch(t *testing.T) {
+	ctx, store, owner, keyService, providerService, usageService := gatewayFixture(t)
+	defer store.Close()
+	_, secret, err := keyService.Create(ctx, owner.ID, keys.Input{Label: "PDF guard", Scopes: []string{"files:manage", "vector_stores:manage"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	mux := http.NewServeMux()
+	NewWithMasterKey(store.SystemDB(), keyService, providerService, usageService, bytes.Repeat([]byte{6}, 32)).Register(mux)
+	uploaded := performFileUpload(t, mux, secret, "paper.txt", []byte("%PDF-1.7\nASCII body"), map[string]string{"purpose": "user_data"}, nil)
+	var file openAIFile
+	if uploaded.Code != http.StatusOK || json.Unmarshal(uploaded.Body.Bytes(), &file) != nil {
+		t.Fatalf("upload status=%d body=%s", uploaded.Code, uploaded.Body.String())
+	}
+	created := performVectorStoreRequest(t, mux, http.MethodPost, "/api/openai/v1/vector_stores", secret, `{"name":"PDF","file_ids":["`+file.ID+`"]}`)
+	var storeItem vectorStore
+	if created.Code != http.StatusOK || json.Unmarshal(created.Body.Bytes(), &storeItem) != nil {
+		t.Fatalf("create status=%d body=%s", created.Code, created.Body.String())
+	}
+	base := "/api/openai/v1/vector_stores/" + storeItem.ID
+	content := performVectorStoreRequest(t, mux, http.MethodGet, base+"/files/"+file.ID+"/content", secret, "")
+	if content.Code != http.StatusBadRequest || !strings.Contains(content.Body.String(), `"code":"unsupported_feature"`) {
+		t.Fatalf("content status=%d body=%s", content.Code, content.Body.String())
+	}
+	searched := performVectorStoreRequest(t, mux, http.MethodPost, base+"/search", secret, `{"query":"ASCII"}`)
+	if searched.Code != http.StatusBadRequest || !strings.Contains(searched.Body.String(), `"code":"unsupported_feature"`) {
+		t.Fatalf("search status=%d body=%s", searched.Code, searched.Body.String())
+	}
+}
+
 func TestVectorStoreDOCXContentExtraction(t *testing.T) {
 	document := vectorStoreTestDOCX(t)
 	chunks, err := vectorStoreContentChunks("NOTES.DOCX", document)
