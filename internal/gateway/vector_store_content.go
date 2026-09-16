@@ -88,6 +88,12 @@ func vectorStoreContentChunks(filename string, content []byte) ([]vectorStoreCon
 			return nil, err
 		}
 		content = text
+	case strings.HasSuffix(strings.ToLower(filename), ".xlsx"):
+		text, err := vectorStoreXLSXText(content)
+		if err != nil {
+			return nil, err
+		}
+		content = text
 	case strings.HasSuffix(strings.ToLower(filename), ".html"):
 		text, err := vectorStoreHTMLText(content)
 		if err != nil {
