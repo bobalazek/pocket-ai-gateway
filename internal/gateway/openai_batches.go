@@ -196,6 +196,8 @@ func openAIBatchEndpoint(endpoint string) (dialect, scope, upstreamPath string, 
 		return "openai", "embeddings:generate", "embeddings", true
 	case "/v1/moderations":
 		return "openai", "moderations:classify", "moderations", true
+	case "/v1/images/generations":
+		return "openai", "images:generate", "images/generations", true
 	default:
 		return "", "", "", false
 	}
@@ -284,6 +286,10 @@ func parseOpenAIBatchInput(content []byte, endpoint string) ([]openAIBatchInputL
 			}
 		case "/v1/moderations":
 			if err := validateModeration(envelope); err != nil {
+				return nil, "", err
+			}
+		case "/v1/images/generations":
+			if err := validateImageGeneration(envelope); err != nil {
 				return nil, "", err
 			}
 		}

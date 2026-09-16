@@ -189,6 +189,9 @@ func (handler *Handler) forwardAuthorized(response http.ResponseWriter, request 
 		if imageOperation {
 			_ = json.Unmarshal(envelope["n"], &batchItems)
 		}
+		if openAIBatch && openAIBatchItems > batchItems {
+			batchItems = openAIBatchItems
+		}
 		outputEstimate = 0
 	} else if dialect == "gemini" {
 		var object map[string]any
