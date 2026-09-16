@@ -146,7 +146,7 @@ describe("official SDK compatibility through the Go gateway", () => {
     await expect(client.uploads.parts.create(cancelled.id, { data: await toFile(Buffer.from("x"), "rejected") })).rejects.toMatchObject({ status: 400 });
   });
 
-  it("runs gateway-owned OpenAI Responses, Chat Completions, Embeddings, and Moderation batches", async () => {
+  it("runs gateway-owned OpenAI Responses, Chat Completions, Embeddings, Moderation, and Image Generation batches", async () => {
     const client = openAI();
     const upload = async (content: string, name: string) => client.files.create({
       file: await toFile(Buffer.from(content), name, { type: "application/jsonl" }),
@@ -308,6 +308,41 @@ describe("official SDK compatibility through the Go gateway", () => {
       },
       error: null,
     }]);
+
+    const imageInput = await upload(
+      '{"custom_id":"image-success","method":"POST","url":"/v1/images/generations","body":{"model":"target-openai","prompt":"A black dot","n":1,"output_compression":80}}\n',
+      "image-batch.jsonl",
+    );
+    const imageCreated = await client.batches.create({
+      input_file_id: imageInput.id,
+      endpoint: "/v1/images/generations",
+      completion_window: "24h",
+    });
+    expect(imageCreated).toMatchObject({ endpoint: "/v1/images/generations", model: "target-openai" });
+    const imageCompleted = await waitForTerminal(imageCreated.id);
+    expect(imageCompleted).toMatchObject({
+      endpoint: "/v1/images/generations",
+      model: "target-openai",
+      status: "completed",
+      request_counts: { total: 1, completed: 1, failed: 0 },
+      usage: { input_tokens: 5, output_tokens: 7, total_tokens: 12 },
+    });
+    if (!imageCompleted.output_file_id) throw new Error("Image Generation Batch output File is missing");
+    const imageLines = await readJSONLines(imageCompleted.output_file_id);
+    expect(imageLines).toMatchObject([{
+      custom_id: "image-success",
+      response: {
+        status_code: 200,
+        request_id: expect.stringMatching(/^req_/),
+        body: {
+          created: 1764967971,
+          data: [{ b64_json: "eA==" }],
+          usage: { input_tokens: 5, output_tokens: 7, total_tokens: 12 },
+        },
+      },
+      error: null,
+    }]);
+    expect((imageLines[0]?.response as { body?: Record<string, unknown> })?.body).not.toHaveProperty("model");
 
     const blockerInput = await upload(
       '{"custom_id":"blocker","method":"POST","url":"/v1/responses","body":{"model":"target-openai","input":"Cancel me blocker","max_output_tokens":8}}\n',

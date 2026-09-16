@@ -303,11 +303,14 @@ paths:
       description: >-
         Creates a gateway-owned Batch for the requesting API key. The input_file_id must identify an
         unexpired same-key purpose=batch File containing one to four same-model, non-streaming
-        POST /v1/responses, /v1/chat/completions, /v1/embeddings, or /v1/moderations JSONL requests with unique
+        POST /v1/responses, /v1/chat/completions, /v1/embeddings, /v1/moderations, or
+        /v1/images/generations JSONL requests with unique
         1–64-byte UTF-8 custom_id values.
         Only completion_window 24h is accepted. The endpoint requires its matching scope. Moderations
         require moderations:classify, use ordinary validation and native routing without fallback, and
-        leave aggregate Batch usage null because moderation responses have no usage object.
+        leave aggregate Batch usage null because moderation responses have no usage object. Image
+        generations require images:generate, use native non-streaming routing without fallback, and
+        expose aggregate usage only when terminal Batch usage is complete; otherwise it is null.
         The local worker uses ordinary endpoint routing, admission, accounting, and prices;
         OpenAI's provider Batch discount, rate pool, and larger limits do not apply.
       requestBody:
@@ -564,7 +567,7 @@ components:
       required: [input_file_id, endpoint, completion_window]
       properties:
         input_file_id: { type: string, pattern: "^file_", description: Unexpired same-key purpose=batch File }
-        endpoint: { type: string, enum: [/v1/responses, /v1/chat/completions, /v1/embeddings, /v1/moderations] }
+        endpoint: { type: string, enum: [/v1/responses, /v1/chat/completions, /v1/embeddings, /v1/moderations, /v1/images/generations] }
         completion_window: { const: 24h }
         metadata:
           type: [object, "null"]
@@ -585,7 +588,7 @@ components:
       properties:
         id: { type: string, pattern: "^batch_" }
         object: { const: batch }
-        endpoint: { type: string, enum: [/v1/responses, /v1/chat/completions, /v1/embeddings, /v1/moderations] }
+        endpoint: { type: string, enum: [/v1/responses, /v1/chat/completions, /v1/embeddings, /v1/moderations, /v1/images/generations] }
         input_file_id: { type: string, pattern: "^file_" }
         completion_window: { const: 24h }
         status: { type: string, enum: [validating, failed, in_progress, finalizing, completed, expired, cancelling, cancelled] }
