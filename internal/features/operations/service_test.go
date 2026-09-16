@@ -146,7 +146,7 @@ func TestConfigPreviewRejectsUnsafeProviderAndRetentionPreservesEnforcement(t *t
 	if _, err := PreviewConfig(bundle); err == nil {
 		t.Fatal("unsafe provider URL was accepted")
 	}
-	bundle = ConfigBundle{Format: 1, Settings: Settings{BackupIntervalHours: 24, BackupRetention: 14, BackupDestination: "local", S3Region: "us-east-1", S3AccessKeyEnv: "AWS_ACCESS_KEY_ID", S3SecretKeyEnv: "AWS_SECRET_ACCESS_KEY", RequestRetention: 90, AuditRetention: 365}, Catalog: ConfigCatalog{RefreshIntervalHours: 24}, Connections: []ConfigConnection{{ID: "con_test", Name: "Fireworks", Adapter: "openai_compatible", BaseURL: "https://api.fireworks.ai/inference/v1", Enabled: true, TimeoutMS: 60000, Preset: "fireworks"}}, UpstreamModels: []ConfigUpstream{{ID: "up_test", ConnectionID: "con_test", UpstreamID: "embedding", Capabilities: []string{"embeddings"}, Active: true}}}
+	bundle = ConfigBundle{Format: 1, Settings: Settings{BackupIntervalHours: 24, BackupRetention: 14, BackupDestination: "local", S3Region: "us-east-1", S3AccessKeyEnv: "AWS_ACCESS_KEY_ID", S3SecretKeyEnv: "AWS_SECRET_ACCESS_KEY", RequestRetention: 90, AuditRetention: 365}, Catalog: ConfigCatalog{RefreshIntervalHours: 24}, Connections: []ConfigConnection{{ID: "con_test", Name: "OpenRouter", Adapter: "openai_compatible", BaseURL: "https://openrouter.ai/api/v1", Enabled: true, TimeoutMS: 60000, Preset: "openrouter"}}, UpstreamModels: []ConfigUpstream{{ID: "up_test", ConnectionID: "con_test", UpstreamID: "embedding", Capabilities: []string{"embeddings"}, Active: true}}}
 	if _, err := PreviewConfig(bundle); err == nil {
 		t.Fatal("config import accepted capabilities outside the provider preset")
 	}

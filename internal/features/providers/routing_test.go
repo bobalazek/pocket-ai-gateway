@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"slices"
 	"testing"
 	"time"
 
@@ -165,6 +166,16 @@ func TestCatalogValidationAndPresets(t *testing.T) {
 		"cohere":     "https://api.cohere.ai/compatibility/v1",
 		"perplexity": "https://api.perplexity.ai/v1",
 	}
+	expectedOperations := map[string][]string{
+		"mistral":    {"chat/completions", "embeddings"},
+		"groq":       {"chat/completions", "responses", "audio/speech", "audio/transcriptions", "audio/translations"},
+		"deepseek":   {"chat/completions", "responses"},
+		"xai":        {"chat/completions", "responses", "embeddings"},
+		"together":   {"chat/completions", "completions", "embeddings", "images/generations", "audio/speech", "audio/transcriptions", "audio/translations"},
+		"fireworks":  {"chat/completions", "completions", "responses", "embeddings"},
+		"cohere":     {"chat/completions", "embeddings", "audio/transcriptions"},
+		"perplexity": {"chat/completions", "responses", "embeddings"},
+	}
 	available := Presets()
 	for _, preset := range available {
 		if len(preset.Capabilities) == 0 || preset.AdapterLabel == "" || preset.BaseURLRequired && preset.BaseURLExample == "" {
@@ -188,7 +199,7 @@ func TestCatalogValidationAndPresets(t *testing.T) {
 		found := false
 		for _, preset := range available {
 			if preset.ID == id {
-				found = len(preset.Operations) > 0 && preset.DocumentationURL != "" && preset.ReviewedAt != ""
+				found = slices.Equal(preset.Operations, expectedOperations[id]) && preset.DocumentationURL != "" && preset.ReviewedAt == "2026-09-16"
 			}
 		}
 		if !found {
@@ -228,7 +239,7 @@ func TestCatalogValidationAndPresets(t *testing.T) {
 			t.Errorf("%s accepted malformed cloud endpoint %s", invalid.Preset, invalid.BaseURL)
 		}
 	}
-	if PresetSupports("fireworks", "responses") || PresetSupports("fireworks", "embeddings") || !PresetSupports("fireworks", "chat/completions") || !PresetSupports("gemini", "models/test:generateContent") || !PresetSupports("gemini", "interactions") || !PresetSupports("custom", "anything") {
+	if !PresetSupports("fireworks", "responses") || !PresetSupports("fireworks", "embeddings") || PresetSupports("together", "responses") || !PresetSupports("together", "images/generations") || !PresetSupports("cohere", "audio/transcriptions") || !PresetSupports("perplexity", "embeddings") || !PresetSupports("gemini", "models/test:generateContent") || !PresetSupports("gemini", "interactions") || !PresetSupports("custom", "anything") {
 		t.Fatal("preset operation limits are not enforced")
 	}
 	if !PresetSupports("openai", "completions") || !PresetSupports("openai", "moderations") || !PresetSupports("openai", "responses/input_tokens") || !PresetSupports("openai", "images/generations") || !PresetSupports("openai", "images/edits") || !PresetSupports("openai", "images/variations") || !PresetSupports("openai", "audio/speech") || !PresetSupports("openai", "audio/transcriptions") || !PresetSupports("openai", "audio/translations") || PresetSupports("anthropic", "completions") || PresetSupports("anthropic", "moderations") || !PresetSupportsCapabilities("openai", []string{"completions", "moderations", "count_tokens", "images", "image_edit", "image_variation", "audio_speech", "audio_transcription", "audio_translation"}) {
@@ -297,7 +308,7 @@ func TestPresetLimitsUpstreamModelCapabilities(t *testing.T) {
 		t.Fatal(err)
 	}
 	service := New(store.SystemDB(), make([]byte, 32))
-	connection, err := service.CreateConnection(ctx, owner, ConnectionInput{Name: "Fireworks", Preset: "fireworks", Enabled: true})
+	connection, err := service.CreateConnection(ctx, owner, ConnectionInput{Name: "OpenRouter", Preset: "openrouter", Enabled: true})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -345,7 +356,7 @@ func TestPresetLimitsUpstreamModelCapabilities(t *testing.T) {
 	if _, err = service.UpdateConnection(ctx, owner, custom.ID, custom.Revision, ConnectionInput{Name: custom.Name, Preset: "openai", Enabled: true}); err == nil {
 		t.Fatal("preset update accepted a non-whisper OpenAI translation model")
 	}
-	if _, err = service.UpdateConnection(ctx, owner, custom.ID, custom.Revision, ConnectionInput{Name: custom.Name, Preset: "fireworks", Enabled: true}); err == nil {
+	if _, err = service.UpdateConnection(ctx, owner, custom.ID, custom.Revision, ConnectionInput{Name: custom.Name, Preset: "openrouter", Enabled: true}); err == nil {
 		t.Fatal("preset update stranded an existing embedding model")
 	}
 }

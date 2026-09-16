@@ -1277,7 +1277,7 @@ func TestPresetOperationLimitsDispatch(t *testing.T) {
 	ctx, store, owner, keyService, providerService, usageService := gatewayFixture(t)
 	defer store.Close()
 	connection, model := publishModel(t, ctx, providerService, owner, "openai", upstream.URL+"/v1", "model", []string{"chat"})
-	if _, err := store.SystemDB().ExecContext(ctx, "UPDATE provider_connections SET preset='fireworks' WHERE id=?", connection.ID); err != nil {
+	if _, err := store.SystemDB().ExecContext(ctx, "UPDATE provider_connections SET preset='together' WHERE id=?", connection.ID); err != nil {
 		t.Fatal(err)
 	}
 	_, secret, err := keyService.Create(ctx, owner.ID, keys.Input{Label: "Limited preset", Scopes: []string{"chat:generate", "responses:generate"}, ModelPatterns: []string{model.ID}, ConnectionIDs: []string{connection.ID}})
