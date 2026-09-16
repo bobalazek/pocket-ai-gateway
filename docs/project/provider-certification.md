@@ -16,14 +16,14 @@ A built-in preset means its endpoint and advertised operations were checked agai
 | Google Gemini | `https://generativelanguage.googleapis.com/v1beta` | Gemini | Generation, streaming, token counting, embeddings | 2026-09-15 | Credentials required |
 | OpenRouter | `https://openrouter.ai/api/v1` | OpenAI compatible | Chat | 2026-09-15 | Credentials required |
 | Ollama | `http://127.0.0.1:11434/v1` | OpenAI compatible | Chat, embeddings | 2026-09-15 | Local model required |
-| Mistral AI | `https://api.mistral.ai/v1` | OpenAI compatible | Chat, embeddings | 2026-09-15 | Credentials required |
-| Groq | `https://api.groq.com/openai/v1` | OpenAI compatible | Chat, Responses | 2026-09-15 | Credentials required |
-| DeepSeek | `https://api.deepseek.com` | OpenAI compatible | Chat, Responses | 2026-09-15 | Credentials required |
-| xAI | `https://api.x.ai/v1` | OpenAI compatible | Chat, Responses, embeddings | 2026-09-15 | Credentials required |
-| Together AI | `https://api.together.ai/v1` | OpenAI compatible | Chat, embeddings | 2026-09-15 | Credentials required |
-| Fireworks AI | `https://api.fireworks.ai/inference/v1` | OpenAI compatible | Chat | 2026-09-15 | Credentials required |
-| Cohere | `https://api.cohere.ai/compatibility/v1` | OpenAI compatible | Chat, embeddings | 2026-09-15 | Credentials required |
-| Perplexity | `https://api.perplexity.ai/v1` | OpenAI compatible | Chat, Responses | 2026-09-15 | Credentials required |
+| Mistral AI | `https://api.mistral.ai/v1` | OpenAI compatible | Chat, embeddings | 2026-09-16 | Credentials required |
+| Groq | `https://api.groq.com/openai/v1` | OpenAI compatible | Chat, Responses, speech, transcription, translation | 2026-09-16 | Credentials required |
+| DeepSeek | `https://api.deepseek.com` | OpenAI compatible | Chat, Responses | 2026-09-16 | Credentials required |
+| xAI | `https://api.x.ai/v1` | OpenAI compatible | Chat, Responses, embeddings | 2026-09-16 | Credentials required |
+| Together AI | `https://api.together.ai/v1` | OpenAI compatible | Chat, legacy Completions, embeddings, image generation, speech, transcription, translation | 2026-09-16 | Credentials required |
+| Fireworks AI | `https://api.fireworks.ai/inference/v1` | OpenAI compatible | Chat, legacy Completions, Responses, embeddings | 2026-09-16 | Credentials required |
+| Cohere | `https://api.cohere.ai/compatibility/v1` | OpenAI compatible | Chat, embeddings, transcription | 2026-09-16 | Credentials required |
+| Perplexity | `https://api.perplexity.ai/v1` | OpenAI compatible | Chat, Responses, embeddings | 2026-09-16 | Credentials required |
 | Azure OpenAI | Installation resource URL ending in `/openai/v1` | OpenAI compatible | Chat, Responses | 2026-09-15 | Credentials required |
 | Amazon Bedrock | Regional runtime `/openai/v1` or Mantle `/v1` URL | OpenAI compatible | Chat, Responses | 2026-09-15 | Credentials required |
 | Google Vertex AI | Project/location URL ending in `/endpoints/openapi` | OpenAI compatible | Chat | 2026-09-15 | Credentials required |
