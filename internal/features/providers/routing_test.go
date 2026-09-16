@@ -223,7 +223,7 @@ func TestCatalogValidationAndPresets(t *testing.T) {
 			t.Errorf("%s accepted malformed cloud endpoint %s", invalid.Preset, invalid.BaseURL)
 		}
 	}
-	if PresetSupports("fireworks", "responses") || PresetSupports("fireworks", "embeddings") || !PresetSupports("fireworks", "chat/completions") || !PresetSupports("gemini", "models/test:generateContent") || !PresetSupports("custom", "anything") {
+	if PresetSupports("fireworks", "responses") || PresetSupports("fireworks", "embeddings") || !PresetSupports("fireworks", "chat/completions") || !PresetSupports("gemini", "models/test:generateContent") || !PresetSupports("gemini", "interactions") || !PresetSupports("custom", "anything") {
 		t.Fatal("preset operation limits are not enforced")
 	}
 	if !PresetSupports("openai", "completions") || !PresetSupports("openai", "moderations") || !PresetSupports("openai", "responses/input_tokens") || !PresetSupports("openai", "images/generations") || !PresetSupports("openai", "images/edits") || !PresetSupports("openai", "images/variations") || !PresetSupports("openai", "audio/speech") || !PresetSupports("openai", "audio/transcriptions") || !PresetSupports("openai", "audio/translations") || PresetSupports("anthropic", "completions") || PresetSupports("anthropic", "moderations") || !PresetSupportsCapabilities("openai", []string{"completions", "moderations", "count_tokens", "images", "image_edit", "image_variation", "audio_speech", "audio_transcription", "audio_translation"}) {
@@ -231,6 +231,9 @@ func TestCatalogValidationAndPresets(t *testing.T) {
 	}
 	if !containsString(availableCapabilities("openai", "openai"), "completions") || containsString(availableCapabilities("anthropic", "anthropic"), "completions") {
 		t.Fatal("legacy Completions capability publication is incorrect")
+	}
+	if !containsString(availableCapabilities("gemini", "gemini"), "interactions") || !PresetSupportsCapabilities("gemini", []string{"interactions"}) {
+		t.Fatal("Gemini Interactions capability publication is incorrect")
 	}
 }
 

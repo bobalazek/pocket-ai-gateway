@@ -28,15 +28,20 @@ func parseUsageDetails(dialect string, raw []byte) parsedUsage {
 	foundCacheCreation, foundCacheRead := false, false
 	var cacheCreation5m, cacheCreation1h int64
 	foundCacheCreation5m, foundCacheCreation1h := false, false
-	invalidCache := false
+	invalidCache, invalidUsage := false, false
 	for _, object := range responseObjects(raw) {
 		var value map[string]any
 		if json.Unmarshal(object, &value) != nil {
 			continue
 		}
 		var usageMap map[string]any
+		geminiInteractionUsage := false
 		if dialect == "gemini" {
 			usageMap, _ = value["usageMetadata"].(map[string]any)
+			if usageMap == nil {
+				usageMap, _ = value["usage"].(map[string]any)
+				geminiInteractionUsage = usageMap != nil
+			}
 		} else {
 			usageMap, _ = value["usage"].(map[string]any)
 			if usageMap == nil {
@@ -63,6 +68,9 @@ func parseUsageDetails(dialect string, raw []byte) parsedUsage {
 		var inputName, outputName string
 		if dialect == "gemini" {
 			inputName, outputName = "promptTokenCount", "candidatesTokenCount"
+			if geminiInteractionUsage {
+				inputName, outputName = "total_input_tokens", "total_output_tokens"
+			}
 		} else if dialect == "anthropic" {
 			inputName, outputName = "input_tokens", "output_tokens"
 		} else {
@@ -96,11 +104,23 @@ func parseUsageDetails(dialect string, raw []byte) parsedUsage {
 				}
 			}
 		} else if dialect == "gemini" {
-			if rawCache, exists := usageMap["cachedContentTokenCount"]; exists {
+			cacheName := "cachedContentTokenCount"
+			if geminiInteractionUsage {
+				cacheName = "total_cached_tokens"
+			}
+			if rawCache, exists := usageMap[cacheName]; exists {
 				if number, ok := integer(rawCache); ok {
 					cacheRead, foundCacheRead = number, true
 				} else {
 					invalidCache = true
+				}
+			}
+			if geminiInteractionUsage {
+				total, ok := integer(usageMap["total_tokens"])
+				if !ok || !foundInput || !foundOutput || total < input || output > total-input {
+					invalidUsage = true
+				} else {
+					output = total - input
 				}
 			}
 		} else {
@@ -157,7 +177,7 @@ func parseUsageDetails(dialect string, raw []byte) parsedUsage {
 			}
 		}
 	}
-	if !foundInput || !foundOutput || invalidCache || dialect != "anthropic" && foundCacheRead && cacheRead > input {
+	if !foundInput || !foundOutput || invalidCache || invalidUsage || dialect != "anthropic" && foundCacheRead && cacheRead > input {
 		return parsedUsage{}
 	}
 	if dialect == "anthropic" {

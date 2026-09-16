@@ -127,5 +127,8 @@ func (handler *Handler) Register(mux *http.ServeMux) {
 	mux.HandleFunc("GET /api/anthropic/v1/messages/batches/{message_batch_id}/results", handler.messageBatchResults)
 	mux.HandleFunc("GET /api/gemini/v1beta/models", handler.geminiModels)
 	mux.HandleFunc("GET /api/gemini/v1beta/models/{model}", handler.geminiModel)
+	mux.HandleFunc("POST /api/gemini/v1beta/interactions", func(w http.ResponseWriter, r *http.Request) {
+		handler.forward(w, r, "gemini", "chat:generate", "interactions", "", nil)
+	})
 	mux.HandleFunc("POST /api/gemini/v1beta/models/{action...}", handler.geminiAction)
 }

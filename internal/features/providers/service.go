@@ -27,7 +27,7 @@ var (
 var adapters = map[string][]string{
 	"openai":            {"chat", "completions", "web_search", "embeddings", "moderations", "count_tokens", "images", "image_edit", "image_variation", "audio_speech", "audio_transcription", "audio_translation"},
 	"anthropic":         {"chat", "web_search", "web_fetch", "count_tokens", "prompt_cache"},
-	"gemini":            {"chat", "count_tokens", "embeddings"},
+	"gemini":            {"chat", "count_tokens", "embeddings", "interactions"},
 	"openai_compatible": {"chat", "completions", "embeddings", "moderations", "count_tokens", "images", "image_edit", "image_variation", "audio_speech", "audio_transcription", "audio_translation"},
 }
 
@@ -652,7 +652,7 @@ func normalizeCapabilities(values []string) []string {
 func validCapabilities(values []string) bool {
 	hasChat, hasHostedChatCapability := false, false
 	for _, value := range values {
-		if value != "chat" && value != "completions" && value != "web_search" && value != "web_fetch" && value != "embeddings" && value != "count_tokens" && value != "moderations" && value != "images" && value != "image_edit" && value != "image_variation" && value != "audio_speech" && value != "audio_transcription" && value != "audio_translation" && value != "prompt_cache" {
+		if value != "chat" && value != "completions" && value != "web_search" && value != "web_fetch" && value != "embeddings" && value != "count_tokens" && value != "moderations" && value != "images" && value != "image_edit" && value != "image_variation" && value != "audio_speech" && value != "audio_transcription" && value != "audio_translation" && value != "prompt_cache" && value != "interactions" {
 			return false
 		}
 		hasChat = hasChat || value == "chat"

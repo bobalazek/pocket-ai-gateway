@@ -30,13 +30,34 @@ func (handler *Handler) writeError(w http.ResponseWriter, dialect string, status
 	case "anthropic":
 		_ = json.NewEncoder(w).Encode(map[string]any{"type": "error", "error": map[string]string{"type": code, "message": message}, "request_id": nil})
 	case "gemini":
-		googleStatus := code
-		if !strings.Contains(code, "_") {
-			googleStatus = strings.ToUpper(code)
-		}
-		_ = json.NewEncoder(w).Encode(map[string]any{"error": map[string]any{"code": status, "message": message, "status": googleStatus}})
+		_ = json.NewEncoder(w).Encode(map[string]any{"error": map[string]any{"code": status, "message": message, "status": geminiErrorStatus(status)}})
 	default:
 		_ = json.NewEncoder(w).Encode(map[string]any{"error": map[string]any{"message": message, "type": "invalid_request_error", "code": code}})
+	}
+}
+
+func geminiErrorStatus(status int) string {
+	switch status {
+	case http.StatusBadRequest, http.StatusRequestEntityTooLarge, http.StatusUnprocessableEntity:
+		return "INVALID_ARGUMENT"
+	case http.StatusUnauthorized:
+		return "UNAUTHENTICATED"
+	case http.StatusForbidden:
+		return "PERMISSION_DENIED"
+	case http.StatusNotFound:
+		return "NOT_FOUND"
+	case http.StatusConflict:
+		return "ABORTED"
+	case http.StatusTooManyRequests:
+		return "RESOURCE_EXHAUSTED"
+	case http.StatusNotImplemented:
+		return "UNIMPLEMENTED"
+	case http.StatusGatewayTimeout:
+		return "DEADLINE_EXCEEDED"
+	case http.StatusInternalServerError:
+		return "INTERNAL"
+	default:
+		return "UNAVAILABLE"
 	}
 }
 func writeNativeUpstreamError(w http.ResponseWriter, dialect string, status int, raw []byte) bool {
@@ -85,7 +106,7 @@ func nativeAdapter(dialect, adapter string) bool {
 	return dialect == adapter || (dialect == "openai" && adapter == "openai_compatible")
 }
 func hasCapability(values []string, scope string) bool {
-	wanted := map[string]string{"chat:generate": "chat", "completions:generate": "completions", "responses:generate": "chat", "embeddings:generate": "embeddings", "tokens:count": "count_tokens", "moderations:classify": "moderations", "images:generate": "images", "images:edit": "image_edit", "images:variation": "image_variation", "audio:speech": "audio_speech", "audio:transcribe": "audio_transcription", "audio:translate": "audio_translation"}[scope]
+	wanted := map[string]string{"chat:generate": "chat", "completions:generate": "completions", "responses:generate": "chat", "embeddings:generate": "embeddings", "tokens:count": "count_tokens", "moderations:classify": "moderations", "images:generate": "images", "images:edit": "image_edit", "images:variation": "image_variation", "audio:speech": "audio_speech", "audio:transcribe": "audio_transcription", "audio:translate": "audio_translation", "interactions:generate": "interactions"}[scope]
 	for _, v := range values {
 		if v == wanted || v == strings.ReplaceAll(scope, ":", "_") {
 			return true
