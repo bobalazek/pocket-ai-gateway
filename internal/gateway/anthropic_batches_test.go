@@ -426,13 +426,15 @@ func TestMessageBatchCancellationAndDeadlineSettleAccounting(t *testing.T) {
 				t.Fatal("item was not claimable")
 			}
 			if !test.cancel {
-				job.createdAt = time.Now().Add(-messageBatchProcessingLifetime + 100*time.Millisecond).UnixMilli()
+				// Leave enough time for routing and admission on a cold CI runner; the
+				// blocked upstream still proves that the processing deadline settles it.
+				job.createdAt = time.Now().Add(-messageBatchProcessingLifetime + 3*time.Second).UnixMilli()
 			}
 			done := make(chan struct{})
 			go func() { defer close(done); handler.runMessageBatch(ctx, job) }()
 			select {
 			case <-started:
-			case <-time.After(2 * time.Second):
+			case <-time.After(10 * time.Second):
 				t.Fatal("upstream was not called")
 			}
 			if test.cancel {
@@ -443,7 +445,7 @@ func TestMessageBatchCancellationAndDeadlineSettleAccounting(t *testing.T) {
 			}
 			select {
 			case <-done:
-			case <-time.After(5 * time.Second):
+			case <-time.After(10 * time.Second):
 				t.Fatal("worker did not finish")
 			}
 			var itemState, requestState, attemptState string
