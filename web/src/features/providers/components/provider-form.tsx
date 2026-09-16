@@ -4,10 +4,11 @@ import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import type { ProviderConnection, ProviderPreset } from "@/features/providers/types/providers.types";
+import type { ProviderAdapter, ProviderConnection, ProviderPreset } from "@/features/providers/types/providers.types";
 
 type Props = {
   presets: ProviderPreset[];
+  adapters: ProviderAdapter[];
   selected?: ProviderPreset;
   selectedPreset: string;
   adapter: ProviderConnection["adapter"];
@@ -17,7 +18,7 @@ type Props = {
   onSubmit: (event: FormEvent<HTMLFormElement>) => void;
 };
 
-export function ProviderForm({ presets, selected, selectedPreset, adapter, busy, onAdapter, onPreset, onSubmit }: Props) {
+export function ProviderForm({ presets, adapters, selected, selectedPreset, adapter, busy, onAdapter, onPreset, onSubmit }: Props) {
   return (
     <Card className="panel">
       <h2>Add connection</h2>
@@ -32,24 +33,23 @@ export function ProviderForm({ presets, selected, selectedPreset, adapter, busy,
             </select>
           </div>
         </div>
-        {selected && <p className="help-text">Uses {selected.adapter.replaceAll("_", " ")}{selected.base_url ? ` at ${selected.base_url}` : " with your resource URL"}. Supported gateway operations: {selected.operations.join(", ")}. <a href={selected.documentation_url} target="_blank" rel="noreferrer">Provider documentation</a> reviewed {selected.reviewed_at}.</p>}
+        {selected && <p className="help-text">{selected.adapter_label} · {selected.operations.join(", ")} · <a href={selected.documentation_url} target="_blank" rel="noreferrer">Documentation</a> · reviewed {selected.reviewed_at}</p>}
         <div className="inline-fields">
           <div className="field">
             <Label htmlFor="adapter">Adapter</Label>
             {selected && <input type="hidden" name="adapter" value={adapter} />}
             <select id="adapter" name={selected ? undefined : "adapter"} className="select" value={adapter} disabled={Boolean(selected)} onChange={(event) => onAdapter(event.target.value as ProviderConnection["adapter"])}>
-              <option value="openai">OpenAI</option><option value="anthropic">Anthropic</option><option value="gemini">Gemini</option><option value="openai_compatible">OpenAI compatible</option>
+              {adapters.map((option) => <option key={option.id} value={option.id}>{option.label}</option>)}
             </select>
           </div>
-          {selected?.base_url ? <div className="field"><Label htmlFor="base_url">Base URL</Label><Input id="base_url" name="base_url" type="url" value={selected.base_url} readOnly /></div> : <Field id="base_url" label={selected?.base_url_required ? "Resource base URL" : "Versioned base URL"} type="url" placeholder={selected?.base_url_required ? "https://your-resource.example/openai/v1" : "https://api.example.com/v1"} required />}
+          {selected?.base_url ? <div className="field"><Label htmlFor="base_url">Base URL</Label><Input id="base_url" name="base_url" type="url" value={selected.base_url} readOnly /></div> : <Field id="base_url" label={selected?.base_url_required ? "Resource base URL" : "Versioned base URL"} type="url" placeholder={selected?.base_url_example} required />}
         </div>
         <div className="inline-fields">
           <Field id="timeout_ms" label="Timeout (ms)" type="number" defaultValue="60000" required />
           {selected ? <label className="checkbox-row"><input type="checkbox" checked={selected.private_network} disabled readOnly /> {selected.private_network ? "Local/private network enabled by preset" : "Public HTTPS endpoint"}</label> : <label className="checkbox-row"><input type="checkbox" name="allow_private_network" /> Allow local/private HTTP for this connection</label>}
         </div>
-        <Button disabled={busy}>Add connection</Button>
+        <Button disabled={busy || !adapter}>Add connection</Button>
       </form>
-      <p className="help-text">Presets pin the reviewed adapter and endpoint rules. Ollama uses a local endpoint without credentials. Cloud presets require the resource URL shown by the provider.</p>
     </Card>
   );
 }

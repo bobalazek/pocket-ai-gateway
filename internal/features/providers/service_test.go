@@ -44,14 +44,28 @@ func TestWebSearchCapabilityRequiresNativePresetAndChat(t *testing.T) {
 		t.Fatal("chat plus web_search was rejected")
 	}
 	for _, provider := range ProviderTypes() {
-		capabilities, _ := provider["capabilities"].([]string)
 		hasWebSearch := false
-		for _, capability := range capabilities {
+		for _, capability := range provider.Capabilities {
 			hasWebSearch = hasWebSearch || capability == "web_search"
 		}
-		if hasWebSearch != (provider["id"] == "openai" || provider["id"] == "anthropic") {
+		if hasWebSearch != (provider.ID == "openai" || provider.ID == "anthropic") {
 			t.Fatalf("provider capability publication = %#v", provider)
 		}
+	}
+}
+
+func TestProviderTypesPublishPresentationMetadata(t *testing.T) {
+	defaults := 0
+	for _, provider := range ProviderTypes() {
+		if provider.Label == "" {
+			t.Fatalf("provider label is missing: %#v", provider)
+		}
+		if provider.Default {
+			defaults++
+		}
+	}
+	if defaults != 1 {
+		t.Fatalf("default providers = %d", defaults)
 	}
 }
 
@@ -71,12 +85,11 @@ func TestWebFetchCapabilityRequiresAnthropicPresetAndChat(t *testing.T) {
 		t.Fatal("chat plus web_fetch was rejected")
 	}
 	for _, provider := range ProviderTypes() {
-		capabilities, _ := provider["capabilities"].([]string)
 		hasWebFetch := false
-		for _, capability := range capabilities {
+		for _, capability := range provider.Capabilities {
 			hasWebFetch = hasWebFetch || capability == "web_fetch"
 		}
-		if hasWebFetch != (provider["id"] == "anthropic") {
+		if hasWebFetch != (provider.ID == "anthropic") {
 			t.Fatalf("provider capability publication = %#v", provider)
 		}
 	}

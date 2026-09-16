@@ -48,7 +48,7 @@ func (handler *Handler) providerPresets(response http.ResponseWriter, request *h
 	if _, _, ok := handler.auth.Authorize(response, request); !ok {
 		return
 	}
-	auth.WriteJSON(response, http.StatusOK, map[string]any{"data": Presets()})
+	auth.WriteJSON(response, http.StatusOK, map[string]any{"data": Presets(), "adapters": ProviderTypes()})
 }
 func (handler *Handler) listConnections(response http.ResponseWriter, request *http.Request) {
 	current, _, ok := handler.auth.Authorize(response, request)

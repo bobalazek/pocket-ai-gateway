@@ -21,7 +21,9 @@ type Preset struct {
 	ID                 string   `json:"id"`
 	Label              string   `json:"label"`
 	Adapter            string   `json:"adapter"`
+	AdapterLabel       string   `json:"adapter_label"`
 	BaseURL            string   `json:"base_url,omitempty"`
+	BaseURLExample     string   `json:"base_url_example,omitempty"`
 	BaseURLRequired    bool     `json:"base_url_required"`
 	CredentialRequired bool     `json:"credential_required"`
 	PrivateNetwork     bool     `json:"private_network"`
@@ -45,9 +47,9 @@ var presets = []Preset{
 	{ID: "fireworks", Label: "Fireworks AI", Adapter: "openai_compatible", BaseURL: "https://api.fireworks.ai/inference/v1", CredentialRequired: true, Operations: []string{"chat/completions"}, DocumentationURL: "https://docs.fireworks.ai/tools-sdks/openai-compatibility", ReviewedAt: "2026-09-15"},
 	{ID: "cohere", Label: "Cohere", Adapter: "openai_compatible", BaseURL: "https://api.cohere.ai/compatibility/v1", CredentialRequired: true, Operations: []string{"chat/completions", "embeddings"}, DocumentationURL: "https://docs.cohere.com/docs/compatibility-api", ReviewedAt: "2026-09-15"},
 	{ID: "perplexity", Label: "Perplexity", Adapter: "openai_compatible", BaseURL: "https://api.perplexity.ai/v1", CredentialRequired: true, Operations: []string{"chat/completions", "responses"}, DocumentationURL: "https://docs.perplexity.ai/docs/agent-api/openai-compatibility", ReviewedAt: "2026-09-15"},
-	{ID: "azure-openai", Label: "Azure OpenAI", Adapter: "openai_compatible", BaseURLRequired: true, CredentialRequired: true, Operations: []string{"chat/completions", "responses"}, DocumentationURL: "https://learn.microsoft.com/en-us/azure/foundry/openai/api-version-lifecycle", ReviewedAt: "2026-09-15"},
-	{ID: "bedrock", Label: "Amazon Bedrock", Adapter: "openai_compatible", BaseURLRequired: true, CredentialRequired: true, Operations: []string{"chat/completions", "responses"}, DocumentationURL: "https://docs.aws.amazon.com/bedrock/latest/userguide/apis.html", ReviewedAt: "2026-09-15"},
-	{ID: "vertex", Label: "Google Vertex AI", Adapter: "openai_compatible", BaseURLRequired: true, CredentialRequired: true, Operations: []string{"chat/completions"}, DocumentationURL: "https://cloud.google.com/vertex-ai/generative-ai/docs/start/openai", ReviewedAt: "2026-09-15"},
+	{ID: "azure-openai", Label: "Azure OpenAI", Adapter: "openai_compatible", BaseURLRequired: true, BaseURLExample: "https://your-resource.openai.azure.com/openai/v1", CredentialRequired: true, Operations: []string{"chat/completions", "responses"}, DocumentationURL: "https://learn.microsoft.com/en-us/azure/foundry/openai/api-version-lifecycle", ReviewedAt: "2026-09-15"},
+	{ID: "bedrock", Label: "Amazon Bedrock", Adapter: "openai_compatible", BaseURLRequired: true, BaseURLExample: "https://bedrock-runtime.us-east-1.amazonaws.com/openai/v1", CredentialRequired: true, Operations: []string{"chat/completions", "responses"}, DocumentationURL: "https://docs.aws.amazon.com/bedrock/latest/userguide/apis.html", ReviewedAt: "2026-09-15"},
+	{ID: "vertex", Label: "Google Vertex AI", Adapter: "openai_compatible", BaseURLRequired: true, BaseURLExample: "https://us-central1-aiplatform.googleapis.com/v1/projects/your-project/locations/us-central1/endpoints/openapi", CredentialRequired: true, Operations: []string{"chat/completions"}, DocumentationURL: "https://cloud.google.com/vertex-ai/generative-ai/docs/start/openai", ReviewedAt: "2026-09-15"},
 }
 
 type CatalogCandidate struct {
@@ -80,6 +82,7 @@ type catalogDocument struct {
 func Presets() []Preset {
 	items := append([]Preset(nil), presets...)
 	for index := range items {
+		items[index].AdapterLabel = adapterLabels[items[index].Adapter]
 		items[index].Operations = append([]string(nil), items[index].Operations...)
 		items[index].Capabilities = availableCapabilities(items[index].ID, items[index].Adapter)
 	}

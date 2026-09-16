@@ -31,16 +31,31 @@ var adapters = map[string][]string{
 	"openai_compatible": {"chat", "completions", "embeddings", "moderations", "count_tokens", "images", "image_edit", "image_variation", "audio_speech", "audio_transcription", "audio_translation"},
 }
 
+var adapterLabels = map[string]string{
+	"openai":            "OpenAI",
+	"anthropic":         "Anthropic",
+	"gemini":            "Google Gemini",
+	"openai_compatible": "OpenAI compatible",
+}
+
 type Service struct {
 	database *sql.DB
 	key      []byte
 	dispatch sync.RWMutex
 }
 
+type ProviderType struct {
+	ID           string   `json:"id"`
+	Label        string   `json:"label"`
+	Default      bool     `json:"default"`
+	Capabilities []string `json:"capabilities"`
+}
+
 type Connection struct {
 	ID                  string   `json:"id"`
 	Name                string   `json:"name"`
 	Adapter             string   `json:"adapter"`
+	AdapterLabel        string   `json:"adapter_label"`
 	BaseURL             string   `json:"base_url"`
 	Enabled             bool     `json:"enabled"`
 	AllowPrivateNetwork bool     `json:"allow_private_network"`
@@ -80,6 +95,7 @@ type PublicModel struct {
 	TargetModelID      string        `json:"target_model_id"`
 	UpstreamID         string        `json:"upstream_id"`
 	Adapter            string        `json:"adapter"`
+	AdapterLabel       string        `json:"adapter_label"`
 	Capabilities       []string      `json:"capabilities"`
 	Active             bool          `json:"active"`
 	Revision           int64         `json:"revision"`
@@ -93,6 +109,7 @@ type VisibleModel struct {
 	Label        string   `json:"label"`
 	Description  string   `json:"description"`
 	Adapter      string   `json:"adapter"`
+	AdapterLabel string   `json:"adapter_label"`
 	Capabilities []string `json:"capabilities"`
 }
 
@@ -116,15 +133,15 @@ func (service *Service) LockConfiguration() func() {
 	return service.dispatch.Unlock
 }
 
-func ProviderTypes() []map[string]any {
+func ProviderTypes() []ProviderType {
 	names := make([]string, 0, len(adapters))
 	for name := range adapters {
 		names = append(names, name)
 	}
 	sort.Strings(names)
-	items := make([]map[string]any, 0, len(names))
+	items := make([]ProviderType, 0, len(names))
 	for _, name := range names {
-		items = append(items, map[string]any{"id": name, "capabilities": adapters[name]})
+		items = append(items, ProviderType{ID: name, Label: adapterLabels[name], Default: name == "openai", Capabilities: append([]string(nil), adapters[name]...)})
 	}
 	return items
 }
@@ -486,7 +503,7 @@ func (service *Service) ListVisibleModels(ctx context.Context, actor auth.User) 
 		}, nil) {
 			continue
 		}
-		visible = append(visible, VisibleModel{ID: item.ID, Label: item.Label, Description: item.Description, Adapter: item.Adapter, Capabilities: item.Capabilities})
+		visible = append(visible, VisibleModel{ID: item.ID, Label: item.Label, Description: item.Description, Adapter: item.Adapter, AdapterLabel: item.AdapterLabel, Capabilities: item.Capabilities})
 	}
 	return visible, nil
 }
@@ -738,6 +755,7 @@ func scanConnection(row scanner) (Connection, error) {
 	var created, updated int64
 	err := row.Scan(&item.ID, &item.Name, &item.Adapter, &item.BaseURL, &item.Enabled, &item.AllowPrivateNetwork, &item.TimeoutMS, &item.Preset, &item.CredentialState, &item.Revision, &created, &updated)
 	item.Capabilities = availableCapabilities(item.Preset, item.Adapter)
+	item.AdapterLabel = adapterLabels[item.Adapter]
 	item.CredentialRequired = presetCredentialRequired(item.Preset)
 	item.CreatedAt, item.UpdatedAt = formatTime(created), formatTime(updated)
 	return item, err
@@ -748,6 +766,7 @@ func scanPublicModel(row scanner) (PublicModel, error) {
 	err := row.Scan(&item.ID, &item.Label, &item.Description, &item.TargetConnectionID, &item.TargetModelID, &item.UpstreamID, &item.Adapter, &raw, &item.Active, &item.Revision, &item.RoutingStrategy, &item.FreeOnly)
 	if err == nil {
 		err = json.Unmarshal([]byte(raw), &item.Capabilities)
+		item.AdapterLabel = adapterLabels[item.Adapter]
 		item.RoutingPolicy = routingPolicy(item.Capabilities)
 	}
 	return item, err

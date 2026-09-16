@@ -25,13 +25,20 @@ const (
 var routeStrategyOrder = []string{"fixed", "ordered_fallback", "weighted", "lowest_cost", "lowest_latency"}
 var routeStrategies = map[string]bool{"fixed": true, "ordered_fallback": true, "weighted": true, "lowest_cost": true, "lowest_latency": true}
 var routeStrategyTargetLimits = map[string]int{"fixed": 1, "ordered_fallback": 32, "weighted": 32, "lowest_cost": 32, "lowest_latency": 32}
+var routeStrategyLabels = map[string]string{"fixed": "Fixed target", "ordered_fallback": "Ordered fallback", "weighted": "Weighted", "lowest_cost": "Lowest estimated cost", "lowest_latency": "Lowest observed latency"}
 
 func ValidRouteStrategy(value string) bool { return routeStrategies[value] }
 
 type RoutingPolicy struct {
-	AllowedStrategies    []string       `json:"allowed_strategies"`
-	MaxTargetsByStrategy map[string]int `json:"max_targets_by_strategy"`
-	FreeOnlyAllowed      bool           `json:"free_only_allowed"`
+	AllowedStrategies    []string              `json:"allowed_strategies"`
+	MaxTargetsByStrategy map[string]int        `json:"max_targets_by_strategy"`
+	FreeOnlyAllowed      bool                  `json:"free_only_allowed"`
+	Strategies           []RouteStrategyOption `json:"strategies"`
+}
+
+type RouteStrategyOption struct {
+	ID    string `json:"id"`
+	Label string `json:"label"`
 }
 
 func routingPolicy(capabilities []string) RoutingPolicy {
@@ -40,10 +47,12 @@ func routingPolicy(capabilities []string) RoutingPolicy {
 		allowed = []string{"fixed"}
 	}
 	limits := make(map[string]int, len(allowed))
+	strategies := make([]RouteStrategyOption, 0, len(allowed))
 	for _, strategy := range allowed {
 		limits[strategy] = routeStrategyTargetLimits[strategy]
+		strategies = append(strategies, RouteStrategyOption{ID: strategy, Label: routeStrategyLabels[strategy]})
 	}
-	return RoutingPolicy{AllowedStrategies: append([]string(nil), allowed...), MaxTargetsByStrategy: limits, FreeOnlyAllowed: true}
+	return RoutingPolicy{AllowedStrategies: append([]string(nil), allowed...), MaxTargetsByStrategy: limits, FreeOnlyAllowed: true, Strategies: strategies}
 }
 
 type RouteTarget struct {
