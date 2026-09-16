@@ -73,6 +73,7 @@ func (handler *Handler) Register(mux *http.ServeMux) {
 	mux.HandleFunc("GET /api/openai/v1/vector_stores/{vector_store_id}/files/{file_id}", handler.getVectorStoreFile)
 	mux.HandleFunc("POST /api/openai/v1/vector_stores/{vector_store_id}/files/{file_id}", handler.updateVectorStoreFile)
 	mux.HandleFunc("DELETE /api/openai/v1/vector_stores/{vector_store_id}/files/{file_id}", handler.deleteVectorStoreFile)
+	mux.HandleFunc("GET /api/openai/v1/vector_stores/{vector_store_id}/files/{file_id}/content", handler.vectorStoreFileContent)
 	mux.HandleFunc("POST /api/openai/v1/uploads", handler.createOpenAIUpload)
 	mux.HandleFunc("POST /api/openai/v1/uploads/{upload_id}/parts", handler.addOpenAIUploadPart)
 	mux.HandleFunc("POST /api/openai/v1/uploads/{upload_id}/complete", handler.completeOpenAIUpload)
