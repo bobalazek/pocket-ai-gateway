@@ -13,6 +13,7 @@ Provider credentials, users, application keys, limits, routing rules, usage, and
 - **Access control:** multiple administrators and members, scoped application keys, model and provider grants, expiration, rotation, and revocation.
 - **Usage controls:** normalized token/cache usage, versioned cache-aware pricing, recurring UTC price windows, and request, concurrency, payload, batch, quota, and spend policies at the instance, user, key, and connection levels.
 - **Local operations:** two SQLite databases, encrypted provider secrets, diagnostics, audit events, encrypted backups, restore validation, and no public telemetry.
+- **Verified upgrades:** manual or Docker image replacement, plus optional signed dry-run/apply self-update for standalone Linux amd64/arm64 releases.
 - **Built-in dashboard:** onboarding, status, users, providers, models, API keys, requests, usage, audit history, backups, settings, and personal account management.
 
 ## Run it

@@ -228,7 +228,7 @@ Ship and smoke-test Linux amd64/arm64 binaries and Docker images with persistent
 
 Versioned releases include checksums, signature/provenance verification, dependency notices/SBOM, compatibility results, release notes, and migration instructions. Upgrades retain the data directory, snapshot before schema changes, and reject unsupported newer schemas. Rollback restores a matching backup and binary.
 
-Manual executable replacement and Docker image replacement are v0.1 requirements. Self-update is phase 8: explicit invocation, authenticated artifacts, supported platform swap, restart/health check, rollback. No automatic in-process mutation of a running server.
+Manual executable replacement and Docker image replacement are v0.1 requirements. The optional Phase 8 standalone Linux update command is explicit, verifies a signed manifest and artifact, snapshots data, swaps the supported-platform executable, probes readiness, and rolls back the binary and data on failure. It never mutates a running server automatically.
 
 **Acceptance:** upgrade and rollback are demonstrated on real artifacts; failed migrations do not silently modify usable data; Docker recreation with the same volume preserves state.
 

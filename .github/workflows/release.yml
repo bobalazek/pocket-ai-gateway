@@ -27,6 +27,10 @@ jobs:
           cache-dependency-path: web/pnpm-lock.yaml
       - run: ./scripts/verify.sh
       - run: ./scripts/package.sh "$GITHUB_REF_NAME"
+      - name: Sign self-update manifest
+        env:
+          POCKET_AI_GATEWAY_RELEASE_SIGNING_KEY: ${{ secrets.POCKET_AI_GATEWAY_RELEASE_SIGNING_KEY }}
+        run: go run ./scripts/release-manifest --version "$GITHUB_REF_NAME" --base-url "https://github.com/${GITHUB_REPOSITORY}/releases/download/${GITHUB_REF_NAME}" --directory dist/release
       - uses: anchore/sbom-action@v0.24.2
         with:
           path: dist/release

@@ -1,0 +1,9 @@
+# 2026-09-16 — Explicit authenticated Linux self-update
+
+ID: ADR-040 · Status: accepted · Source: user-approved Phase 8 update capability with delegated safety contract
+
+**Context.** Docker is the primary deployment path and upgrades by replacing a pinned image. Standalone Linux operators also need an optional in-place flow, but a running server must never silently replace itself or migrate data without a recovery path. The project has no committed private signing material.
+
+**Decision.** Add an offline `update` command for Linux amd64 and arm64 release binaries. Dry-run is the default. The command requires an operator-provided Ed25519 public key, verifies a detached signature over the exact release manifest, selects only the current platform artifact, verifies signed size and SHA-256, stages the executable on the same filesystem, and checks its embedded version. `--apply` requires exclusive access to the data directory, creates a verified paired snapshot outside it, atomically exchanges the Linux executable, starts the new binary on a temporary loopback listener, requires `/readyz`, and stops it cleanly. A failed probe restores the previous executable and the pre-update data snapshot. A successful update retains both paths for deliberate rollback. The release workflow signs manifests only from an external GitHub secret; no private key enters the repository.
+
+**Consequences.** The service must be stopped before `--apply`, and a self-updating standalone installation must let the service account write the executable directory as well as the data directory. Root-owned `/usr/local/bin` installations keep using manual replacement. Containers keep using image replacement. The release signing secret and corresponding public trust key must be configured before publishing an update-capable release.

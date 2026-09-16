@@ -37,6 +37,26 @@ func TestParseServePrecedence(t *testing.T) {
 	}
 }
 
+func TestParseUpdateRequiresTrustAndDefaultsToDryRun(t *testing.T) {
+	if _, err := parseUpdate("v1.0.0", nil, func(string) string { return "" }, io.Discard); err == nil {
+		t.Fatal("update accepted a missing trust key")
+	}
+	getenv := func(name string) string {
+		if name == "POCKET_AI_GATEWAY_UPDATE_PUBLIC_KEY" {
+			return base64.StdEncoding.EncodeToString(make([]byte, 32))
+		}
+		return ""
+	}
+	options, err := parseUpdate("v1.0.0", []string{"--manifest-url", "https://releases.example.test/manifest.json", "--data-dir", "update-data"}, getenv, io.Discard)
+	if err != nil {
+		t.Fatal(err)
+	}
+	wantDir, _ := filepath.Abs("update-data")
+	if options.Apply || options.CurrentVersion != "v1.0.0" || options.ManifestURL != "https://releases.example.test/manifest.json" || options.DataDir != wantDir {
+		t.Fatalf("update options = %#v", options)
+	}
+}
+
 func TestOwnerResetWritesProtectedCodeAndRevokesSessions(t *testing.T) {
 	ctx := context.Background()
 	dataDir := filepath.Join(t.TempDir(), "data")

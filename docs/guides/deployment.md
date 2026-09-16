@@ -162,3 +162,33 @@ Scheduled local and S3-compatible backups are configured in the dashboard. See [
 5. If the upgrade fails, stop it and restore the matching previous executable and backup into a clean directory.
 
 The gateway refuses unsupported newer database schemas. Do not run two versions against the same data directory.
+
+### Optional standalone self-update
+
+Self-update is for release binaries installed in a directory writable by the service account. Root-owned `/usr/local/bin` installations keep using the manual procedure above. Containers must replace the pinned image instead of mutating a container filesystem.
+
+Release maintainers generate a 32-byte Ed25519 seed outside the repository, store it as the `POCKET_AI_GATEWAY_RELEASE_SIGNING_KEY` GitHub Actions secret, and distribute only the derived public key:
+
+```sh
+export POCKET_AI_GATEWAY_RELEASE_SIGNING_KEY="$(openssl rand -base64 32)"
+go run ./scripts/release-manifest --print-public-key
+```
+
+On the server, stop the service and configure that base64 public key. The first command is a dry-run: it downloads and verifies the signed manifest and exact Linux artifact, stages it beside the executable, and runs its embedded version check without changing the installation.
+
+```sh
+sudo systemctl stop pocket-ai-gateway
+export POCKET_AI_GATEWAY_UPDATE_PUBLIC_KEY='base64-public-key-from-the-release-maintainer'
+
+/opt/pocket-ai-gateway/pocket-ai-gateway update \
+  --data-dir /var/lib/pocket-ai-gateway
+
+/opt/pocket-ai-gateway/pocket-ai-gateway update \
+  --data-dir /var/lib/pocket-ai-gateway \
+  --apply
+
+sudo systemctl start pocket-ai-gateway
+curl --fail http://127.0.0.1:8080/readyz
+```
+
+`--apply` refuses a running data directory, writes a paired pre-update snapshot beside the data directory, atomically exchanges the Linux executable, starts the new binary temporarily on loopback, requires `/readyz`, and stops it. Failure restores both the previous executable and snapshot. Success reports the retained snapshot and uniquely named `.previous-*` binary paths. Use `--manifest-url` and `--signature-url` only for a separately trusted release channel. `--allow-downgrade` still requires a valid signature and exists for deliberate rollback.
