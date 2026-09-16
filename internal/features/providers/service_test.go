@@ -57,8 +57,13 @@ func TestWebSearchCapabilityRequiresNativePresetAndChat(t *testing.T) {
 func TestProviderTypesPublishPresentationMetadata(t *testing.T) {
 	defaults := 0
 	for _, provider := range ProviderTypes() {
-		if provider.Label == "" {
+		if provider.Label == "" || len(provider.CapabilityDetails) != len(provider.Capabilities) {
 			t.Fatalf("provider label is missing: %#v", provider)
+		}
+		for _, capability := range provider.CapabilityDetails {
+			if capability.ID == "" || capability.Label == "" {
+				t.Fatalf("provider capability metadata is incomplete: %#v", provider)
+			}
 		}
 		if provider.Default {
 			defaults++

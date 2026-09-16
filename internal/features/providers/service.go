@@ -38,6 +38,40 @@ var adapterLabels = map[string]string{
 	"openai_compatible": "OpenAI compatible",
 }
 
+var capabilityLabels = map[string]string{
+	"audio_speech":        "Text to speech",
+	"audio_transcription": "Audio transcription",
+	"audio_translation":   "Audio translation",
+	"chat":                "Chat",
+	"completions":         "Legacy completions",
+	"count_tokens":        "Token counting",
+	"embeddings":          "Embeddings",
+	"image_edit":          "Image editing",
+	"image_variation":     "Image variation",
+	"images":              "Image generation",
+	"interactions":        "Interactions",
+	"moderations":         "Moderation",
+	"prompt_cache":        "Prompt caching",
+	"web_fetch":           "Web fetch",
+	"web_search":          "Web search",
+}
+
+var scopeCapabilities = map[string]string{
+	"audio:speech":          "audio_speech",
+	"audio:transcribe":      "audio_transcription",
+	"audio:translate":       "audio_translation",
+	"chat:generate":         "chat",
+	"completions:generate":  "completions",
+	"embeddings:generate":   "embeddings",
+	"images:edit":           "image_edit",
+	"images:generate":       "images",
+	"images:variation":      "image_variation",
+	"interactions:generate": "interactions",
+	"moderations:classify":  "moderations",
+	"responses:generate":    "chat",
+	"tokens:count":          "count_tokens",
+}
+
 type Service struct {
 	database *sql.DB
 	key      []byte
@@ -45,28 +79,35 @@ type Service struct {
 }
 
 type ProviderType struct {
-	ID           string   `json:"id"`
-	Label        string   `json:"label"`
-	Default      bool     `json:"default"`
-	Capabilities []string `json:"capabilities"`
+	ID                string             `json:"id"`
+	Label             string             `json:"label"`
+	Default           bool               `json:"default"`
+	Capabilities      []string           `json:"capabilities"`
+	CapabilityDetails []CapabilityDetail `json:"capability_details"`
+}
+
+type CapabilityDetail struct {
+	ID    string `json:"id"`
+	Label string `json:"label"`
 }
 
 type Connection struct {
-	ID                  string   `json:"id"`
-	Name                string   `json:"name"`
-	Adapter             string   `json:"adapter"`
-	AdapterLabel        string   `json:"adapter_label"`
-	BaseURL             string   `json:"base_url"`
-	Enabled             bool     `json:"enabled"`
-	AllowPrivateNetwork bool     `json:"allow_private_network"`
-	TimeoutMS           int64    `json:"timeout_ms"`
-	Preset              string   `json:"preset"`
-	Capabilities        []string `json:"capabilities"`
-	CredentialRequired  bool     `json:"credential_required"`
-	CredentialState     string   `json:"credential_state"`
-	Revision            int64    `json:"revision"`
-	CreatedAt           string   `json:"created_at"`
-	UpdatedAt           string   `json:"updated_at"`
+	ID                  string             `json:"id"`
+	Name                string             `json:"name"`
+	Adapter             string             `json:"adapter"`
+	AdapterLabel        string             `json:"adapter_label"`
+	BaseURL             string             `json:"base_url"`
+	Enabled             bool               `json:"enabled"`
+	AllowPrivateNetwork bool               `json:"allow_private_network"`
+	TimeoutMS           int64              `json:"timeout_ms"`
+	Preset              string             `json:"preset"`
+	Capabilities        []string           `json:"capabilities"`
+	CapabilityDetails   []CapabilityDetail `json:"capability_details"`
+	CredentialRequired  bool               `json:"credential_required"`
+	CredentialState     string             `json:"credential_state"`
+	Revision            int64              `json:"revision"`
+	CreatedAt           string             `json:"created_at"`
+	UpdatedAt           string             `json:"updated_at"`
 }
 
 type ConnectionInput struct {
@@ -80,37 +121,40 @@ type ConnectionInput struct {
 }
 
 type UpstreamModel struct {
-	ID           string   `json:"id"`
-	ConnectionID string   `json:"connection_id"`
-	UpstreamID   string   `json:"upstream_id"`
-	Capabilities []string `json:"capabilities"`
-	Active       bool     `json:"active"`
+	ID                string             `json:"id"`
+	ConnectionID      string             `json:"connection_id"`
+	UpstreamID        string             `json:"upstream_id"`
+	Capabilities      []string           `json:"capabilities"`
+	CapabilityDetails []CapabilityDetail `json:"capability_details"`
+	Active            bool               `json:"active"`
 }
 
 type PublicModel struct {
-	ID                 string        `json:"id"`
-	Label              string        `json:"label"`
-	Description        string        `json:"description"`
-	TargetConnectionID string        `json:"target_connection_id"`
-	TargetModelID      string        `json:"target_model_id"`
-	UpstreamID         string        `json:"upstream_id"`
-	Adapter            string        `json:"adapter"`
-	AdapterLabel       string        `json:"adapter_label"`
-	Capabilities       []string      `json:"capabilities"`
-	Active             bool          `json:"active"`
-	Revision           int64         `json:"revision"`
-	RoutingStrategy    string        `json:"routing_strategy"`
-	FreeOnly           bool          `json:"free_only"`
-	RoutingPolicy      RoutingPolicy `json:"routing_policy"`
+	ID                 string             `json:"id"`
+	Label              string             `json:"label"`
+	Description        string             `json:"description"`
+	TargetConnectionID string             `json:"target_connection_id"`
+	TargetModelID      string             `json:"target_model_id"`
+	UpstreamID         string             `json:"upstream_id"`
+	Adapter            string             `json:"adapter"`
+	AdapterLabel       string             `json:"adapter_label"`
+	Capabilities       []string           `json:"capabilities"`
+	CapabilityDetails  []CapabilityDetail `json:"capability_details"`
+	Active             bool               `json:"active"`
+	Revision           int64              `json:"revision"`
+	RoutingStrategy    string             `json:"routing_strategy"`
+	FreeOnly           bool               `json:"free_only"`
+	RoutingPolicy      RoutingPolicy      `json:"routing_policy"`
 }
 
 type VisibleModel struct {
-	ID           string   `json:"id"`
-	Label        string   `json:"label"`
-	Description  string   `json:"description"`
-	Adapter      string   `json:"adapter"`
-	AdapterLabel string   `json:"adapter_label"`
-	Capabilities []string `json:"capabilities"`
+	ID                string             `json:"id"`
+	Label             string             `json:"label"`
+	Description       string             `json:"description"`
+	Adapter           string             `json:"adapter"`
+	AdapterLabel      string             `json:"adapter_label"`
+	Capabilities      []string           `json:"capabilities"`
+	CapabilityDetails []CapabilityDetail `json:"capability_details"`
 }
 
 type Target struct {
@@ -141,7 +185,8 @@ func ProviderTypes() []ProviderType {
 	sort.Strings(names)
 	items := make([]ProviderType, 0, len(names))
 	for _, name := range names {
-		items = append(items, ProviderType{ID: name, Label: adapterLabels[name], Default: name == "openai", Capabilities: append([]string(nil), adapters[name]...)})
+		capabilities := append([]string(nil), adapters[name]...)
+		items = append(items, ProviderType{ID: name, Label: adapterLabels[name], Default: name == "openai", Capabilities: capabilities, CapabilityDetails: capabilityDetails(capabilities)})
 	}
 	return items
 }
@@ -371,7 +416,7 @@ func (service *Service) CreateUpstreamModel(ctx context.Context, actor auth.User
 	if err = tx.Commit(); err != nil {
 		return UpstreamModel{}, err
 	}
-	return UpstreamModel{ID: id, ConnectionID: connectionID, UpstreamID: upstreamID, Capabilities: capabilities, Active: true}, nil
+	return UpstreamModel{ID: id, ConnectionID: connectionID, UpstreamID: upstreamID, Capabilities: capabilities, CapabilityDetails: capabilityDetails(capabilities), Active: true}, nil
 }
 
 func (service *Service) ListUpstreamModels(ctx context.Context, actor auth.User, connectionID string) ([]UpstreamModel, error) {
@@ -391,6 +436,7 @@ func (service *Service) ListUpstreamModels(ctx context.Context, actor auth.User,
 			return nil, err
 		}
 		_ = json.Unmarshal([]byte(raw), &item.Capabilities)
+		item.CapabilityDetails = capabilityDetails(item.Capabilities)
 		items = append(items, item)
 	}
 	return items, rows.Err()
@@ -503,7 +549,7 @@ func (service *Service) ListVisibleModels(ctx context.Context, actor auth.User) 
 		}, nil) {
 			continue
 		}
-		visible = append(visible, VisibleModel{ID: item.ID, Label: item.Label, Description: item.Description, Adapter: item.Adapter, AdapterLabel: item.AdapterLabel, Capabilities: item.Capabilities})
+		visible = append(visible, VisibleModel{ID: item.ID, Label: item.Label, Description: item.Description, Adapter: item.Adapter, AdapterLabel: item.AdapterLabel, Capabilities: item.Capabilities, CapabilityDetails: item.CapabilityDetails})
 	}
 	return visible, nil
 }
@@ -649,10 +695,22 @@ func normalizeCapabilities(values []string) []string {
 	sort.Strings(out)
 	return out
 }
+func capabilityDetails(values []string) []CapabilityDetail {
+	details := make([]CapabilityDetail, 0, len(values))
+	for _, value := range values {
+		details = append(details, CapabilityDetail{ID: value, Label: capabilityLabels[value]})
+	}
+	return details
+}
+func CapabilityForScope(scope string) string { return scopeCapabilities[scope] }
+func SupportsScope(values []string, scope string) bool {
+	wanted := CapabilityForScope(scope)
+	return wanted != "" && containsString(values, wanted)
+}
 func validCapabilities(values []string) bool {
 	hasChat, hasHostedChatCapability := false, false
 	for _, value := range values {
-		if value != "chat" && value != "completions" && value != "web_search" && value != "web_fetch" && value != "embeddings" && value != "count_tokens" && value != "moderations" && value != "images" && value != "image_edit" && value != "image_variation" && value != "audio_speech" && value != "audio_transcription" && value != "audio_translation" && value != "prompt_cache" && value != "interactions" {
+		if _, valid := capabilityLabels[value]; !valid {
 			return false
 		}
 		hasChat = hasChat || value == "chat"
@@ -755,6 +813,7 @@ func scanConnection(row scanner) (Connection, error) {
 	var created, updated int64
 	err := row.Scan(&item.ID, &item.Name, &item.Adapter, &item.BaseURL, &item.Enabled, &item.AllowPrivateNetwork, &item.TimeoutMS, &item.Preset, &item.CredentialState, &item.Revision, &created, &updated)
 	item.Capabilities = availableCapabilities(item.Preset, item.Adapter)
+	item.CapabilityDetails = capabilityDetails(item.Capabilities)
 	item.AdapterLabel = adapterLabels[item.Adapter]
 	item.CredentialRequired = presetCredentialRequired(item.Preset)
 	item.CreatedAt, item.UpdatedAt = formatTime(created), formatTime(updated)
@@ -767,6 +826,7 @@ func scanPublicModel(row scanner) (PublicModel, error) {
 	if err == nil {
 		err = json.Unmarshal([]byte(raw), &item.Capabilities)
 		item.AdapterLabel = adapterLabels[item.Adapter]
+		item.CapabilityDetails = capabilityDetails(item.Capabilities)
 		item.RoutingPolicy = routingPolicy(item.Capabilities)
 	}
 	return item, err

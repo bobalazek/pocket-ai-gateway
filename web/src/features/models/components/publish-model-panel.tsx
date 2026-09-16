@@ -22,7 +22,7 @@ export function PublishModelPanel({ model }: { model: ModelsModel }) {
         </div>
         <fieldset className="scope-grid">
           <legend>Published capabilities</legend>
-          {model.publishCapabilities.map((value) => <label key={value}><input name="capabilities" type="checkbox" value={value} /><span>{value.replaceAll("_", " ")}</span></label>)}
+          {model.publishCapabilities.map((capability) => <label key={capability.id}><input name="capabilities" type="checkbox" value={capability.id} /><span>{capability.label}</span></label>)}
         </fieldset>
         <Button disabled={model.busy}>Publish model</Button>
       </form>

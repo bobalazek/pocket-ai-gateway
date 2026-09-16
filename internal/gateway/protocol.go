@@ -6,8 +6,8 @@ import (
 	"errors"
 	"net/http"
 	"strconv"
-	"strings"
 
+	"github.com/bobalazek/pocket-ai-gateway/internal/features/providers"
 	"github.com/bobalazek/pocket-ai-gateway/internal/features/usage"
 )
 
@@ -106,13 +106,7 @@ func nativeAdapter(dialect, adapter string) bool {
 	return dialect == adapter || (dialect == "openai" && adapter == "openai_compatible")
 }
 func hasCapability(values []string, scope string) bool {
-	wanted := map[string]string{"chat:generate": "chat", "completions:generate": "completions", "responses:generate": "chat", "embeddings:generate": "embeddings", "tokens:count": "count_tokens", "moderations:classify": "moderations", "images:generate": "images", "images:edit": "image_edit", "images:variation": "image_variation", "audio:speech": "audio_speech", "audio:transcribe": "audio_transcription", "audio:translate": "audio_translation", "interactions:generate": "interactions"}[scope]
-	for _, v := range values {
-		if v == wanted || v == strings.ReplaceAll(scope, ":", "_") {
-			return true
-		}
-	}
-	return false
+	return providers.SupportsScope(values, scope)
 }
 func maximumOutput(body map[string]json.RawMessage) int64 {
 	for _, name := range []string{"max_tokens", "max_completion_tokens", "max_output_tokens"} {

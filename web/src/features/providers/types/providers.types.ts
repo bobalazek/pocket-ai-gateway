@@ -1,3 +1,5 @@
+export type CapabilityDetail = { id: string; label: string };
+
 export type ProviderConnection = {
   id: string;
   name: string;
@@ -9,6 +11,7 @@ export type ProviderConnection = {
   timeout_ms: number;
   preset: string;
   capabilities: string[];
+  capability_details: CapabilityDetail[];
   credential_required: boolean;
   credential_state: "missing" | "stored" | "external";
   revision: number;
@@ -21,6 +24,7 @@ export type ProviderAdapter = {
   label: string;
   default: boolean;
   capabilities: string[];
+  capability_details: CapabilityDetail[];
 };
 
 export type ProviderPreset = {
@@ -35,6 +39,7 @@ export type ProviderPreset = {
   private_network: boolean;
   operations: string[];
   capabilities: string[];
+  capability_details: CapabilityDetail[];
   documentation_url: string;
   reviewed_at: string;
 };
@@ -44,5 +49,6 @@ export type UpstreamModel = {
   connection_id: string;
   upstream_id: string;
   capabilities: string[];
+  capability_details: CapabilityDetail[];
   active: boolean;
 };

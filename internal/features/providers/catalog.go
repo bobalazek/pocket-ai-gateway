@@ -18,19 +18,20 @@ import (
 const maxCatalogBytes = 1 << 20
 
 type Preset struct {
-	ID                 string   `json:"id"`
-	Label              string   `json:"label"`
-	Adapter            string   `json:"adapter"`
-	AdapterLabel       string   `json:"adapter_label"`
-	BaseURL            string   `json:"base_url,omitempty"`
-	BaseURLExample     string   `json:"base_url_example,omitempty"`
-	BaseURLRequired    bool     `json:"base_url_required"`
-	CredentialRequired bool     `json:"credential_required"`
-	PrivateNetwork     bool     `json:"private_network"`
-	Operations         []string `json:"operations"`
-	Capabilities       []string `json:"capabilities"`
-	DocumentationURL   string   `json:"documentation_url"`
-	ReviewedAt         string   `json:"reviewed_at"`
+	ID                 string             `json:"id"`
+	Label              string             `json:"label"`
+	Adapter            string             `json:"adapter"`
+	AdapterLabel       string             `json:"adapter_label"`
+	BaseURL            string             `json:"base_url,omitempty"`
+	BaseURLExample     string             `json:"base_url_example,omitempty"`
+	BaseURLRequired    bool               `json:"base_url_required"`
+	CredentialRequired bool               `json:"credential_required"`
+	PrivateNetwork     bool               `json:"private_network"`
+	Operations         []string           `json:"operations"`
+	Capabilities       []string           `json:"capabilities"`
+	CapabilityDetails  []CapabilityDetail `json:"capability_details"`
+	DocumentationURL   string             `json:"documentation_url"`
+	ReviewedAt         string             `json:"reviewed_at"`
 }
 
 var presets = []Preset{
@@ -53,16 +54,17 @@ var presets = []Preset{
 }
 
 type CatalogCandidate struct {
-	Provider              string   `json:"provider"`
-	ModelID               string   `json:"model_id"`
-	Label                 string   `json:"label"`
-	Capabilities          []string `json:"capabilities"`
-	InputNanosPerMillion  *int64   `json:"input_nanos_per_million,omitempty"`
-	OutputNanosPerMillion *int64   `json:"output_nanos_per_million,omitempty"`
-	Free                  bool     `json:"free"`
-	Source                string   `json:"source"`
-	SourceVersion         string   `json:"source_version"`
-	DiscoveredAt          string   `json:"discovered_at"`
+	Provider              string             `json:"provider"`
+	ModelID               string             `json:"model_id"`
+	Label                 string             `json:"label"`
+	Capabilities          []string           `json:"capabilities"`
+	CapabilityDetails     []CapabilityDetail `json:"capability_details,omitempty"`
+	InputNanosPerMillion  *int64             `json:"input_nanos_per_million,omitempty"`
+	OutputNanosPerMillion *int64             `json:"output_nanos_per_million,omitempty"`
+	Free                  bool               `json:"free"`
+	Source                string             `json:"source"`
+	SourceVersion         string             `json:"source_version"`
+	DiscoveredAt          string             `json:"discovered_at"`
 }
 
 type CatalogState struct {
@@ -85,6 +87,7 @@ func Presets() []Preset {
 		items[index].AdapterLabel = adapterLabels[items[index].Adapter]
 		items[index].Operations = append([]string(nil), items[index].Operations...)
 		items[index].Capabilities = availableCapabilities(items[index].ID, items[index].Adapter)
+		items[index].CapabilityDetails = capabilityDetails(items[index].Capabilities)
 	}
 	return items
 }
@@ -195,7 +198,7 @@ func operationCapability(operation string) string {
 	switch operation {
 	case "completions":
 		return "completions"
-	case "chat/completions", "messages", "generateContent", "responses", "responses/compact":
+	case "chat/completions", "messages", "generateContent", "streamGenerateContent", "responses", "responses/compact":
 		return "chat"
 	case "embeddings", "embedContent", "batchEmbedContents":
 		return "embeddings"
@@ -267,6 +270,7 @@ func (service *Service) Catalog(ctx context.Context, actor auth.User) ([]Catalog
 			return nil, CatalogState{}, err
 		}
 		_ = json.Unmarshal([]byte(raw), &item.Capabilities)
+		item.CapabilityDetails = capabilityDetails(item.Capabilities)
 		if input.Valid {
 			item.InputNanosPerMillion = &input.Int64
 		}

@@ -37,7 +37,7 @@ export function ProviderCard({ item, busy, onToggle, onCredential, onAddModel }:
         <summary>Add upstream model</summary>
         <form onSubmit={(event) => onAddModel(event, item.id)}>
           <Field id={`upstream-${item.id}`} name="upstream_id" label="Upstream model ID" required />
-          <fieldset className="scope-grid"><legend>Capabilities</legend>{item.capabilities.map((value) => <label key={value}><input type="checkbox" name="capabilities" value={value} /><span>{value.replaceAll("_", " ")}</span></label>)}</fieldset>
+          <fieldset className="scope-grid"><legend>Capabilities</legend>{item.capability_details.map((capability) => <label key={capability.id}><input type="checkbox" name="capabilities" value={capability.id} /><span>{capability.label}</span></label>)}</fieldset>
           <Button disabled={busy}>Add upstream model</Button>
         </form>
       </details>

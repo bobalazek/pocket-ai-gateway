@@ -294,6 +294,10 @@ func (handler *Handler) forwardAuthorized(response http.ResponseWriter, request 
 		handler.writeError(response, dialect, http.StatusServiceUnavailable, "gateway_unavailable", "A current price quote could not be created")
 		return
 	}
+	requiredCapability := providers.CapabilityForScope(scope)
+	if geminiInteraction {
+		requiredCapability = "interactions"
+	}
 	plan, err := handler.providers.Route(request.Context(), publicID, providers.RouteOptions{Operation: clientOperation, Streaming: stream, EstimatedInputTokens: inputEstimate, EstimatedOutputTokens: outputEstimate, QuoteAt: priceQuoteAt, Seed: string(seed[:]), AllowsConnection: func(connectionID string) bool { return principal.Allows(scope, publicID, connectionID) }, Eligibility: func(target providers.Target) (bool, string) {
 		native := nativeTarget(dialect, target.Adapter)
 		if webSearch.enabled {
@@ -322,30 +326,8 @@ func (handler *Handler) forwardAuthorized(response http.ResponseWriter, request 
 				return false, "cache_price_contract_unavailable"
 			}
 		}
-		if geminiInteraction {
-			if !native || target.Preset != "gemini" {
-				return false, "interactions_native_gemini_required"
-			}
-			if !hasCapability(target.Capabilities, "interactions:generate") || !hasCapability(target.UpstreamCapabilities, "interactions:generate") {
-				return false, "unsupported_capability"
-			}
-		} else if !hasCapability(target.Capabilities, scope) || !hasCapability(target.UpstreamCapabilities, scope) {
-			return false, "unsupported_capability"
-		}
-		if imageGenerationInput.stream && (target.Adapter != "openai" || target.Preset != "openai" || !openAIImageStreamModel(target.UpstreamID)) {
-			return false, "image_stream_native_gpt_required"
-		}
-		if opaqueMedia && target.RoutingStrategy == "lowest_cost" {
-			return false, "cost_estimate_unavailable"
-		}
-		if opaqueMedia && target.FreeOnly {
-			return false, "free_price_contract_unavailable"
-		}
-		if !native && scope != "chat:generate" && scope != "responses:generate" {
-			return false, "translation_unsupported"
-		}
-		if dialect == "anthropic" && stream && !native {
-			return false, "anthropic_stream_usage_unavailable"
+		if eligible, reason := providers.StaticTargetEligibility(target, providers.StaticEligibilityInput{Dialect: dialect, Capability: requiredCapability, Operation: clientOperation, Streaming: stream, OpaqueMedia: opaqueMedia, ImageStreaming: imageGenerationInput.stream}); !eligible {
+			return false, reason
 		}
 		if !native {
 			if !translationChecked[target.Adapter] {
@@ -362,9 +344,6 @@ func (handler *Handler) forwardAuthorized(response http.ResponseWriter, request 
 			targetOperation = clientOperation
 		} else if !native {
 			targetOperation = translationOperation[target.Adapter]
-		}
-		if dialect == "responses_compact" && target.Preset != "openai" {
-			return false, "preset_operation_unsupported"
 		}
 		if !providers.PresetSupports(target.Preset, targetOperation) {
 			return false, "preset_operation_unsupported"

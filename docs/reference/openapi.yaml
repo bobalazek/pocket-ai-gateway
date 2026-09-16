@@ -548,7 +548,7 @@ paths:
     post:
       operationId: createUpstreamModel
       parameters: [{ $ref: "#/components/parameters/ID" }, { $ref: "#/components/parameters/CSRF" }]
-      requestBody: { required: true, content: { application/json: { schema: { type: object, additionalProperties: false, required: [upstream_id, capabilities], properties: { upstream_id: { type: string, minLength: 1, maxLength: 300 }, capabilities: { type: array, minItems: 1, uniqueItems: true, items: { type: string, enum: [chat, completions, embeddings, moderations, count_tokens, images, image_edit, image_variation, audio_speech, audio_transcription, audio_translation, prompt_cache, web_search, web_fetch] } } } } } } }
+      requestBody: { required: true, content: { application/json: { schema: { type: object, additionalProperties: false, required: [upstream_id, capabilities], properties: { upstream_id: { type: string, minLength: 1, maxLength: 300 }, capabilities: { type: array, minItems: 1, uniqueItems: true, items: { type: string, enum: [chat, completions, embeddings, moderations, count_tokens, images, image_edit, image_variation, audio_speech, audio_transcription, audio_translation, prompt_cache, web_search, web_fetch, interactions] } } } } } } }
       responses:
         "201": { description: Upstream model created, content: { application/json: { schema: { type: object, required: [model], properties: { model: { $ref: "#/components/schemas/UpstreamModel" } } } } } }
         "400": { $ref: "#/components/responses/BadRequest" }
@@ -595,7 +595,7 @@ paths:
       operationId: getModelRoute
       parameters: [{ $ref: "#/components/parameters/ID" }]
       responses:
-        "200": { description: Route configuration, content: { application/json: { schema: { type: object, required: [model, targets], properties: { model: { $ref: "#/components/schemas/PublicModel" }, targets: { type: array, items: { $ref: "#/components/schemas/RouteTargetInput" } } } } } } }
+        "200": { description: Route configuration and backend-filtered compatible targets, content: { application/json: { schema: { type: object, required: [model, targets, available_targets], properties: { model: { $ref: "#/components/schemas/PublicModel" }, targets: { type: array, items: { $ref: "#/components/schemas/RouteTargetInput" } }, available_targets: { type: array, items: { $ref: "#/components/schemas/UpstreamModel" } } } } } } }
         "401": { $ref: "#/components/responses/Unauthorized" }
         "403": { $ref: "#/components/responses/Forbidden" }
         "404": { $ref: "#/components/responses/NotFound" }
@@ -1215,15 +1215,23 @@ components:
         created_at: { type: string, format: date-time }
     ProviderAdapter:
       type: object
-      required: [id, label, default, capabilities]
+      required: [id, label, default, capabilities, capability_details]
       properties:
         id: { type: string, enum: [openai, anthropic, gemini, openai_compatible] }
         label: { type: string }
         default: { type: boolean }
         capabilities: { type: array, items: { type: string } }
+        capability_details: { type: array, items: { $ref: "#/components/schemas/CapabilityDetail" } }
+    CapabilityDetail:
+      type: object
+      additionalProperties: false
+      required: [id, label]
+      properties:
+        id: { type: string }
+        label: { type: string }
     ProviderPreset:
       type: object
-      required: [id, label, adapter, adapter_label, base_url_required, credential_required, private_network, operations, capabilities, documentation_url, reviewed_at]
+      required: [id, label, adapter, adapter_label, base_url_required, credential_required, private_network, operations, capabilities, capability_details, documentation_url, reviewed_at]
       properties:
         id: { type: string, enum: [openai, anthropic, gemini, openrouter, ollama, mistral, groq, deepseek, xai, together, fireworks, cohere, perplexity, azure-openai, bedrock, vertex] }
         label: { type: string }
@@ -1236,6 +1244,7 @@ components:
         private_network: { type: boolean }
         operations: { type: array, items: { type: string } }
         capabilities: { type: array, items: { type: string } }
+        capability_details: { type: array, items: { $ref: "#/components/schemas/CapabilityDetail" } }
         documentation_url: { type: string, format: uri }
         reviewed_at: { type: string, format: date }
     ProviderConnectionInput:
@@ -1264,11 +1273,12 @@ components:
       allOf:
         - { $ref: "#/components/schemas/ProviderConnectionInput" }
         - type: object
-          required: [id, preset, adapter_label, capabilities, credential_required, credential_state, revision, created_at, updated_at]
+          required: [id, preset, adapter_label, capabilities, capability_details, credential_required, credential_state, revision, created_at, updated_at]
           properties:
             id: { type: string }
             adapter_label: { type: string }
             capabilities: { type: array, items: { type: string } }
+            capability_details: { type: array, items: { $ref: "#/components/schemas/CapabilityDetail" } }
             credential_required: { type: boolean }
             credential_state: { type: string, enum: [missing, stored, external] }
             revision: { type: integer, minimum: 1 }
@@ -1276,16 +1286,17 @@ components:
             updated_at: { type: string, format: date-time }
     UpstreamModel:
       type: object
-      required: [id, connection_id, upstream_id, capabilities, active]
+      required: [id, connection_id, upstream_id, capabilities, capability_details, active]
       properties:
         id: { type: string }
         connection_id: { type: string }
         upstream_id: { type: string }
-        capabilities: { type: array, minItems: 1, uniqueItems: true, items: { type: string, enum: [chat, completions, embeddings, moderations, count_tokens, images, image_edit, image_variation, audio_speech, audio_transcription, audio_translation, prompt_cache, web_search, web_fetch] } }
+        capabilities: { type: array, minItems: 1, uniqueItems: true, items: { type: string, enum: [chat, completions, embeddings, moderations, count_tokens, images, image_edit, image_variation, audio_speech, audio_transcription, audio_translation, prompt_cache, web_search, web_fetch, interactions] } }
+        capability_details: { type: array, items: { $ref: "#/components/schemas/CapabilityDetail" } }
         active: { type: boolean }
     VisibleModel:
       type: object
-      required: [id, label, description, adapter, adapter_label, capabilities]
+      required: [id, label, description, adapter, adapter_label, capabilities, capability_details]
       properties:
         id: { type: string }
         label: { type: string }
@@ -1293,6 +1304,7 @@ components:
         adapter: { type: string }
         adapter_label: { type: string }
         capabilities: { type: array, items: { type: string } }
+        capability_details: { type: array, items: { $ref: "#/components/schemas/CapabilityDetail" } }
     PublicModelInput:
       type: object
       additionalProperties: false
@@ -1302,7 +1314,7 @@ components:
         label: { type: string, minLength: 1, maxLength: 200 }
         description: { type: string, maxLength: 1000 }
         target_model_id: { type: string }
-        capabilities: { type: array, minItems: 1, uniqueItems: true, items: { type: string, enum: [chat, completions, embeddings, moderations, count_tokens, images, image_edit, image_variation, audio_speech, audio_transcription, audio_translation, prompt_cache, web_search, web_fetch] } }
+        capabilities: { type: array, minItems: 1, uniqueItems: true, items: { type: string, enum: [chat, completions, embeddings, moderations, count_tokens, images, image_edit, image_variation, audio_speech, audio_transcription, audio_translation, prompt_cache, web_search, web_fetch, interactions] } }
     PublicModel:
       allOf:
         - { $ref: "#/components/schemas/VisibleModel" }
@@ -1319,13 +1331,16 @@ components:
             routing_policy:
               type: object
               additionalProperties: false
-              required: [allowed_strategies, max_targets_by_strategy, free_only_allowed, strategies]
+              required: [allowed_strategies, max_targets_by_strategy, free_only_allowed, free_only_label, priority_field, weight_field, strategies]
               properties:
                 allowed_strategies: { type: array, minItems: 1, items: { $ref: "#/components/schemas/RouteStrategy" } }
                 max_targets_by_strategy:
                   type: object
                   additionalProperties: { type: integer, minimum: 1, maximum: 32 }
                 free_only_allowed: { type: boolean }
+                free_only_label: { type: string }
+                priority_field: { $ref: "#/components/schemas/NumberFieldPolicy" }
+                weight_field: { $ref: "#/components/schemas/NumberFieldPolicy" }
                 strategies:
                   type: array
                   minItems: 1
@@ -1335,6 +1350,15 @@ components:
                     properties:
                       id: { $ref: "#/components/schemas/RouteStrategy" }
                       label: { type: string }
+    NumberFieldPolicy:
+      type: object
+      additionalProperties: false
+      required: [label, min, max, default]
+      properties:
+        label: { type: string }
+        min: { type: integer }
+        max: { type: integer }
+        default: { type: integer }
     RouteStrategy: { type: string, enum: [fixed, ordered_fallback, weighted, lowest_cost, lowest_latency] }
     RouteTargetInput:
       type: object
@@ -1372,21 +1396,23 @@ components:
         estimated_output_tokens: { type: integer, minimum: 0 }
     RoutePlan:
       type: object
-      required: [model_id, strategy, free_only, selection_reason, targets, rejected]
+      required: [model_id, strategy, free_only, selection_reason, selection_message, targets, rejected]
       properties:
         model_id: { type: string }
         strategy: { $ref: "#/components/schemas/RouteStrategy" }
         free_only: { type: boolean }
         selection_reason: { type: string }
+        selection_message: { type: string }
         targets: { type: array, items: { type: object, required: [upstream_model_id, connection_id, upstream_id, adapter, priority, weight, sample_count], properties: { upstream_model_id: { type: string }, connection_id: { type: string }, upstream_id: { type: string }, adapter: { type: string }, priority: { type: integer }, weight: { type: integer }, sample_count: { type: integer }, estimated_cost_usd: { type: string }, latency_ms: { type: integer }, circuit_open_until: { type: string, format: date-time } } } }
         rejected: { type: array, items: { $ref: "#/components/schemas/RouteRejection" } }
     RouteRejection:
       type: object
-      required: [upstream_model_id, connection_id, reason]
+      required: [upstream_model_id, connection_id, reason, message]
       properties:
         upstream_model_id: { type: string }
         connection_id: { type: string }
-        reason: { type: string, enum: [connection_not_granted, unsupported_capability, translation_unsupported, request_translation_unsupported, anthropic_stream_usage_unavailable, prompt_cache_native_required, cache_price_contract_unavailable, web_search_native_required, web_search_price_contract_unavailable, credential_unavailable, not_verified_free, circuit_open, price_unknown] }
+        reason: { type: string, enum: [connection_not_granted, unsupported_capability, translation_unsupported, request_translation_unsupported, anthropic_stream_usage_unavailable, prompt_cache_native_required, cache_price_contract_unavailable, web_search_native_required, web_search_price_contract_unavailable, web_fetch_native_required, web_fetch_price_contract_unavailable, image_stream_native_gpt_required, interactions_native_gemini_required, preset_operation_unsupported, free_price_contract_unavailable, cost_estimate_unavailable, credential_unavailable, not_verified_free, circuit_open, price_unknown] }
+        message: { type: string }
     CatalogConfigInput:
       type: object
       additionalProperties: false
@@ -1411,12 +1437,13 @@ components:
         refresh_interval_hours: { type: integer }
     CatalogCandidate:
       type: object
-      required: [provider, model_id, label, capabilities, free, source, source_version, discovered_at]
+      required: [provider, model_id, label, capabilities, capability_details, free, source, source_version, discovered_at]
       properties:
         provider: { type: string }
         model_id: { type: string }
         label: { type: string }
         capabilities: { type: array, items: { type: string } }
+        capability_details: { type: array, items: { $ref: "#/components/schemas/CapabilityDetail" } }
         input_nanos_per_million: { type: integer, minimum: 0 }
         output_nanos_per_million: { type: integer, minimum: 0 }
         free: { type: boolean }
