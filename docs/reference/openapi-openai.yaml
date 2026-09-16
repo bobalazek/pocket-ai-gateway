@@ -623,6 +623,66 @@ paths:
         "400": { description: Source content is not supported UTF-8 text }
         "404": { description: Missing, expired, or foreign-key attachment }
         default: { description: OpenAI-compatible error }
+  /vector_stores/{vector_store_id}/file_batches:
+    parameters: [{ name: vector_store_id, in: path, required: true, schema: { type: string } }]
+    post:
+      operationId: createVectorStoreFileBatch
+      description: Atomically attaches 1-2000 same-key gateway Files. Local attachment completes in the creation transaction; static token chunking remains unsupported.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                file_ids: { type: array, minItems: 1, maxItems: 2000, uniqueItems: true, items: { type: string, minLength: 1 } }
+                files:
+                  type: array
+                  minItems: 1
+                  maxItems: 2000
+                  items:
+                    type: object
+                    required: [file_id]
+                    properties:
+                      file_id: { type: string, minLength: 1 }
+                      attributes: { type: [object, "null"], maxProperties: 16 }
+                      chunking_strategy: { type: object, required: [type], properties: { type: { const: auto } }, additionalProperties: false }
+                    additionalProperties: false
+                attributes: { type: [object, "null"], maxProperties: 16, description: Applied to every file_id; cannot be combined with files }
+                chunking_strategy: { type: object, required: [type], properties: { type: { const: auto } }, additionalProperties: false }
+              oneOf: [{ required: [file_ids] }, { required: [files] }]
+              additionalProperties: false
+      responses:
+        "200": { description: Completed gateway-owned Vector Store file batch }
+        "404": { description: Missing or foreign-key Vector Store or File }
+        default: { description: OpenAI-compatible error }
+  /vector_stores/{vector_store_id}/file_batches/{batch_id}:
+    parameters:
+      - { name: vector_store_id, in: path, required: true, schema: { type: string } }
+      - { name: batch_id, in: path, required: true, schema: { type: string } }
+    get:
+      operationId: retrieveVectorStoreFileBatch
+      responses: { "200": { description: Completed same-key Vector Store file batch }, "404": { description: Missing, expired, or foreign-key batch }, default: { description: OpenAI-compatible error } }
+  /vector_stores/{vector_store_id}/file_batches/{batch_id}/cancel:
+    parameters:
+      - { name: vector_store_id, in: path, required: true, schema: { type: string } }
+      - { name: batch_id, in: path, required: true, schema: { type: string } }
+    post:
+      operationId: cancelVectorStoreFileBatch
+      description: Returns the already-terminal completed local batch; atomic local attachment has no observable in-progress state.
+      responses: { "200": { description: Terminal same-key Vector Store file batch }, "404": { description: Missing, expired, or foreign-key batch }, default: { description: OpenAI-compatible error } }
+  /vector_stores/{vector_store_id}/file_batches/{batch_id}/files:
+    parameters:
+      - { name: vector_store_id, in: path, required: true, schema: { type: string } }
+      - { name: batch_id, in: path, required: true, schema: { type: string } }
+      - { name: after, in: query, schema: { type: string } }
+      - { name: before, in: query, schema: { type: string } }
+      - { name: limit, in: query, schema: { type: integer, minimum: 1, maximum: 100, default: 20 } }
+      - { name: order, in: query, schema: { type: string, enum: [asc, desc], default: desc } }
+      - { name: filter, in: query, schema: { type: string, enum: [in_progress, completed, failed, cancelled] } }
+    get:
+      operationId: listVectorStoreFileBatchFiles
+      responses: { "200": { description: Cursor page of active attachments created by the batch }, "404": { description: Missing, expired, or foreign-key batch }, default: { description: OpenAI-compatible error } }
   /embeddings:
     post:
       operationId: createEmbedding

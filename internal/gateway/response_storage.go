@@ -117,12 +117,17 @@ func checkRetainedResourceCapacity(ctx context.Context, query responseQueryer, o
 			UNION ALL
 			SELECT owner_user_id,key_id,length(name)+length(description)+length(metadata_json) AS size FROM openai_vector_stores WHERE expires_at IS NULL OR expires_at>?
 			UNION ALL
+			SELECT openai_vector_stores.owner_user_id,openai_vector_stores.key_id,length(openai_vector_store_file_batches.id) AS size
+			FROM openai_vector_store_file_batches
+			JOIN openai_vector_stores ON openai_vector_stores.id=openai_vector_store_file_batches.vector_store_id
+			WHERE openai_vector_stores.expires_at IS NULL OR openai_vector_stores.expires_at>?
+			UNION ALL
 			SELECT openai_vector_stores.owner_user_id,openai_vector_stores.key_id,length(openai_vector_store_files.file_id)+length(openai_vector_store_files.attributes_json)+length(openai_vector_store_files.chunking_strategy_json) AS size
 			FROM openai_vector_store_files
 			JOIN openai_vector_stores ON openai_vector_stores.id=openai_vector_store_files.vector_store_id
 			JOIN openai_files ON openai_files.id=openai_vector_store_files.file_id
 			WHERE (openai_vector_stores.expires_at IS NULL OR openai_vector_stores.expires_at>?) AND openai_files.expires_at>?
-		)`, ownerID, ownerID, keyID, keyID, maxInferenceBody, time.Now().UnixMilli(), time.Now().UnixMilli(), time.Now().UnixMilli(), time.Now().UnixMilli(), time.Now().UnixMilli(), time.Now().UnixMilli(), time.Now().UnixMilli(), time.Now().UnixMilli(), time.Now().UnixMilli(), time.Now().UnixMilli()).Scan(&count, &size, &ownerCount, &ownerSize, &keyCount, &keySize)
+		)`, ownerID, ownerID, keyID, keyID, maxInferenceBody, time.Now().UnixMilli(), time.Now().UnixMilli(), time.Now().UnixMilli(), time.Now().UnixMilli(), time.Now().UnixMilli(), time.Now().UnixMilli(), time.Now().UnixMilli(), time.Now().UnixMilli(), time.Now().UnixMilli(), time.Now().UnixMilli(), time.Now().UnixMilli()).Scan(&count, &size, &ownerCount, &ownerSize, &keyCount, &keySize)
 	if err != nil {
 		return err
 	}

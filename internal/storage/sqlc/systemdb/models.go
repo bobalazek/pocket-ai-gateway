@@ -350,11 +350,19 @@ type OpenaiVectorStore struct {
 }
 
 type OpenaiVectorStoreFile struct {
-	VectorStoreID        string `json:"vector_store_id"`
-	FileID               string `json:"file_id"`
-	AttributesJson       []byte `json:"attributes_json"`
-	ChunkingStrategyJson []byte `json:"chunking_strategy_json"`
-	CreatedAt            int64  `json:"created_at"`
+	VectorStoreID        string         `json:"vector_store_id"`
+	FileID               string         `json:"file_id"`
+	AttributesJson       []byte         `json:"attributes_json"`
+	ChunkingStrategyJson []byte         `json:"chunking_strategy_json"`
+	CreatedAt            int64          `json:"created_at"`
+	FileBatchID          sql.NullString `json:"file_batch_id"`
+}
+
+type OpenaiVectorStoreFileBatch struct {
+	ID            string `json:"id"`
+	VectorStoreID string `json:"vector_store_id"`
+	CreatedAt     int64  `json:"created_at"`
+	FileCount     int64  `json:"file_count"`
 }
 
 type OperationSetting struct {
