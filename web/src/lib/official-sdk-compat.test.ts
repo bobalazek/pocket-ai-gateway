@@ -146,7 +146,7 @@ describe("official SDK compatibility through the Go gateway", () => {
     await expect(client.uploads.parts.create(cancelled.id, { data: await toFile(Buffer.from("x"), "rejected") })).rejects.toMatchObject({ status: 400 });
   });
 
-  it("runs gateway-owned OpenAI Responses and Chat Completions batches", async () => {
+  it("runs gateway-owned OpenAI Responses, Chat Completions, and Embeddings batches", async () => {
     const client = openAI();
     const upload = async (content: string, name: string) => client.files.create({
       file: await toFile(Buffer.from(content), name, { type: "application/jsonl" }),
@@ -242,6 +242,42 @@ describe("official SDK compatibility through the Go gateway", () => {
       },
       error: null,
     }]);
+
+    const embeddingInput = await upload(
+      '{"custom_id":"embedding-success","method":"POST","url":"/v1/embeddings","body":{"model":"target-openai-embedding","input":["one","two"],"dimensions":2,"encoding_format":"float","user":"sdk"}}\n',
+      "embedding-batch.jsonl",
+    );
+    const embeddingCreated = await client.batches.create({
+      input_file_id: embeddingInput.id,
+      endpoint: "/v1/embeddings",
+      completion_window: "24h",
+    });
+    const embeddingCompleted = await waitForTerminal(embeddingCreated.id);
+    expect(embeddingCompleted).toMatchObject({
+      endpoint: "/v1/embeddings",
+      status: "completed",
+      request_counts: { total: 1, completed: 1, failed: 0 },
+      usage: { input_tokens: 2, output_tokens: 0, total_tokens: 2 },
+    });
+    if (!embeddingCompleted.output_file_id) throw new Error("Embedding Batch output File is missing");
+    expect(await readJSONLines(embeddingCompleted.output_file_id)).toMatchObject([{
+      custom_id: "embedding-success",
+      response: {
+        status_code: 200,
+        request_id: expect.stringMatching(/^req_/),
+        body: {
+          object: "list",
+          model: "target-openai-embedding",
+          data: [
+            { object: "embedding", embedding: [0.1, 0.2], index: 0 },
+            { object: "embedding", embedding: [0.3, 0.4], index: 1 },
+          ],
+          usage: { prompt_tokens: 2, total_tokens: 2 },
+        },
+      },
+      error: null,
+    }]);
+
     const blockerInput = await upload(
       '{"custom_id":"blocker","method":"POST","url":"/v1/responses","body":{"model":"target-openai","input":"Cancel me blocker","max_output_tokens":8}}\n',
       "blocker-batch.jsonl",

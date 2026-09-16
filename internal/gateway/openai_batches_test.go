@@ -133,6 +133,67 @@ func TestOpenAIChatBatchUsesSharedDispatchAndAccounting(t *testing.T) {
 	}
 }
 
+func TestOpenAIEmbeddingBatchUsesSharedDispatchAndAccounting(t *testing.T) {
+	upstream := httptest.NewServer(http.HandlerFunc(func(response http.ResponseWriter, request *http.Request) {
+		if request.URL.Path != "/v1/embeddings" {
+			http.NotFound(response, request)
+			return
+		}
+		var body map[string]json.RawMessage
+		if json.NewDecoder(request.Body).Decode(&body) != nil || string(body["model"]) != `"embed-upstream"` || string(body["input"]) != `["one","two"]` || string(body["dimensions"]) != `2` || string(body["encoding_format"]) != `"float"` || string(body["user"]) != `"batch-user"` {
+			http.Error(response, "invalid request", http.StatusBadRequest)
+			return
+		}
+		for _, field := range []string{"store", "stream", "background"} {
+			if _, exists := body[field]; exists {
+				http.Error(response, "unexpected generation field", http.StatusBadRequest)
+				return
+			}
+		}
+		response.Header().Set("Content-Type", "application/json")
+		_, _ = io.WriteString(response, `{"object":"list","data":[{"object":"embedding","embedding":[0.1,0.2],"index":0},{"object":"embedding","embedding":[0.3,0.4],"index":1}],"model":"provider-model","usage":{"prompt_tokens":2,"total_tokens":2}}`)
+	}))
+	defer upstream.Close()
+
+	ctx, store, owner, keyService, providerService, usageService := gatewayFixture(t)
+	defer store.Close()
+	connection, model := publishModel(t, ctx, providerService, owner, "openai", upstream.URL+"/v1", "embed-upstream", []string{"embeddings"})
+	_, secret, err := keyService.Create(ctx, owner.ID, keys.Input{Label: "Embedding Batch", Scopes: []string{"batches:manage", "files:manage", "embeddings:generate"}, ModelPatterns: []string{model.ID}, ConnectionIDs: []string{connection.ID}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	handler := NewWithMasterKey(store.SystemDB(), keyService, providerService, usageService, bytes.Repeat([]byte{9}, 32))
+	mux := http.NewServeMux()
+	handler.Register(mux)
+	input := `{"custom_id":"embedding","method":"POST","url":"/v1/embeddings","body":{"model":"` + model.ID + `","input":["one","two"],"dimensions":2,"encoding_format":"float","user":"batch-user"}}` + "\n"
+	uploaded := performFileUpload(t, mux, secret, "embedding-batch.jsonl", []byte(input), map[string]string{"purpose": "batch"}, nil)
+	var file openAIFile
+	if uploaded.Code != http.StatusOK || json.Unmarshal(uploaded.Body.Bytes(), &file) != nil {
+		t.Fatalf("upload=%d %s", uploaded.Code, uploaded.Body.String())
+	}
+	created := performOpenAIBatchRequest(t, mux, http.MethodPost, "/api/openai/v1/batches", secret, `{"input_file_id":"`+file.ID+`","endpoint":"/v1/embeddings","completion_window":"24h"}`)
+	if created.Code != http.StatusOK {
+		t.Fatalf("create=%d %s", created.Code, created.Body.String())
+	}
+	job, ok := handler.claimOpenAIBatch(ctx)
+	if !ok || job.endpoint != "/v1/embeddings" {
+		t.Fatalf("claimed=%v endpoint=%q", ok, job.endpoint)
+	}
+	handler.runOpenAIBatch(ctx, job)
+	batch, err := handler.loadOpenAIBatch(ctx, job.keyID, job.batchID)
+	if err != nil || batch.status != "completed" || !batch.usageKnown || batch.inputTokens != 2 || batch.outputTokens != 0 || batch.cachedTokens != 0 || batch.reasoningTokens != 0 || !batch.outputFileID.Valid {
+		t.Fatalf("batch=%#v err=%v", batch, err)
+	}
+	_, output, err := handler.loadOpenAIFileContent(ctx, job.keyID, batch.outputFileID.String)
+	if err != nil || !bytes.Contains(output, []byte(`"object":"list"`)) || !bytes.Contains(output, []byte(`"embedding":[0.1,0.2]`)) || !bytes.Contains(output, []byte(`"model":"`+model.ID+`"`)) {
+		t.Fatalf("output=%s err=%v", output, err)
+	}
+	requests, _, err := usageService.ListRequests(ctx, owner, usage.UsageQuery{})
+	if err != nil || len(requests) != 1 || requests[0].Operation != "embeddings" || requests[0].Dialect != "openai" || requests[0].State != "succeeded" {
+		t.Fatalf("requests=%#v err=%v", requests, err)
+	}
+}
+
 func TestOpenAIBatchListUsesKeysetPagination(t *testing.T) {
 	ctx, store, owner, keyService, providerService, usageService := gatewayFixture(t)
 	defer store.Close()
@@ -194,6 +255,7 @@ func TestOpenAIBatchValidationScopesAndOwnership(t *testing.T) {
 	secret := makeKey("All", []string{"batches:manage", "files:manage", "responses:generate"})
 	other := makeKey("Other", []string{"batches:manage", "files:manage", "responses:generate"})
 	noChat := makeKey("No Chat", []string{"batches:manage", "files:manage", "responses:generate"})
+	noEmbeddings := makeKey("No Embeddings", []string{"batches:manage", "files:manage", "responses:generate"})
 	missingScopes := []string{
 		makeKey("No Batch", []string{"files:manage", "responses:generate"}),
 		makeKey("No Responses", []string{"batches:manage", "files:manage"}),
@@ -211,6 +273,9 @@ func TestOpenAIBatchValidationScopesAndOwnership(t *testing.T) {
 	validFile := fileFor(secret, validLine+"\n")
 	if denied := performOpenAIBatchRequest(t, mux, http.MethodPost, "/api/openai/v1/batches", noChat, `{"input_file_id":"`+validFile+`","endpoint":"/v1/chat/completions","completion_window":"24h"}`); denied.Code != http.StatusForbidden {
 		t.Fatalf("missing chat scope status=%d body=%s", denied.Code, denied.Body.String())
+	}
+	if denied := performOpenAIBatchRequest(t, mux, http.MethodPost, "/api/openai/v1/batches", noEmbeddings, `{"input_file_id":"`+validFile+`","endpoint":"/v1/embeddings","completion_window":"24h"}`); denied.Code != http.StatusForbidden {
+		t.Fatalf("missing embeddings scope status=%d body=%s", denied.Code, denied.Body.String())
 	}
 	for _, scopedSecret := range missingScopes {
 		if denied := performOpenAIBatchRequest(t, mux, http.MethodPost, "/api/openai/v1/batches", scopedSecret, `{"input_file_id":"`+validFile+`","endpoint":"/v1/responses","completion_window":"24h"}`); denied.Code != http.StatusForbidden {
@@ -441,6 +506,23 @@ func TestOpenAIBatchAggregateUsageIsNullWhenSuccessOmitsUsage(t *testing.T) {
 	if wrongCacheDetails.add(openAIBatchSuccessLine("batch_req_1234567890123456", "wrong-cache", http.StatusOK, "req_7", []byte(`{"usage":{"input_tokens":4,"output_tokens":2,"prompt_tokens_details":{"cached_tokens":1}}}`)), "/v1/responses") {
 		t.Fatal("Chat cache fields were accepted for a Responses Batch")
 	}
+	embedding := openAIBatchUsage{known: true}
+	if !embedding.add(openAIBatchSuccessLine("batch_req_1234567890123456", "embedding", http.StatusOK, "req_8", []byte(`{"usage":{"prompt_tokens":2,"total_tokens":2}}`)), "/v1/embeddings") || embedding.input != 2 || embedding.output != 0 || embedding.cached != 0 || embedding.reasoning != 0 {
+		t.Fatalf("embedding usage=%#v", embedding)
+	}
+	for _, body := range []string{
+		`{"usage":{"prompt_tokens":2}}`,
+		`{"usage":{"prompt_tokens":2,"total_tokens":3}}`,
+		`{"usage":{"prompt_tokens":2,"total_tokens":2,"input_tokens":2}}`,
+		`{"usage":{"prompt_tokens":2,"total_tokens":2,"completion_tokens":0}}`,
+		`{"usage":{"prompt_tokens":2,"total_tokens":2,"prompt_tokens_details":{}}}`,
+		`{"usage":{"prompt_tokens":2,"total_tokens":2,"output_tokens_details":{}}}`,
+	} {
+		invalid := openAIBatchUsage{known: true}
+		if invalid.add(openAIBatchSuccessLine("batch_req_1234567890123456", "invalid-embedding", http.StatusOK, "req_9", []byte(body)), "/v1/embeddings") {
+			t.Fatalf("invalid embedding usage accepted: %s", body)
+		}
+	}
 }
 
 func TestParseOpenAIBatchInputBounds(t *testing.T) {
@@ -462,6 +544,38 @@ func TestParseOpenAIBatchInputBounds(t *testing.T) {
 	}
 	if _, _, err := parseOpenAIBatchInput(chat, "/v1/responses"); err == nil {
 		t.Fatal("mismatched Batch endpoint was accepted")
+	}
+	for _, body := range []string{
+		`{"model":"assistant","input":"text"}`,
+		`{"model":"assistant","input":["one","two"],"dimensions":2,"encoding_format":"float","user":"batch-user","provider_extension":true}`,
+		`{"model":"assistant","input":[1,2,3]}`,
+		`{"model":"assistant","input":[[1,2],[3,4]],"encoding_format":"base64"}`,
+	} {
+		content := []byte(`{"custom_id":"embedding","method":"POST","url":"/v1/embeddings","body":` + body + `}` + "\n")
+		if items, model, err := parseOpenAIBatchInput(content, "/v1/embeddings"); err != nil || len(items) != 1 || model != "assistant" {
+			t.Fatalf("embedding body=%s items=%d model=%q err=%v", body, len(items), model, err)
+		}
+	}
+	for _, body := range []string{
+		`{"model":"assistant"}`,
+		`{"model":"assistant","input":""}`,
+		`{"model":"assistant","input":[]}`,
+		`{"model":"assistant","input":["one",2]}`,
+		`{"model":"assistant","input":[1,-2]}`,
+		`{"model":"assistant","input":[[]]}`,
+		`{"model":"assistant","input":"x","dimensions":0}`,
+		`{"model":"assistant","input":"x","dimensions":null}`,
+		`{"model":"assistant","input":"x","encoding_format":"hex"}`,
+		`{"model":"assistant","input":"x","encoding_format":null}`,
+		`{"model":"assistant","input":"x","user":1}`,
+		`{"model":"assistant","input":"x","user":null}`,
+		`{"model":"assistant","input":"x","stream":false}`,
+		`{"model":"assistant","input":"x","store":null}`,
+	} {
+		content := []byte(`{"custom_id":"embedding","method":"POST","url":"/v1/embeddings","body":` + body + `}` + "\n")
+		if _, _, err := parseOpenAIBatchInput(content, "/v1/embeddings"); err == nil {
+			t.Fatalf("invalid embedding body accepted: %s", body)
+		}
 	}
 	for _, invalidChat := range [][]byte{
 		[]byte(`{"custom_id":"chat","method":"POST","url":"/v1/chat/completions","body":{"model":"assistant"}}` + "\n"),

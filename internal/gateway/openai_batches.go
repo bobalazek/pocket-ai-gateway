@@ -192,6 +192,8 @@ func openAIBatchEndpoint(endpoint string) (dialect, scope, upstreamPath string, 
 		return "responses", "responses:generate", "responses", true
 	case "/v1/chat/completions":
 		return "openai", "chat:generate", "chat/completions", true
+	case "/v1/embeddings":
+		return "openai", "embeddings:generate", "embeddings", true
 	default:
 		return "", "", "", false
 	}
@@ -238,10 +240,11 @@ func parseOpenAIBatchInput(content []byte, endpoint string) ([]openAIBatchInputL
 			return nil, "", errors.New("all input File requests must use the same model")
 		}
 		modelID = itemModel
-		if enabled, fieldErr := jsonBoolean(envelope, "stream", false); fieldErr != nil || enabled {
-			return nil, "", errors.New("stream must be false or omitted in Batches")
-		}
-		if endpoint == "/v1/responses" {
+		switch endpoint {
+		case "/v1/responses":
+			if enabled, fieldErr := jsonBoolean(envelope, "stream", false); fieldErr != nil || enabled {
+				return nil, "", errors.New("stream must be false or omitted in Batches")
+			}
 			if enabled, fieldErr := jsonBoolean(envelope, "background", false); fieldErr != nil || enabled {
 				return nil, "", errors.New("background must be false or omitted in Batches")
 			}
@@ -251,7 +254,13 @@ func parseOpenAIBatchInput(content []byte, endpoint string) ([]openAIBatchInputL
 					return nil, "", errors.New(field + " is not supported in Batches")
 				}
 			}
-		} else {
+			if store, storeErr := jsonBoolean(envelope, "store", false); storeErr != nil || store {
+				return nil, "", errors.New("store must be false or omitted in Batches")
+			}
+		case "/v1/chat/completions":
+			if enabled, fieldErr := jsonBoolean(envelope, "stream", false); fieldErr != nil || enabled {
+				return nil, "", errors.New("stream must be false or omitted in Batches")
+			}
 			var messages []json.RawMessage
 			if json.Unmarshal(envelope["messages"], &messages) != nil || len(messages) == 0 {
 				return nil, "", errors.New("chat Batch requests require a non-empty messages array")
@@ -259,9 +268,18 @@ func parseOpenAIBatchInput(content []byte, endpoint string) ([]openAIBatchInputL
 			if _, exists := envelope["web_search_options"]; exists {
 				return nil, "", errors.New("web_search_options is not supported in Batches")
 			}
-		}
-		if store, storeErr := jsonBoolean(envelope, "store", false); storeErr != nil || store {
-			return nil, "", errors.New("store must be false or omitted in Batches")
+			if store, storeErr := jsonBoolean(envelope, "store", false); storeErr != nil || store {
+				return nil, "", errors.New("store must be false or omitted in Batches")
+			}
+		case "/v1/embeddings":
+			for _, field := range []string{"stream", "store", "background", "conversation", "previous_response_id", "tools", "web_search_options"} {
+				if _, exists := envelope[field]; exists {
+					return nil, "", errors.New(field + " is not supported in Embeddings Batches")
+				}
+			}
+			if _, err := validateEmbedding(envelope); err != nil {
+				return nil, "", err
+			}
 		}
 		if containsLocalFileReference(item.Body) {
 			return nil, "", errors.New("gateway File references are not supported in Batch requests")
@@ -274,15 +292,17 @@ func parseOpenAIBatchInput(content []byte, endpoint string) ([]openAIBatchInputL
 				}
 			}
 		}
-		if raw, exists := envelope["tools"]; exists {
-			var tools []map[string]json.RawMessage
-			if json.Unmarshal(raw, &tools) != nil {
-				return nil, "", errors.New("tools must be an array of function tools in Batches")
-			}
-			for _, tool := range tools {
-				var kind string
-				if json.Unmarshal(tool["type"], &kind) != nil || kind != "function" {
-					return nil, "", errors.New("hosted tools are not supported in Batches")
+		if endpoint != "/v1/embeddings" {
+			if raw, exists := envelope["tools"]; exists {
+				var tools []map[string]json.RawMessage
+				if json.Unmarshal(raw, &tools) != nil {
+					return nil, "", errors.New("tools must be an array of function tools in Batches")
+				}
+				for _, tool := range tools {
+					var kind string
+					if json.Unmarshal(tool["type"], &kind) != nil || kind != "function" {
+						return nil, "", errors.New("hosted tools are not supported in Batches")
+					}
 				}
 			}
 		}

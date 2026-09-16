@@ -186,9 +186,12 @@ func (handler *Handler) runOpenAIBatch(ctx context.Context, job openAIBatchJob) 
 		handler.finishOpenAIBatchItem(ctx, job, "failed", openAIBatchErrorLine(job.resultID, job.customID, "server_error", "The Batch cancellation state could not be checked."), "", "")
 		return
 	}
-	envelope["store"], envelope["stream"] = json.RawMessage(`false`), json.RawMessage(`false`)
-	if job.endpoint == "/v1/responses" {
+	switch job.endpoint {
+	case "/v1/responses":
+		envelope["store"], envelope["stream"] = json.RawMessage(`false`), json.RawMessage(`false`)
 		envelope["background"] = json.RawMessage(`false`)
+	case "/v1/chat/completions":
+		envelope["store"], envelope["stream"] = json.RawMessage(`false`), json.RawMessage(`false`)
 	}
 	body, _ = json.Marshal(envelope)
 	recorder := &memoryResponse{header: make(http.Header)}
@@ -557,11 +560,11 @@ func (usage *openAIBatchUsage) add(line []byte, endpoint string) bool {
 			Completion    *int64          `json:"completion_tokens"`
 			Total         *int64          `json:"total_tokens"`
 			InputDetails  json.RawMessage `json:"input_tokens_details"`
-			OutputDetails struct {
+			OutputDetails *struct {
 				Reasoning int64 `json:"reasoning_tokens"`
 			} `json:"output_tokens_details"`
 			PromptDetails     json.RawMessage `json:"prompt_tokens_details"`
-			CompletionDetails struct {
+			CompletionDetails *struct {
 				Reasoning int64 `json:"reasoning_tokens"`
 			} `json:"completion_tokens_details"`
 		} `json:"usage"`
@@ -569,19 +572,29 @@ func (usage *openAIBatchUsage) add(line []byte, endpoint string) bool {
 	if json.Unmarshal(value.Response.Body, &body) != nil {
 		return false
 	}
-	if endpoint == "/v1/chat/completions" {
-		if body.Usage.Prompt == nil || body.Usage.Completion == nil || body.Usage.Input != nil || body.Usage.Output != nil || jsonValuePresent(body.Usage.InputDetails) {
+	switch endpoint {
+	case "/v1/chat/completions":
+		if body.Usage.Prompt == nil || body.Usage.Completion == nil || body.Usage.Input != nil || body.Usage.Output != nil || jsonValuePresent(body.Usage.InputDetails) || body.Usage.OutputDetails != nil {
 			return false
 		}
-	} else if body.Usage.Input == nil || body.Usage.Output == nil || body.Usage.Prompt != nil || body.Usage.Completion != nil || jsonValuePresent(body.Usage.PromptDetails) {
-		return false
+	case "/v1/embeddings":
+		if body.Usage.Prompt == nil || body.Usage.Total == nil || *body.Usage.Total != *body.Usage.Prompt || body.Usage.Input != nil || body.Usage.Output != nil || body.Usage.Completion != nil || jsonValuePresent(body.Usage.InputDetails) || jsonValuePresent(body.Usage.PromptDetails) || body.Usage.OutputDetails != nil || body.Usage.CompletionDetails != nil || details.cacheReadInputTokens != nil {
+			return false
+		}
+	default:
+		if body.Usage.Input == nil || body.Usage.Output == nil || body.Usage.Prompt != nil || body.Usage.Completion != nil || jsonValuePresent(body.Usage.PromptDetails) || body.Usage.CompletionDetails != nil {
+			return false
+		}
 	}
 	input, output := *details.inputTokens, *details.outputTokens
-	cached, reasoning := int64(0), body.Usage.OutputDetails.Reasoning
+	cached, reasoning := int64(0), int64(0)
+	if body.Usage.OutputDetails != nil {
+		reasoning = body.Usage.OutputDetails.Reasoning
+	}
 	if details.cacheReadInputTokens != nil {
 		cached = *details.cacheReadInputTokens
 	}
-	if endpoint == "/v1/chat/completions" {
+	if endpoint == "/v1/chat/completions" && body.Usage.CompletionDetails != nil {
 		reasoning = body.Usage.CompletionDetails.Reasoning
 	}
 	if input < 0 || output < 0 || cached < 0 || cached > input || reasoning < 0 || reasoning > output || input > maxOpenAIBatchUsage-output || body.Usage.Total != nil && *body.Usage.Total != input+output || input > maxOpenAIBatchUsage-usage.input || output > maxOpenAIBatchUsage-usage.output || usage.input+input > maxOpenAIBatchUsage-(usage.output+output) || cached > maxOpenAIBatchUsage-usage.cached || reasoning > maxOpenAIBatchUsage-usage.reasoning {

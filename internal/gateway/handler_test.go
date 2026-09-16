@@ -875,6 +875,39 @@ func TestEmbeddingAdmissionUsesRawBodyAndBatchCardinality(t *testing.T) {
 	}
 }
 
+func TestEmbeddingTokenArrayCountsAsOneInput(t *testing.T) {
+	calls := 0
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		calls++
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = io.WriteString(w, `{"object":"list","data":[{"object":"embedding","embedding":[0.1],"index":0}],"model":"embed-upstream","usage":{"prompt_tokens":1,"total_tokens":1}}`)
+	}))
+	defer upstream.Close()
+	ctx, store, owner, keyService, providerService, usageService := gatewayFixture(t)
+	defer store.Close()
+	connection, _ := publishModel(t, ctx, providerService, owner, "openai", upstream.URL+"/v1", "embed-upstream", []string{"embeddings"})
+	if _, err := usageService.CreatePolicy(ctx, owner, usage.PolicyInput{ScopeKind: "instance", Metric: "batch_items", Algorithm: "ceiling", LimitUnits: 1}); err != nil {
+		t.Fatal(err)
+	}
+	_, secret, err := keyService.Create(ctx, owner.ID, keys.Input{Label: "Embed token arrays", Scopes: []string{"embeddings:generate"}, ModelPatterns: []string{"assistant"}, ConnectionIDs: []string{connection.ID}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	mux := http.NewServeMux()
+	New(store.SystemDB(), keyService, providerService, usageService).Register(mux)
+	accepted := performOpenAIBatchRequest(t, mux, http.MethodPost, "/api/openai/v1/embeddings", secret, `{"model":"assistant","input":[1,2]}`)
+	if accepted.Code != http.StatusOK {
+		t.Fatalf("token array status=%d body=%s", accepted.Code, accepted.Body.String())
+	}
+	rejected := performOpenAIBatchRequest(t, mux, http.MethodPost, "/api/openai/v1/embeddings", secret, `{"model":"assistant","input":[[1],[2]]}`)
+	if rejected.Code != http.StatusTooManyRequests {
+		t.Fatalf("token collection status=%d body=%s", rejected.Code, rejected.Body.String())
+	}
+	if calls != 1 {
+		t.Fatalf("upstream calls=%d", calls)
+	}
+}
+
 func TestOpenAIEmbeddingUsageDerivesZeroOutputTokens(t *testing.T) {
 	input, output, _ := parseUsage("openai", []byte(`{"usage":{"prompt_tokens":7,"total_tokens":7}}`))
 	if input == nil || output == nil || *input != 7 || *output != 0 {

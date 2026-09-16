@@ -15,7 +15,7 @@ func TestOpenAIBatchesMigrationEnforcesEncryptedItemsAndCascade(t *testing.T) {
 	defer store.Close()
 	database := store.SystemDB()
 	var version int64
-	if err = database.QueryRowContext(ctx, `SELECT MAX(version) FROM schema_migrations`).Scan(&version); err != nil || version < 23 {
+	if err = database.QueryRowContext(ctx, `SELECT MAX(version) FROM schema_migrations`).Scan(&version); err != nil || version < 24 {
 		t.Fatalf("system migration version=%d error=%v", version, err)
 	}
 	if _, err = database.ExecContext(ctx, `INSERT INTO users(id,email,display_name,password_hash,role,status,inference_unrestricted,created_at,updated_at) VALUES('usr_batch','batch@example.test','Batch','hash','owner','active',1,1,1)`); err != nil {
@@ -32,7 +32,11 @@ func TestOpenAIBatchesMigrationEnforcesEncryptedItemsAndCascade(t *testing.T) {
 	if _, err = database.ExecContext(ctx, insertChatBatch, "batch_chat"); err != nil {
 		t.Fatal(err)
 	}
-	if _, err = database.ExecContext(ctx, `INSERT INTO openai_batches(id,owner_user_id,key_id,input_file_id,endpoint,completion_window,model_id,status,metadata_json,output_expiry_seconds,request_total,created_at,in_progress_at,expires_at,retention_expires_at) VALUES('batch_invalid','usr_batch','key_batch','file_input','/v1/embeddings','24h','model','in_progress','{}',3600,1,1,1,86400001,2592000001)`); err == nil {
+	insertEmbeddingBatch := `INSERT INTO openai_batches(id,owner_user_id,key_id,input_file_id,endpoint,completion_window,model_id,status,metadata_json,output_expiry_seconds,request_total,created_at,in_progress_at,expires_at,retention_expires_at) VALUES(?,'usr_batch','key_batch','file_input','/v1/embeddings','24h','model','in_progress','{}',3600,1,1,1,86400001,2592000001)`
+	if _, err = database.ExecContext(ctx, insertEmbeddingBatch, "batch_embedding"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err = database.ExecContext(ctx, `INSERT INTO openai_batches(id,owner_user_id,key_id,input_file_id,endpoint,completion_window,model_id,status,metadata_json,output_expiry_seconds,request_total,created_at,in_progress_at,expires_at,retention_expires_at) VALUES('batch_invalid','usr_batch','key_batch','file_input','/v1/completions','24h','model','in_progress','{}',3600,1,1,1,86400001,2592000001)`); err == nil {
 		t.Fatal("unsupported batch endpoint was accepted")
 	}
 	insertItem := `INSERT INTO openai_batch_items(batch_id,ordinal,custom_id,result_id,request_bytes,request_ciphertext,request_nonce,reserved_result_bytes) VALUES('batch_valid',1,'item','batch_req_1234567890123456',2,?,?,1024)`
@@ -51,7 +55,7 @@ func TestOpenAIBatchesMigrationEnforcesEncryptedItemsAndCascade(t *testing.T) {
 	}
 }
 
-func TestOpenAIChatBatchMigrationPreservesExistingRows(t *testing.T) {
+func TestOpenAIEmbeddingBatchMigrationPreservesV23Rows(t *testing.T) {
 	ctx := context.Background()
 	database, err := openDatabase(ctx, filepath.Join(t.TempDir(), "system.db"), "system", false, true)
 	if err != nil {
@@ -67,7 +71,7 @@ func TestOpenAIChatBatchMigrationPreservesExistingRows(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, item := range migrations {
-		if item.version >= 23 {
+		if item.version >= 24 {
 			break
 		}
 		if _, err = database.ExecContext(ctx, item.contents); err != nil {
@@ -77,13 +81,17 @@ func TestOpenAIChatBatchMigrationPreservesExistingRows(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
+	var version int64
+	if err = database.QueryRowContext(ctx, `SELECT MAX(version) FROM schema_migrations`).Scan(&version); err != nil || version != 23 {
+		t.Fatalf("pre-upgrade migration version=%d error=%v", version, err)
+	}
 	if _, err = database.ExecContext(ctx, `INSERT INTO users(id,email,display_name,password_hash,role,status,inference_unrestricted,created_at,updated_at) VALUES('usr_upgrade','upgrade@example.test','Upgrade','hash','owner','active',1,1,1)`); err != nil {
 		t.Fatal(err)
 	}
 	if _, err = database.ExecContext(ctx, `INSERT INTO api_keys(id,owner_user_id,label,state,scopes_json,created_at,updated_at) VALUES('key_upgrade','usr_upgrade','Upgrade','active','[]',1,1)`); err != nil {
 		t.Fatal(err)
 	}
-	if _, err = database.ExecContext(ctx, `INSERT INTO openai_batches(id,owner_user_id,key_id,input_file_id,endpoint,completion_window,model_id,status,metadata_json,output_expiry_seconds,request_total,created_at,in_progress_at,expires_at,retention_expires_at) VALUES('batch_upgrade','usr_upgrade','key_upgrade','file_input','/v1/responses','24h','model','in_progress','{}',3600,1,1,1,86400001,2592000001)`); err != nil {
+	if _, err = database.ExecContext(ctx, `INSERT INTO openai_batches(id,owner_user_id,key_id,input_file_id,endpoint,completion_window,model_id,status,metadata_json,output_expiry_seconds,request_total,created_at,in_progress_at,expires_at,retention_expires_at) VALUES('batch_upgrade','usr_upgrade','key_upgrade','file_input','/v1/chat/completions','24h','model','in_progress','{}',3600,1,1,1,86400001,2592000001)`); err != nil {
 		t.Fatal(err)
 	}
 	if _, err = database.ExecContext(ctx, `INSERT INTO openai_batch_items(batch_id,ordinal,custom_id,result_id,request_bytes,request_ciphertext,request_nonce,reserved_result_bytes) VALUES('batch_upgrade',1,'preserved','batch_req_1234567890123456',2,?,?,1024)`, make([]byte, 18), make([]byte, 12)); err != nil {
@@ -94,7 +102,7 @@ func TestOpenAIChatBatchMigrationPreservesExistingRows(t *testing.T) {
 		t.Fatal(err)
 	}
 	var endpoint, customID string
-	if err = database.QueryRowContext(ctx, `SELECT b.endpoint,i.custom_id FROM openai_batches b JOIN openai_batch_items i ON i.batch_id=b.id WHERE b.id='batch_upgrade'`).Scan(&endpoint, &customID); err != nil || endpoint != "/v1/responses" || customID != "preserved" {
+	if err = database.QueryRowContext(ctx, `SELECT b.endpoint,i.custom_id FROM openai_batches b JOIN openai_batch_items i ON i.batch_id=b.id WHERE b.id='batch_upgrade'`).Scan(&endpoint, &customID); err != nil || endpoint != "/v1/chat/completions" || customID != "preserved" {
 		t.Fatalf("preserved endpoint=%q custom_id=%q error=%v", endpoint, customID, err)
 	}
 	rows, err := database.QueryContext(ctx, `PRAGMA foreign_key_check`)
