@@ -544,6 +544,30 @@ paths:
     delete:
       operationId: deleteVectorStore
       responses: { "200": { description: Vector Store deletion object }, "404": { description: Missing, expired, or foreign-key Vector Store }, default: { description: OpenAI-compatible error } }
+  /vector_stores/{vector_store_id}/search:
+    parameters: [{ name: vector_store_id, in: path, required: true, schema: { type: string } }]
+    post:
+      operationId: searchVectorStore
+      description: Backend-only lexical search over parsed UTF-8 chunks. Explicit ranker none, nested attribute filters, score thresholds, and up to 50 deterministic results are supported. Query rewriting and embedding-backed rankers are rejected.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [query]
+              properties:
+                query: { oneOf: [{ type: string, minLength: 1, maxLength: 4096 }, { type: array, minItems: 1, maxItems: 16, items: { type: string, minLength: 1, maxLength: 4096 } }] }
+                filters: { type: [object, "null"], description: Bounded nested and/or comparison filters over attachment attributes }
+                max_num_results: { type: integer, minimum: 1, maximum: 50, default: 10 }
+                ranking_options: { type: [object, "null"], properties: { ranker: { const: none }, score_threshold: { type: number, minimum: 0, maximum: 1 } }, additionalProperties: false }
+                rewrite_query: { const: false }
+              additionalProperties: false
+      responses:
+        "200": { description: Local lexical search-results page }
+        "400": { description: Invalid request or unsupported semantic ranking/rewrite behavior }
+        "404": { description: Missing, expired, or foreign-key Vector Store }
+        default: { description: OpenAI-compatible error }
   /vector_stores/{vector_store_id}/files:
     parameters: [{ name: vector_store_id, in: path, required: true, schema: { type: string } }]
     post:

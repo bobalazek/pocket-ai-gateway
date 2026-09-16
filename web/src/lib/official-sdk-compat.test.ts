@@ -227,6 +227,16 @@ describe("official SDK compatibility through the Go gateway", () => {
     const parsed = [];
     for await (const item of client.vectorStores.files.content(source.id, { vector_store_id: first.id })) parsed.push(item);
     expect(parsed).toEqual([{ type: "text", text: "vector store notes" }]);
+    const search = await client.vectorStores.search(first.id, {
+      query: "vector notes",
+      filters: { type: "eq", key: "suite", value: "updated" },
+      max_num_results: 5,
+      ranking_options: { ranker: "none", score_threshold: 0.1 },
+    });
+    expect(search.object).toBe("vector_store.search_results.page");
+    expect(search.data[0]).toMatchObject({ file_id: source.id, filename: "vector-store.txt", attributes: { suite: "updated" } });
+    expect(search.data[0]?.score).toBeGreaterThan(0);
+    expect(search.data[0]?.content).toEqual([{ type: "text", text: "vector store notes" }]);
     expect(await client.vectorStores.retrieve(first.id)).toMatchObject({
       usage_bytes: source.bytes,
       file_counts: { completed: 1, total: 1 },

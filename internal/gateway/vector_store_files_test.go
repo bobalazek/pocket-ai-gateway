@@ -75,6 +75,20 @@ func TestOpenAIVectorStoreFileLifecycle(t *testing.T) {
 	if updated.Code != http.StatusOK || !strings.Contains(updated.Body.String(), `"kind":"updated"`) {
 		t.Fatalf("update status=%d body=%s", updated.Code, updated.Body.String())
 	}
+	searched := performVectorStoreRequest(t, mux, http.MethodPost, "/api/openai/v1/vector_stores/"+storeItem.ID+"/search", secret, `{"query":"gateway notes","filters":{"type":"eq","key":"kind","value":"updated"},"max_num_results":5,"ranking_options":{"ranker":"none","score_threshold":0.1}}`)
+	var searchPage struct {
+		Object string                    `json:"object"`
+		Data   []vectorStoreSearchResult `json:"data"`
+	}
+	if searched.Code != http.StatusOK || json.Unmarshal(searched.Body.Bytes(), &searchPage) != nil || searchPage.Object != "vector_store.search_results.page" || len(searchPage.Data) != 1 || searchPage.Data[0].FileID != file.ID || searchPage.Data[0].Score <= 0 || searchPage.Data[0].Content[0].Text != "gateway notes" {
+		t.Fatalf("search status=%d body=%s", searched.Code, searched.Body.String())
+	}
+	if foreign := performVectorStoreRequest(t, mux, http.MethodPost, "/api/openai/v1/vector_stores/"+storeItem.ID+"/search", otherSecret, `{"query":"gateway"}`); foreign.Code != http.StatusNotFound {
+		t.Fatalf("foreign search status=%d body=%s", foreign.Code, foreign.Body.String())
+	}
+	if rewritten := performVectorStoreRequest(t, mux, http.MethodPost, "/api/openai/v1/vector_stores/"+storeItem.ID+"/search", secret, `{"query":"gateway","rewrite_query":true}`); rewritten.Code != http.StatusBadRequest || !strings.Contains(rewritten.Body.String(), `"code":"unsupported_feature"`) {
+		t.Fatalf("rewrite status=%d body=%s", rewritten.Code, rewritten.Body.String())
+	}
 	storeResult := performVectorStoreRequest(t, mux, http.MethodGet, "/api/openai/v1/vector_stores/"+storeItem.ID, secret, "")
 	var aggregate vectorStore
 	if storeResult.Code != http.StatusOK || json.Unmarshal(storeResult.Body.Bytes(), &aggregate) != nil || aggregate.UsageBytes != file.Bytes || aggregate.FileCounts.Completed != 1 || aggregate.FileCounts.Total != 1 {
