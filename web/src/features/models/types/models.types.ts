@@ -1,4 +1,4 @@
-import type { CapabilityDetail } from "@/features/providers/types/providers.types";
+import type { CapabilityDetail, UpstreamModel } from "@/features/providers/types/providers.types";
 
 export type RouteStrategy = "fixed" | "ordered_fallback" | "weighted" | "lowest_cost" | "lowest_latency";
 export type PublicModel = { id: string; label: string; description: string; target_connection_id: string; target_model_id: string; upstream_id: string; adapter: string; adapter_label: string; capabilities: string[]; capability_details: CapabilityDetail[]; active: boolean; revision: number; routing_strategy: RouteStrategy; free_only: boolean; routing_policy: { allowed_strategies: RouteStrategy[]; max_targets_by_strategy: Partial<Record<RouteStrategy, number>>; free_only_allowed: boolean; free_only_label: string; priority_field: { label: string; min: number; max: number; default: number }; weight_field: { label: string; min: number; max: number; default: number }; strategies: { id: RouteStrategy; label: string }[] } };
@@ -9,3 +9,7 @@ export type RoutePreviewInput = { operation: string; streaming: boolean; estimat
 export type CatalogState = { source_url: string; source_version: string; last_checked_at: string | null; last_error: string; refresh_enabled: boolean; refresh_interval_hours: number };
 export type CatalogPage = { data: CatalogCandidate[]; state: CatalogState; next_cursor: string; has_more: boolean };
 export type CatalogModel = Pick<PublicModel, "id" | "label" | "description" | "adapter" | "adapter_label" | "capabilities" | "capability_details">;
+export type CreatePublicModelInput = { id: string; label: string; description: string; target_model_id: string; capabilities: string[] };
+export type UpdateRouteInput = { strategy: RouteStrategy; free_only: boolean; targets: RouteTargetInput[] };
+export type CatalogSettingsInput = { source_url: string; refresh_enabled: boolean; refresh_interval_hours: number };
+export type ManagedModelsView = { data: PublicModel[]; routes: Record<string, RouteTargetInput[]>; available_targets: Record<string, UpstreamModel[]>; publish_targets: UpstreamModel[] };

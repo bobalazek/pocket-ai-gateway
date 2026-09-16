@@ -501,8 +501,8 @@ func (service *Service) ListPublicModels(ctx context.Context) ([]PublicModel, er
 	) ORDER BY public_models.id`)
 }
 
-func (service *Service) listPublicModels(ctx context.Context, query string) ([]PublicModel, error) {
-	rows, err := service.database.QueryContext(ctx, query)
+func (service *Service) listPublicModels(ctx context.Context, query string, arguments ...any) ([]PublicModel, error) {
+	rows, err := service.database.QueryContext(ctx, query, arguments...)
 	if err != nil {
 		return nil, err
 	}
@@ -522,10 +522,24 @@ func (service *Service) ListManagedPublicModels(ctx context.Context, actor auth.
 	if err := requireManager(ctx, service.database, &actor); err != nil {
 		return nil, err
 	}
-	return service.listPublicModels(ctx, publicModelSelect+" WHERE public_models.active=1 ORDER BY public_models.id")
+	return service.listManagedPublicModels(ctx, "")
+}
+
+func (service *Service) listManagedPublicModels(ctx context.Context, search string) ([]PublicModel, error) {
+	query := publicModelSelect + " WHERE public_models.active=1"
+	var arguments []any
+	if search != "" {
+		query += " AND (instr(lower(public_models.id),lower(?))>0 OR instr(lower(public_models.label),lower(?))>0 OR instr(lower(public_models.description),lower(?))>0 OR instr(lower(upstream_models.upstream_id),lower(?))>0 OR instr(lower(provider_connections.adapter),lower(?))>0)"
+		arguments = []any{search, search, search, search, search}
+	}
+	return service.listPublicModels(ctx, query+" ORDER BY public_models.id", arguments...)
 }
 
 func (service *Service) ListVisibleModels(ctx context.Context, actor auth.User) ([]VisibleModel, error) {
+	return service.ListVisibleModelsSearch(ctx, actor, "")
+}
+
+func (service *Service) ListVisibleModelsSearch(ctx context.Context, actor auth.User, search string) ([]VisibleModel, error) {
 	var modelJSON, connectionJSON string
 	if err := service.database.QueryRowContext(ctx, "SELECT role,status,inference_unrestricted,model_patterns_json,connection_ids_json FROM users WHERE id=?", actor.ID).Scan(&actor.Role, &actor.Status, &actor.Grants.Unrestricted, &modelJSON, &connectionJSON); err != nil {
 		return nil, err
@@ -535,7 +549,7 @@ func (service *Service) ListVisibleModels(ctx context.Context, actor auth.User) 
 	}
 	_ = json.Unmarshal([]byte(modelJSON), &actor.Grants.ModelPatterns)
 	_ = json.Unmarshal([]byte(connectionJSON), &actor.Grants.ConnectionIDs)
-	items, err := service.ListPublicModels(ctx)
+	items, err := service.listManagedPublicModels(ctx, search)
 	if err != nil {
 		return nil, err
 	}

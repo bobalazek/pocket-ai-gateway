@@ -210,6 +210,63 @@ type RouteConfigInput struct {
 	Targets  []RouteTargetInput `json:"targets"`
 }
 
+type ManagedModelsView struct {
+	Models           []PublicModel                 `json:"data"`
+	Routes           map[string][]RouteTargetInput `json:"routes"`
+	AvailableTargets map[string][]UpstreamModel    `json:"available_targets"`
+	PublishTargets   []UpstreamModel               `json:"publish_targets"`
+}
+
+func (service *Service) ManagedModels(ctx context.Context, actor auth.User, search string) (ManagedModelsView, error) {
+	view := ManagedModelsView{
+		Routes:           map[string][]RouteTargetInput{},
+		AvailableTargets: map[string][]UpstreamModel{},
+	}
+	if err := requireManager(ctx, service.database, &actor); err != nil {
+		return view, err
+	}
+	models, err := service.listManagedPublicModels(ctx, search)
+	if err != nil {
+		return view, err
+	}
+	targets, err := service.availableRouteTargets(ctx, nil)
+	if err != nil {
+		return view, err
+	}
+	modelByID := make(map[string]PublicModel, len(models))
+	for _, model := range models {
+		modelByID[model.ID] = model
+		view.Routes[model.ID] = []RouteTargetInput{}
+		view.AvailableTargets[model.ID] = []UpstreamModel{}
+		for _, target := range targets {
+			if subset(model.Capabilities, target.Capabilities) {
+				view.AvailableTargets[model.ID] = append(view.AvailableTargets[model.ID], target)
+			}
+		}
+	}
+	rows, err := service.database.QueryContext(ctx, "SELECT public_model_id,upstream_model_id,priority,weight,enabled FROM public_model_targets ORDER BY public_model_id,priority")
+	if err != nil {
+		return view, err
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var publicID string
+		var target RouteTargetInput
+		if err := rows.Scan(&publicID, &target.UpstreamModelID, &target.Priority, &target.Weight, &target.Enabled); err != nil {
+			return view, err
+		}
+		if _, ok := modelByID[publicID]; ok {
+			view.Routes[publicID] = append(view.Routes[publicID], target)
+		}
+	}
+	if err := rows.Err(); err != nil {
+		return view, err
+	}
+	view.Models = models
+	view.PublishTargets = targets
+	return view, nil
+}
+
 func (service *Service) RouteConfig(ctx context.Context, actor auth.User, publicID string) (PublicModel, []RouteTargetInput, []UpstreamModel, error) {
 	if err := requireManager(ctx, service.database, &actor); err != nil {
 		return PublicModel{}, nil, nil, err

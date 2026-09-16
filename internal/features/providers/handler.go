@@ -4,6 +4,7 @@ import (
 	"errors"
 	"net/http"
 	"strings"
+	"unicode/utf8"
 
 	"github.com/bobalazek/pocket-ai-gateway/internal/features/auth"
 )
@@ -167,7 +168,11 @@ func (handler *Handler) listPublicModels(response http.ResponseWriter, request *
 	if !ok {
 		return
 	}
-	items, err := handler.service.ListVisibleModels(request.Context(), current.User)
+	search, ok := modelSearch(response, request)
+	if !ok {
+		return
+	}
+	items, err := handler.service.ListVisibleModelsSearch(request.Context(), current.User, search)
 	if err != nil {
 		handler.writeError(response, err)
 		return
@@ -203,12 +208,25 @@ func (handler *Handler) listManagedPublicModels(response http.ResponseWriter, re
 	if !ok {
 		return
 	}
-	items, err := handler.service.ListManagedPublicModels(request.Context(), current.User)
+	search, ok := modelSearch(response, request)
+	if !ok {
+		return
+	}
+	view, err := handler.service.ManagedModels(request.Context(), current.User, search)
 	if err != nil {
 		handler.writeError(response, err)
 		return
 	}
-	auth.WriteJSON(response, http.StatusOK, map[string]any{"data": items})
+	auth.WriteJSON(response, http.StatusOK, view)
+}
+
+func modelSearch(response http.ResponseWriter, request *http.Request) (string, bool) {
+	search := strings.TrimSpace(request.URL.Query().Get("q"))
+	if utf8.RuneCountInString(search) > 100 {
+		auth.WriteError(response, http.StatusBadRequest, "invalid_request", "Model search must be at most 100 characters")
+		return "", false
+	}
+	return search, true
 }
 
 func (handler *Handler) getRoute(response http.ResponseWriter, request *http.Request) {

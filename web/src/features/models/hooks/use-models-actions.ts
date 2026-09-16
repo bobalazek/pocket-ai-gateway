@@ -1,8 +1,8 @@
 "use client";
 
-import { useState, type Dispatch, type FormEvent, type SetStateAction } from "react";
+import { useState, type Dispatch, type SetStateAction } from "react";
 
-import type { CatalogState, PublicModel, RoutePlan, RoutePreviewInput, RouteStrategy } from "@/features/models/types/models.types";
+import type { CatalogSettingsInput, CatalogState, CreatePublicModelInput, PublicModel, RoutePlan, RoutePreviewInput, UpdateRouteInput } from "@/features/models/types/models.types";
 import { GatewayAPIError, pocketAIGatewayAdmin } from "@/lib/pocket-ai-gateway-admin.client";
 
 const failureText = (error: unknown, fallback: string) => error instanceof GatewayAPIError ? error.message : fallback;
@@ -18,47 +18,27 @@ export function useModelsActions({ reload, setCatalogState, setSelectedTarget }:
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
 
-  async function publishModel(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-    const element = event.currentTarget;
-    const form = new FormData(element);
+  async function publishModel(input: CreatePublicModelInput) {
     setError("");
     setBusy(true);
     try {
-      await pocketAIGatewayAdmin.models.createPublicModel({
-        id: String(form.get("id")),
-        label: String(form.get("label")),
-        description: String(form.get("description")),
-        target_model_id: String(form.get("target_model_id")),
-        capabilities: form.getAll("capabilities").map(String),
-      });
-      element.reset();
+      await pocketAIGatewayAdmin.models.createPublicModel(input);
       setSelectedTarget("");
       await reload();
+      return true;
     } catch (failure) {
       setError(failureText(failure, "Model could not be published"));
+      return false;
     } finally {
       setBusy(false);
     }
   }
 
-  async function updateModelRoute(event: FormEvent<HTMLFormElement>, model: PublicModel) {
-    event.preventDefault();
-    const form = new FormData(event.currentTarget);
-    const targets = form.getAll("target").map(String).map((targetID) => ({
-        upstream_model_id: targetID,
-        priority: Number(form.get(`priority:${targetID}`)),
-        weight: Number(form.get(`weight:${targetID}`)),
-        enabled: true,
-      }));
+  async function updateModelRoute(model: PublicModel, input: UpdateRouteInput) {
     setError("");
     setBusy(true);
     try {
-      await pocketAIGatewayAdmin.models.updateRoute(model, {
-        strategy: String(form.get("strategy")) as RouteStrategy,
-        free_only: form.get("free_only") === "on",
-        targets,
-      });
+      await pocketAIGatewayAdmin.models.updateRoute(model, input);
       await reload();
     } catch (failure) {
       setError(failureText(failure, "Route could not be saved"));
@@ -67,15 +47,7 @@ export function useModelsActions({ reload, setCatalogState, setSelectedTarget }:
     }
   }
 
-  async function previewModelRoute(event: FormEvent<HTMLFormElement>, model: PublicModel) {
-    event.preventDefault();
-    const form = new FormData(event.currentTarget);
-    const input = {
-      operation: String(form.get("operation")),
-      streaming: form.get("streaming") === "on",
-      estimated_input_tokens: Number(form.get("estimated_input_tokens")),
-      estimated_output_tokens: Number(form.get("estimated_output_tokens")),
-    };
+  async function previewModelRoute(model: PublicModel, input: RoutePreviewInput) {
     setError("");
     setBusy(true);
     try {
@@ -88,17 +60,11 @@ export function useModelsActions({ reload, setCatalogState, setSelectedTarget }:
     }
   }
 
-  async function updateCatalog(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-    const form = new FormData(event.currentTarget);
+  async function updateCatalog(input: CatalogSettingsInput) {
     setError("");
     setBusy(true);
     try {
-      const result = await pocketAIGatewayAdmin.models.configureCatalog({
-        source_url: String(form.get("source_url")),
-        refresh_enabled: form.get("refresh_enabled") === "on",
-        refresh_interval_hours: Number(form.get("refresh_interval_hours")),
-      });
+      const result = await pocketAIGatewayAdmin.models.configureCatalog(input);
       setCatalogState(result.state);
     } catch (failure) {
       setError(failureText(failure, "Catalog settings could not be saved"));

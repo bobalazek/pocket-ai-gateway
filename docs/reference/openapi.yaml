@@ -562,6 +562,7 @@ paths:
   /models:
     get:
       operationId: listVisibleModels
+      parameters: [{ name: q, in: query, description: Case-insensitive server-side model search, schema: { type: string, maxLength: 100 } }]
       responses:
         "200": { description: Grant-filtered public models, content: { application/json: { schema: { type: object, required: [data], properties: { data: { type: array, items: { $ref: "#/components/schemas/VisibleModel" } } } } } } }
         "401": { $ref: "#/components/responses/Unauthorized" }
@@ -584,8 +585,9 @@ paths:
   /admin/models:
     get:
       operationId: listManagedModels
+      parameters: [{ name: q, in: query, description: Case-insensitive server-side model search, schema: { type: string, maxLength: 100 } }]
       responses:
-        "200": { description: Full public model configuration, content: { application/json: { schema: { type: object, required: [data], properties: { data: { type: array, items: { $ref: "#/components/schemas/PublicModel" } } } } } } }
+        "200": { description: Full public model configuration and backend-derived route targets, content: { application/json: { schema: { type: object, required: [data, routes, available_targets, publish_targets], properties: { data: { type: array, items: { $ref: "#/components/schemas/PublicModel" } }, routes: { type: object, additionalProperties: { type: array, items: { $ref: "#/components/schemas/RouteTargetInput" } } }, available_targets: { type: object, additionalProperties: { type: array, items: { $ref: "#/components/schemas/UpstreamModel" } } }, publish_targets: { type: array, items: { $ref: "#/components/schemas/UpstreamModel" } } } } } } }
         "401": { $ref: "#/components/responses/Unauthorized" }
         "403": { $ref: "#/components/responses/Forbidden" }
         "503": { $ref: "#/components/responses/ServiceUnavailable" }
