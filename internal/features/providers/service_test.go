@@ -43,6 +43,12 @@ func TestWebSearchCapabilityRequiresNativePresetAndChat(t *testing.T) {
 	if !validCapabilities([]string{"chat", "web_search"}) {
 		t.Fatal("chat plus web_search was rejected")
 	}
+	if validCapabilities([]string{"chat", "web_search_dynamic"}) || !validCapabilities([]string{"chat", "web_search", "web_search_dynamic"}) {
+		t.Fatal("dynamic web search must include its base capability")
+	}
+	if !PresetSupportsCapabilities("anthropic", []string{"chat", "web_search", "web_search_dynamic"}) || PresetSupportsCapabilities("openai", []string{"chat", "web_search", "web_search_dynamic"}) {
+		t.Fatal("dynamic web search was not restricted to Anthropic")
+	}
 	for _, provider := range ProviderTypes() {
 		hasWebSearch := false
 		for _, capability := range provider.Capabilities {
@@ -88,6 +94,12 @@ func TestWebFetchCapabilityRequiresAnthropicPresetAndChat(t *testing.T) {
 	}
 	if !validCapabilities([]string{"chat", "web_fetch"}) {
 		t.Fatal("chat plus web_fetch was rejected")
+	}
+	if validCapabilities([]string{"chat", "web_fetch_dynamic"}) || !validCapabilities([]string{"chat", "web_fetch", "web_fetch_dynamic"}) {
+		t.Fatal("dynamic web fetch must include its base capability")
+	}
+	if !PresetSupportsCapabilities("anthropic", []string{"chat", "web_fetch", "web_fetch_dynamic"}) || PresetSupportsCapabilities("openai", []string{"chat", "web_fetch", "web_fetch_dynamic"}) {
+		t.Fatal("dynamic web fetch was not restricted to Anthropic")
 	}
 	for _, provider := range ProviderTypes() {
 		hasWebFetch := false

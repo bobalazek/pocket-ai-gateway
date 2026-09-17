@@ -22,13 +22,13 @@ paths:
               type: object
               required: [model, messages, max_tokens]
               additionalProperties: true
-              description: Prompt caching is available only through a native model on the built-in Anthropic preset. A request may use top-level automatic cache control or explicit controls on tool definitions, system content blocks, and message content blocks. The combined request supports at most four breakpoints; 1h breakpoints must precede 5m breakpoints. Bounded hosted web search and basic web fetch are also native-only. Search accepts one direct web_search_20250305 tool; fetch accepts one web_fetch_20250910 tool. Each permits max_uses from 1 through 4 in JSON or SSE. Prompt caching, search, and fetch cannot be combined with each other.
+              description: Prompt caching is available only through a native model on the built-in Anthropic preset. A request may use top-level automatic cache control or explicit controls on tool definitions, system content blocks, and message content blocks. The combined request supports at most four breakpoints; 1h breakpoints must precede 5m breakpoints. Bounded hosted web search and fetch are also native-only. Search accepts web_search_20250305 or dynamic-filtering web_search_20260209; fetch accepts web_fetch_20250910 or dynamic-filtering web_fetch_20260209. Each permits max_uses from 1 through 4 in JSON or SSE. Prompt caching, search, and fetch cannot be combined with each other.
               properties:
                 model: { type: string, minLength: 1 }
                 max_tokens: { type: integer, minimum: 1 }
                 stream:
                   type: [boolean, "null"]
-                  description: Set true for native Anthropic SSE. Bounded web_search_20250305 and web_fetch_20250910 support both false/omitted JSON delivery and true SSE delivery.
+                  description: Set true for native Anthropic SSE. Supported basic and dynamic-filtering web-search/fetch versions accept false/omitted JSON delivery or true SSE delivery.
                 cache_control: { $ref: "#/components/schemas/CacheControl" }
                 tools:
                   type: array
@@ -326,18 +326,20 @@ components:
         properties:
           allowed_domains: { type: array }
           blocked_domains: { type: array }
-      description: Gateway-bounded basic Anthropic hosted search. Dynamic-filtering versions, deferred loading, and indirect callers are unsupported.
+      description: Gateway-bounded basic or dynamic-filtering Anthropic hosted search. Deferred loading and response-inclusion versions are unsupported.
       properties:
-        type: { type: string, const: web_search_20250305 }
+        type: { type: string, enum: [web_search_20250305, web_search_20260209] }
         name: { type: string, const: web_search }
         max_uses: { type: integer, minimum: 1, maximum: 4 }
         cache_control: { type: "null", description: Only null is accepted; prompt caching cannot be combined with web search }
         allowed_callers:
           type: array
           minItems: 1
-          maxItems: 1
+          maxItems: 4
           uniqueItems: true
-          items: { type: string, const: direct }
+          items: { type: string, enum: [direct, code_execution_20250825, code_execution_20260120, code_execution_20260521] }
+          description: The basic version defaults to direct and the dynamic version defaults to code_execution_20260120 when omitted.
+        strict: { type: boolean }
         allowed_domains:
           oneOf:
             - { type: "null" }
@@ -378,9 +380,9 @@ components:
         properties:
           allowed_domains: { type: array }
           blocked_domains: { type: array }
-      description: Gateway-bounded basic Anthropic hosted fetch. Later versions and provider-owned extensions are unsupported.
+      description: Gateway-bounded basic or dynamic-filtering Anthropic hosted fetch. Cache-bypass, response-inclusion, and provider-owned extensions are unsupported.
       properties:
-        type: { type: string, const: web_fetch_20250910 }
+        type: { type: string, enum: [web_fetch_20250910, web_fetch_20260209] }
         name: { type: string, const: web_fetch }
         max_uses: { type: integer, minimum: 1, maximum: 4 }
         max_content_tokens:
@@ -388,6 +390,15 @@ components:
           minimum: 1
           maximum: 16384
           description: Approximate fetched text extraction limit; it does not bound binary PDF input.
+        cache_control: { type: "null", description: Only null is accepted; prompt caching cannot be combined with web fetch }
+        allowed_callers:
+          type: array
+          minItems: 1
+          maxItems: 4
+          uniqueItems: true
+          items: { type: string, enum: [direct, code_execution_20250825, code_execution_20260120, code_execution_20260521] }
+          description: The basic version defaults to direct and the dynamic version defaults to code_execution_20260120 when omitted.
+        strict: { type: boolean }
         allowed_domains:
           oneOf:
             - { type: "null" }
@@ -510,29 +521,36 @@ components:
             - { type: "null" }
             - { $ref: "#/components/schemas/ServerToolUsage" }
         service_tier: { type: [string, "null"], enum: [standard, priority, batch, null] }
-    DirectCaller:
-      type: object
-      additionalProperties: false
-      required: [type]
-      properties:
-        type: { type: string, const: direct }
+    ToolCaller:
+      oneOf:
+        - type: object
+          additionalProperties: false
+          required: [type]
+          properties:
+            type: { type: string, const: direct }
+        - type: object
+          additionalProperties: false
+          required: [type, tool_id]
+          properties:
+            type: { type: string, enum: [code_execution_20250825, code_execution_20260120] }
+            tool_id: { type: string, pattern: "^srvtoolu_" }
     ServerToolUsage:
       type: object
       additionalProperties: true
-      required: [web_fetch_requests, web_search_requests]
       properties:
         web_fetch_requests: { type: integer, minimum: 0, maximum: 4, description: Successful provider-reported fetches }
         web_search_requests: { type: integer, minimum: 0, maximum: 4, description: Successful provider-reported searches; failed searches are not billed }
+        code_execution_requests: { type: integer, minimum: 0, description: Provider-reported code execution used by dynamic filtering }
     ServerToolUseBlock:
       type: object
       additionalProperties: true
-      required: [type, id, name, input, caller]
+      required: [type, id, name, input]
       properties:
         type: { type: string, const: server_tool_use }
         id: { type: string, pattern: "^srvtoolu_" }
         name: { type: string, enum: [web_search, web_fetch] }
         input: { type: object, additionalProperties: true }
-        caller: { $ref: "#/components/schemas/DirectCaller" }
+        caller: { $ref: "#/components/schemas/ToolCaller" }
     WebSearchResultBlock:
       type: object
       additionalProperties: true
@@ -553,11 +571,11 @@ components:
     WebSearchToolResultBlock:
       type: object
       additionalProperties: true
-      required: [type, tool_use_id, content, caller]
+      required: [type, tool_use_id, content]
       properties:
         type: { type: string, const: web_search_tool_result }
         tool_use_id: { type: string, pattern: "^srvtoolu_" }
-        caller: { $ref: "#/components/schemas/DirectCaller" }
+        caller: { $ref: "#/components/schemas/ToolCaller" }
         content:
           oneOf:
             - { type: array, items: { $ref: "#/components/schemas/WebSearchResultBlock" } }
@@ -617,7 +635,7 @@ components:
       properties:
         type: { type: string, const: web_fetch_tool_result }
         tool_use_id: { type: string, pattern: "^srvtoolu_" }
-        caller: { $ref: "#/components/schemas/DirectCaller" }
+        caller: { $ref: "#/components/schemas/ToolCaller" }
         content:
           oneOf:
             - { $ref: "#/components/schemas/WebFetchResult" }

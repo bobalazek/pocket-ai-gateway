@@ -25,7 +25,7 @@ var (
 
 var adapters = map[string][]string{
 	"openai":            {"chat", "completions", "web_search", "embeddings", "moderations", "count_tokens", "images", "image_edit", "image_variation", "audio_speech", "audio_transcription", "audio_translation", "realtime"},
-	"anthropic":         {"chat", "web_search", "web_fetch", "count_tokens", "prompt_cache"},
+	"anthropic":         {"chat", "web_search", "web_search_dynamic", "web_fetch", "web_fetch_dynamic", "count_tokens", "prompt_cache"},
 	"gemini":            {"chat", "count_tokens", "embeddings", "interactions", "realtime", "media_jobs"},
 	"openai_compatible": {"chat", "completions", "embeddings", "moderations", "count_tokens", "images", "image_edit", "image_variation", "audio_speech", "audio_transcription", "audio_translation", "media_jobs"},
 }
@@ -54,7 +54,9 @@ var capabilityLabels = map[string]string{
 	"prompt_cache":        "Prompt caching",
 	"realtime":            "Realtime audio and text",
 	"web_fetch":           "Web fetch",
+	"web_fetch_dynamic":   "Dynamic web fetch",
 	"web_search":          "Web search",
+	"web_search_dynamic":  "Dynamic web search",
 }
 
 var scopeCapabilities = map[string]string{
@@ -732,15 +734,19 @@ func SupportsScope(values []string, scope string) bool {
 	return wanted != "" && containsString(values, wanted)
 }
 func validCapabilities(values []string) bool {
-	hasChat, hasHostedChatCapability := false, false
+	hasChat, hasWebSearch, hasWebFetch, hasDynamicSearch, hasDynamicFetch, hasHostedChatCapability := false, false, false, false, false, false
 	for _, value := range values {
 		if _, valid := capabilityLabels[value]; !valid {
 			return false
 		}
 		hasChat = hasChat || value == "chat"
-		hasHostedChatCapability = hasHostedChatCapability || value == "prompt_cache" || value == "web_search" || value == "web_fetch"
+		hasWebSearch = hasWebSearch || value == "web_search"
+		hasWebFetch = hasWebFetch || value == "web_fetch"
+		hasDynamicSearch = hasDynamicSearch || value == "web_search_dynamic"
+		hasDynamicFetch = hasDynamicFetch || value == "web_fetch_dynamic"
+		hasHostedChatCapability = hasHostedChatCapability || value == "prompt_cache" || value == "web_search" || value == "web_search_dynamic" || value == "web_fetch" || value == "web_fetch_dynamic"
 	}
-	return !hasHostedChatCapability || hasChat
+	return (!hasHostedChatCapability || hasChat) && (!hasDynamicSearch || hasWebSearch) && (!hasDynamicFetch || hasWebFetch)
 }
 func validPublicID(value string) bool {
 	if value == "" || len(value) > 200 {

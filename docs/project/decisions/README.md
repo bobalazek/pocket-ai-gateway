@@ -59,6 +59,7 @@ Each record states status/source, context, decision, and consequences. A recomme
 | ADR-051 | [Close v0.1 with local SQLite](2026-09-16-close-v01-with-local-sqlite.md) | Accepted release scope; supersedes ADR-014's Phase 8 timing only |
 | ADR-052 | [Asynchronous media and scripted provider adapters](2026-09-17-async-media-and-scripted-adapters.md) | Accepted user decision extending provider expansion |
 | ADR-053 | [Native Live transports and Gemini media](2026-09-17-native-live-and-gemini-media.md) | Accepted user decision extending ADR-052 and Phase 9 |
+| ADR-054 | [Anthropic dynamic web filtering](2026-09-17-anthropic-dynamic-web-tools.md) | Delegated parity expansion extending ADR-020 and ADR-032 |
 
 Historical: [initial proposal](2026-09-14-initial-proposal.md), superseded by the records above where they differ. Its A/P/D/M identifiers are historical references only; current documents use ADR IDs.
 

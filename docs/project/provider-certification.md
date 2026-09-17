@@ -12,7 +12,7 @@ A built-in preset means its endpoint and advertised operations were checked agai
 | Provider | Base URL | Adapter | Advertised operations | Documentation reviewed | Live certification |
 | --- | --- | --- | --- | --- | --- |
 | OpenAI | `https://api.openai.com/v1` | OpenAI | Chat, legacy Completions, Responses, input-token counting, embeddings, moderations, image generation/edit/variation, speech/transcription/translation, Realtime, Live | 2026-09-17 | Not run — credentials required |
-| Anthropic | `https://api.anthropic.com/v1` | Anthropic | Messages, token counting | 2026-09-15 | Not run — credentials required |
+| Anthropic | `https://api.anthropic.com/v1` | Anthropic | Messages, token counting, dynamic web search/fetch | 2026-09-17 | Not run — credentials required |
 | Google Gemini | `https://generativelanguage.googleapis.com/v1beta` | Gemini + media jobs | Generation including image output, streaming, token counting, embeddings, Interactions, Live, Veo create/poll | 2026-09-17 | Not run — credentials required |
 | OpenRouter | `https://openrouter.ai/api/v1` | OpenAI compatible | Chat, Responses, embeddings, speech | 2026-09-16 | Not run — credentials required |
 | Z.AI | `https://api.z.ai/api/paas/v4` | OpenAI compatible | Chat, image generation | 2026-09-16 | Not run — credentials required |
@@ -42,7 +42,7 @@ Ordinary verification covers:
 - OpenAI Chat, native legacy Completions, stateless/stored/background Responses including bounded native web search, input-token counting, embeddings, moderations, bounded JSON/SSE image generation, streamed speech, and Realtime WebSocket relay against local upstreams;
 - Replicate prediction, Together video, Gemini Veo, and custom scripted media-job create/poll/cancel against local upstreams;
 - OpenAI Realtime, OpenAI Live, and Gemini Live bidirectional WebSocket setup/model rewriting, audio relay, credentials, bounds, and accounting against local upstreams;
-- native Anthropic Messages/token counting and Gemini generation/counting/embeddings;
+- native Anthropic Messages/token counting/basic and dynamic-filtering web search/fetch, and Gemini generation/counting/embeddings;
 - cross-protocol request, response, tool, refusal, usage, and stream mappings;
 - key grants, limits, request accounting, fallback attempts, cancellation, response bounds, and safe provider errors.
 

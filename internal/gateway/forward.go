@@ -345,12 +345,12 @@ func (handler *Handler) forwardAuthorized(response http.ResponseWriter, request 
 			}
 		}
 		if anthropicWebSearch.enabled {
-			if eligible, reason := anthropicWebSearchTargetEligibility(target); !eligible {
+			if eligible, reason := anthropicWebSearchTargetEligibility(target, anthropicWebSearch.dynamic); !eligible {
 				return false, reason
 			}
 		}
 		if anthropicWebFetch.enabled {
-			if eligible, reason := anthropicWebFetchTargetEligibility(target); !eligible {
+			if eligible, reason := anthropicWebFetchTargetEligibility(target, anthropicWebFetch.dynamic); !eligible {
 				return false, reason
 			}
 		}
@@ -560,11 +560,11 @@ func (handler *Handler) forwardAuthorized(response http.ResponseWriter, request 
 		}
 		if anthropicWebSearch.enabled && copyErr == nil && result >= 200 && result < 300 {
 			if stream {
-				webSearchCallCount, copyErr = parseAnthropicWebSearchStream(raw, anthropicWebSearch.maxUses)
+				webSearchCallCount, copyErr = parseAnthropicWebSearchStream(raw, anthropicWebSearch.maxUses, anthropicWebSearch.dynamic)
 				anthropicWebSearchUsageKnown = copyErr == nil
 			} else {
 				var exceeded bool
-				webSearchCallCount, anthropicWebSearchUsageKnown, exceeded = parseAnthropicWebSearchUsage(raw, anthropicWebSearch.maxUses)
+				webSearchCallCount, anthropicWebSearchUsageKnown, exceeded = parseAnthropicWebSearchUsage(raw, anthropicWebSearch.maxUses, anthropicWebSearch.dynamic)
 				if exceeded {
 					copyErr = errors.New("provider exceeded max_uses")
 				}
@@ -578,11 +578,11 @@ func (handler *Handler) forwardAuthorized(response http.ResponseWriter, request 
 		}
 		if anthropicWebFetch.enabled && copyErr == nil && result >= 200 && result < 300 {
 			if stream {
-				webFetchCallCount, copyErr = parseAnthropicWebFetchStream(raw, anthropicWebFetch.maxUses)
+				webFetchCallCount, copyErr = parseAnthropicWebFetchStream(raw, anthropicWebFetch.maxUses, anthropicWebFetch.dynamic)
 				anthropicWebFetchUsageKnown = copyErr == nil
 			} else {
 				var exceeded bool
-				webFetchCallCount, anthropicWebFetchUsageKnown, exceeded = parseAnthropicWebFetchUsage(raw, anthropicWebFetch.maxUses)
+				webFetchCallCount, anthropicWebFetchUsageKnown, exceeded = parseAnthropicWebFetchUsage(raw, anthropicWebFetch.maxUses, anthropicWebFetch.dynamic)
 				if exceeded {
 					copyErr = errors.New("provider exceeded max_uses")
 				}

@@ -19,6 +19,7 @@ const (
 
 type anthropicWebFetchRequest struct {
 	enabled          bool
+	dynamic          bool
 	maxUses          int64
 	maxContentTokens int64
 }
@@ -65,14 +66,14 @@ func validateAnthropicWebFetch(envelope map[string]json.RawMessage) (anthropicWe
 		switch kind {
 		case "custom":
 			continue
-		case "web_search_20250305":
+		case "web_search_20250305", "web_search_20260209":
 			searchPresent = true
 			continue
-		case "web_fetch_20250910":
+		case "web_fetch_20250910", "web_fetch_20260209":
 			if result.enabled {
-				return result, errors.New("at most one web_fetch_20250910 tool is supported")
+				return result, errors.New("at most one web_fetch tool is supported")
 			}
-			if err := validateAnthropicWebFetchTool(tool, &result); err != nil {
+			if err := validateAnthropicWebFetchTool(tool, &result, kind == "web_fetch_20260209"); err != nil {
 				return result, err
 			}
 			result.enabled = true
@@ -94,10 +95,11 @@ func validateAnthropicWebFetch(envelope map[string]json.RawMessage) (anthropicWe
 	return result, nil
 }
 
-func validateAnthropicWebFetchTool(tool map[string]json.RawMessage, result *anthropicWebFetchRequest) error {
+func validateAnthropicWebFetchTool(tool map[string]json.RawMessage, result *anthropicWebFetchRequest, dynamicVersion bool) error {
 	allowed := map[string]bool{
 		"type": true, "name": true, "max_uses": true, "max_content_tokens": true,
 		"allowed_domains": true, "blocked_domains": true, "citations": true,
+		"allowed_callers": true, "cache_control": true, "strict": true,
 	}
 	for name := range tool {
 		if !allowed[name] {
@@ -146,14 +148,25 @@ func validateAnthropicWebFetchTool(tool map[string]json.RawMessage, result *anth
 			return errors.New("web_fetch.citations.enabled must be a boolean")
 		}
 	}
+	if err := validateAnthropicWebToolStrict(tool["strict"], "web_fetch"); err != nil {
+		return err
+	}
+	dynamic, err := validateAnthropicWebToolCallers(tool["allowed_callers"], "web_fetch", dynamicVersion)
+	if err != nil {
+		return err
+	}
+	result.dynamic = dynamic
 	return nil
 }
 
-func anthropicWebFetchTargetEligibility(target providers.Target) (bool, string) {
+func anthropicWebFetchTargetEligibility(target providers.Target, dynamic bool) (bool, string) {
 	if !providers.NativeTarget("anthropic", target.Adapter) || target.Adapter != "anthropic" || target.Preset != "anthropic" {
 		return false, "web_fetch_native_required"
 	}
 	if !slices.Contains(target.Capabilities, "chat") || !slices.Contains(target.UpstreamCapabilities, "chat") || !slices.Contains(target.Capabilities, "web_fetch") || !slices.Contains(target.UpstreamCapabilities, "web_fetch") {
+		return false, "unsupported_capability"
+	}
+	if dynamic && (!slices.Contains(target.Capabilities, "web_fetch_dynamic") || !slices.Contains(target.UpstreamCapabilities, "web_fetch_dynamic")) {
 		return false, "unsupported_capability"
 	}
 	if target.RoutingStrategy == "lowest_cost" || target.FreeOnly {
@@ -162,10 +175,10 @@ func anthropicWebFetchTargetEligibility(target providers.Target) (bool, string) 
 	return true, ""
 }
 
-func parseAnthropicWebFetchUsage(raw []byte, maximum int64) (*int64, bool, bool) {
-	return parseAnthropicServerToolUsage(raw, "web_fetch_requests", maximum)
+func parseAnthropicWebFetchUsage(raw []byte, maximum int64, dynamic bool) (*int64, bool, bool) {
+	return parseAnthropicServerToolUsage(raw, "web_fetch_requests", maximum, dynamic)
 }
 
-func parseAnthropicWebFetchStream(raw []byte, maximum int64) (*int64, error) {
-	return parseAnthropicServerToolStream(raw, "web_fetch_requests", maximum)
+func parseAnthropicWebFetchStream(raw []byte, maximum int64, dynamic bool) (*int64, error) {
+	return parseAnthropicServerToolStream(raw, "web_fetch_requests", maximum, dynamic)
 }

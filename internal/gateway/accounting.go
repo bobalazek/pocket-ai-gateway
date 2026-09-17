@@ -263,12 +263,17 @@ func parseToolMetadata(dialect string, raw []byte) (int64, string) {
 		case "anthropic":
 			for index, partValue := range array(value["content"]) {
 				part := objectMap(partValue)
-				if stringValue(part["type"]) == "tool_use" {
+				kind, name := stringValue(part["type"]), stringValue(part["name"])
+				if kind == "tool_use" || kind == "server_tool_use" && name != "web_search" && name != "web_fetch" {
 					keys[firstString(part, "id")+":"+strconv.Itoa(index)] = true
 				}
 			}
-			if stringValue(value["type"]) == "content_block_start" && stringValue(objectMap(value["content_block"])["type"]) == "tool_use" {
-				keys[strconv.FormatInt(number(value["index"]), 10)] = true
+			if stringValue(value["type"]) == "content_block_start" {
+				block := objectMap(value["content_block"])
+				kind, name := stringValue(block["type"]), stringValue(block["name"])
+				if kind == "tool_use" || kind == "server_tool_use" && name != "web_search" && name != "web_fetch" {
+					keys[strconv.FormatInt(number(value["index"]), 10)] = true
+				}
 			}
 			completed = completed || stringValue(value["type"]) == "message_stop"
 		case "gemini":

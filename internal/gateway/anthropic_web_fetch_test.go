@@ -24,6 +24,11 @@ func TestAnthropicWebFetchValidation(t *testing.T) {
 		`{"tools":[{"type":"web_fetch_20250910","name":"web_fetch","max_uses":1,"max_content_tokens":1}]}`,
 		`{"stream":true,"tools":[{"type":"web_fetch_20250910","name":"web_fetch","max_uses":4,"max_content_tokens":16384,"allowed_domains":["example.com","docs.example.com"],"citations":{"enabled":true}}]}`,
 		`{"stream":false,"tools":[{"type":"web_fetch_20250910","name":"web_fetch","max_uses":2,"max_content_tokens":1024,"blocked_domains":[],"citations":{"enabled":false}}]}`,
+		`{"tools":[{"type":"web_fetch_20250910","name":"web_fetch","max_uses":1,"max_content_tokens":1024,"allowed_callers":["direct"]}]}`,
+		`{"tools":[{"type":"web_fetch_20250910","name":"web_fetch","max_uses":1,"max_content_tokens":1024,"cache_control":{"type":"ephemeral"}}]}`,
+		`{"tools":[{"type":"web_fetch_20250910","name":"web_fetch","max_uses":1,"max_content_tokens":1024,"allowed_callers":["code_execution_20250825"],"strict":false}]}`,
+		`{"tools":[{"type":"web_fetch_20260209","name":"web_fetch","max_uses":1,"max_content_tokens":1024}]}`,
+		`{"tools":[{"type":"web_fetch_20260209","name":"web_fetch","max_uses":1,"max_content_tokens":1024,"allowed_callers":["direct"]}]}`,
 	}
 	for _, raw := range valid {
 		var envelope map[string]json.RawMessage
@@ -31,6 +36,17 @@ func TestAnthropicWebFetchValidation(t *testing.T) {
 		request, err := validateAnthropicWebFetch(envelope)
 		if err != nil || !request.enabled || request.maxUses < 1 || request.maxContentTokens < 1 {
 			t.Fatalf("valid request rejected: %s: %#v, %v", raw, request, err)
+		}
+	}
+	for raw, wantDynamic := range map[string]bool{
+		`{"tools":[{"type":"web_fetch_20260209","name":"web_fetch","max_uses":1,"max_content_tokens":1024}]}`:                              true,
+		`{"tools":[{"type":"web_fetch_20260209","name":"web_fetch","max_uses":1,"max_content_tokens":1024,"allowed_callers":["direct"]}]}`: false,
+	} {
+		var envelope map[string]json.RawMessage
+		_ = json.Unmarshal([]byte(raw), &envelope)
+		request, err := validateAnthropicWebFetch(envelope)
+		if err != nil || request.dynamic != wantDynamic {
+			t.Fatalf("dynamic=%t, want %t: %v", request.dynamic, wantDynamic, err)
 		}
 	}
 
@@ -43,7 +59,6 @@ func TestAnthropicWebFetchValidation(t *testing.T) {
 		`{"tools":[{"type":"web_fetch_20250910","name":"web_fetch","max_uses":1,"max_content_tokens":16385}]}`,
 		`{"tools":[{"type":"web_fetch_20250910","name":"fetch","max_uses":1,"max_content_tokens":1024}]}`,
 		`{"tools":[{"type":"web_fetch_20250910","name":"web_fetch","max_uses":1,"max_content_tokens":1024},{"type":"web_fetch_20250910","name":"web_fetch","max_uses":1,"max_content_tokens":1024}]}`,
-		`{"tools":[{"type":"web_fetch_20260209","name":"web_fetch","max_uses":1,"max_content_tokens":1024}]}`,
 		`{"tools":[{"type":"web_fetch_20250910","name":"web_fetch","max_uses":1,"max_content_tokens":1024,"allowed_domains":["example.com"],"blocked_domains":["blocked.example"]}]}`,
 		`{"tools":[{"type":"web_fetch_20250910","name":"web_fetch","max_uses":1,"max_content_tokens":1024,"allowed_domains":["https://example.com"]}]}`,
 		`{"tools":[{"type":"web_fetch_20250910","name":"web_fetch","max_uses":1,"max_content_tokens":1024,"allowed_domains":["example.com/path"]}]}`,
@@ -51,10 +66,11 @@ func TestAnthropicWebFetchValidation(t *testing.T) {
 		`{"tools":[{"type":"web_fetch_20250910","name":"web_fetch","max_uses":1,"max_content_tokens":1024,"allowed_domains":["a.example","b.example","c.example","d.example","e.example","f.example","g.example","h.example","i.example","j.example","k.example"]}]}`,
 		`{"tools":[{"type":"web_fetch_20250910","name":"web_fetch","max_uses":1,"max_content_tokens":1024,"citations":{}}]}`,
 		`{"tools":[{"type":"web_fetch_20250910","name":"web_fetch","max_uses":1,"max_content_tokens":1024,"citations":{"enabled":"true"}}]}`,
-		`{"tools":[{"type":"web_fetch_20250910","name":"web_fetch","max_uses":1,"max_content_tokens":1024,"allowed_callers":["direct"]}]}`,
-		`{"tools":[{"type":"web_fetch_20250910","name":"web_fetch","max_uses":1,"max_content_tokens":1024,"cache_control":{"type":"ephemeral"}}]}`,
+		`{"tools":[{"type":"web_fetch_20260209","name":"web_fetch","max_uses":1,"max_content_tokens":1024,"allowed_callers":null}]}`,
+		`{"tools":[{"type":"web_fetch_20260209","name":"web_fetch","max_uses":1,"max_content_tokens":1024,"allowed_callers":["other"]}]}`,
 		`{"tools":[{"type":"web_fetch_20250910","name":"web_fetch","max_uses":1,"max_content_tokens":1024,"defer_loading":false}]}`,
-		`{"tools":[{"type":"web_fetch_20250910","name":"web_fetch","max_uses":1,"max_content_tokens":1024,"strict":true}]}`,
+		`{"tools":[{"type":"web_fetch_20250910","name":"web_fetch","max_uses":1,"max_content_tokens":1024,"strict":"true"}]}`,
+		`{"tools":[{"type":"web_fetch_20250910","name":"web_fetch","max_uses":1,"max_content_tokens":1024,"strict":null}]}`,
 	}
 	for _, raw := range invalid {
 		var envelope map[string]json.RawMessage
@@ -80,19 +96,23 @@ func TestAnthropicWebFetchUsageAndStreamParsing(t *testing.T) {
 		{`{"usage":{"input_tokens":1,"output_tokens":2,"server_tool_use":{"web_fetch_requests":1,"web_search_requests":1}}}`, 4, nil, false},
 		{`{"usage":{"input_tokens":1,"output_tokens":2,"server_tool_use":{"web_fetch_requests":2}}}`, 1, nil, true},
 	} {
-		got, known, exceeded := parseAnthropicWebFetchUsage([]byte(test.raw), test.max)
+		got, known, exceeded := parseAnthropicWebFetchUsage([]byte(test.raw), test.max, false)
 		if (test.want != nil) != known || test.want != nil && (got == nil || *got != *test.want) || exceeded != test.exceeded {
 			t.Fatalf("parse %s = %v/%t/%t, want %v exceeded=%t", test.raw, got, known, exceeded, test.want, test.exceeded)
 		}
 	}
+	got, known, exceeded := parseAnthropicWebFetchUsage([]byte(`{"usage":{"server_tool_use":{"web_fetch_requests":1,"code_execution_requests":1}}}`), 1, true)
+	if !known || exceeded || got == nil || *got != 1 {
+		t.Fatalf("dynamic usage=%v/%t/%t", got, known, exceeded)
+	}
 
 	valid := anthropicWebFetchSSE(`{"web_fetch_requests":1,"web_search_requests":0}`, "")
-	count, err := parseAnthropicWebFetchStream([]byte(valid), 1)
+	count, err := parseAnthropicWebFetchStream([]byte(valid), 1, false)
 	if err != nil || count == nil || *count != 1 {
 		t.Fatalf("valid stream count=%v err=%v", count, err)
 	}
 	nullableTerminalInput := strings.Replace(valid, `"input_tokens":7,"output_tokens":2`, `"input_tokens":null,"output_tokens":2`, 1)
-	count, err = parseAnthropicWebFetchStream([]byte(nullableTerminalInput), 1)
+	count, err = parseAnthropicWebFetchStream([]byte(nullableTerminalInput), 1, false)
 	if err != nil || count == nil || *count != 1 {
 		t.Fatalf("nullable terminal input count=%v err=%v", count, err)
 	}
@@ -108,7 +128,7 @@ func TestAnthropicWebFetchUsageAndStreamParsing(t *testing.T) {
 		"error":            "event: error\ndata: {\"type\":\"error\",\"error\":{\"type\":\"overloaded_error\"}}\n\n",
 	} {
 		t.Run(name, func(t *testing.T) {
-			if _, err := parseAnthropicWebFetchStream([]byte(raw), 1); err == nil {
+			if _, err := parseAnthropicWebFetchStream([]byte(raw), 1, false); err == nil {
 				t.Fatalf("invalid stream accepted: %s", raw)
 			}
 		})
@@ -117,8 +137,16 @@ func TestAnthropicWebFetchUsageAndStreamParsing(t *testing.T) {
 
 func TestAnthropicWebFetchTargetEligibility(t *testing.T) {
 	valid := providers.Target{PublicModel: providers.PublicModel{Adapter: "anthropic", Capabilities: []string{"chat", "web_fetch"}, RoutingStrategy: "fixed"}, UpstreamCapabilities: []string{"chat", "web_fetch"}, Preset: "anthropic"}
-	if eligible, reason := anthropicWebFetchTargetEligibility(valid); !eligible {
+	if eligible, reason := anthropicWebFetchTargetEligibility(valid, false); !eligible {
 		t.Fatalf("valid target rejected: %s", reason)
+	}
+	if eligible, _ := anthropicWebFetchTargetEligibility(valid, true); eligible {
+		t.Fatal("dynamic fetch accepted without its model capability")
+	}
+	valid.Capabilities = append(valid.Capabilities, "web_fetch_dynamic")
+	valid.UpstreamCapabilities = append(valid.UpstreamCapabilities, "web_fetch_dynamic")
+	if eligible, reason := anthropicWebFetchTargetEligibility(valid, true); !eligible {
+		t.Fatalf("dynamic target rejected: %s", reason)
 	}
 	for name, mutate := range map[string]func(*providers.Target){
 		"custom preset":               func(target *providers.Target) { target.Preset = "custom" },
@@ -131,7 +159,7 @@ func TestAnthropicWebFetchTargetEligibility(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			target := valid
 			mutate(&target)
-			if eligible, _ := anthropicWebFetchTargetEligibility(target); eligible {
+			if eligible, _ := anthropicWebFetchTargetEligibility(target, false); eligible {
 				t.Fatalf("ineligible target accepted: %#v", target)
 			}
 		})
@@ -142,7 +170,7 @@ func TestAnthropicWebFetchNativeAccountingAndBoundaries(t *testing.T) {
 	var calls atomic.Int64
 	var forwarded []byte
 	var malformed, overLimit atomic.Bool
-	knownBody := `{"id":"msg_fetch","type":"message","role":"assistant","model":"claude-upstream","content":[{"type":"server_tool_use","id":"srvtoolu_1","name":"web_fetch","input":{"url":"https://example.com"}},{"type":"web_fetch_tool_result","tool_use_id":"srvtoolu_1","content":{"type":"web_fetch_result","url":"https://example.com","retrieved_at":"2026-09-16T08:00:00Z","content":{"type":"document","source":{"type":"text","media_type":"text/plain","data":"page"},"title":"Example","citations":{"enabled":true}}}}],"stop_reason":"end_turn","usage":{"input_tokens":9,"output_tokens":3,"server_tool_use":{"web_fetch_requests":1,"web_search_requests":0}}}`
+	knownBody := `{"id":"msg_fetch","type":"message","role":"assistant","model":"claude-upstream","content":[{"type":"server_tool_use","id":"srvtoolu_code","name":"code_execution","input":{"code":"await web_fetch(...)"}},{"type":"server_tool_use","id":"srvtoolu_1","name":"web_fetch","input":{"url":"https://example.com"},"caller":{"type":"code_execution_20260120","tool_id":"srvtoolu_code"}},{"type":"web_fetch_tool_result","tool_use_id":"srvtoolu_1","caller":{"type":"code_execution_20260120","tool_id":"srvtoolu_code"},"content":{"type":"web_fetch_result","url":"https://example.com","retrieved_at":"2026-09-16T08:00:00Z","content":{"type":"document","source":{"type":"text","media_type":"text/plain","data":"page"},"title":"Example","citations":{"enabled":true}}}},{"type":"code_execution_tool_result","tool_use_id":"srvtoolu_code","content":{"type":"code_execution_result","stdout":"","stderr":"","return_code":0,"content":[]}}],"stop_reason":"end_turn","usage":{"input_tokens":9,"output_tokens":3,"server_tool_use":{"web_fetch_requests":1,"web_search_requests":0,"code_execution_requests":1}}}`
 	upstream := httptest.NewServer(http.HandlerFunc(func(response http.ResponseWriter, request *http.Request) {
 		calls.Add(1)
 		forwarded, _ = io.ReadAll(request.Body)
@@ -169,12 +197,12 @@ func TestAnthropicWebFetchNativeAccountingAndBoundaries(t *testing.T) {
 	}
 	mux := http.NewServeMux()
 	New(store.SystemDB(), keyService, providerService, usageService).Register(mux)
-	body := `{"model":"claude-fetch","max_tokens":64,"messages":[{"role":"user","content":"Fetch https://example.com"}],"tools":[{"type":"web_fetch_20250910","name":"web_fetch","max_uses":1,"max_content_tokens":1024,"allowed_domains":["example.com"],"citations":{"enabled":true}}]}`
+	body := `{"model":"claude-fetch","max_tokens":64,"messages":[{"role":"user","content":"Fetch https://example.com"}],"tools":[{"type":"web_fetch_20260209","name":"web_fetch","max_uses":1,"max_content_tokens":1024,"allowed_domains":["example.com"],"citations":{"enabled":true}}]}`
 	response := performAnthropicRequest(t, mux, secret, body)
 	if response.Code != http.StatusOK || calls.Load() != 1 || !strings.Contains(response.Body.String(), `"model":"claude-fetch"`) || strings.Contains(response.Body.String(), `"model":"claude-upstream"`) || !strings.Contains(response.Body.String(), `"type":"web_fetch_tool_result"`) {
 		t.Fatalf("status=%d calls=%d body=%s", response.Code, calls.Load(), response.Body.String())
 	}
-	if !bytes.Contains(forwarded, []byte(`"model":"claude-upstream"`)) || !bytes.Contains(forwarded, []byte(`"type":"web_fetch_20250910"`)) {
+	if !bytes.Contains(forwarded, []byte(`"model":"claude-upstream"`)) || !bytes.Contains(forwarded, []byte(`"type":"web_fetch_20260209"`)) {
 		t.Fatalf("forwarded body=%s", forwarded)
 	}
 	var state, usageStatus, toolStatus string
@@ -183,7 +211,7 @@ func TestAnthropicWebFetchNativeAccountingAndBoundaries(t *testing.T) {
 	if err := store.SystemDB().QueryRowContext(ctx, `SELECT state,usage_status,input_tokens,output_tokens,request_tool_count,response_tool_call_count,tool_call_status,web_search_max_calls,web_search_call_count,as_recorded_cost_nanos,estimated_tokens FROM attempts`).Scan(&state, &usageStatus, &input, &output, &requestTools, &responseTools, &toolStatus, &searchMax, &searchCalls, &cost, &estimated); err != nil {
 		t.Fatal(err)
 	}
-	if state != "succeeded" || usageStatus != "provider_reported" || input != 9 || output != 3 || requestTools != 1 || responseTools != 1 || toolStatus != "completed" || searchMax.Valid || searchCalls.Valid || !cost.Valid || cost.Int64 != 12_000 || estimated < 1024 {
+	if state != "succeeded" || usageStatus != "provider_reported" || input != 9 || output != 3 || requestTools != 1 || responseTools != 2 || toolStatus != "completed" || searchMax.Valid || searchCalls.Valid || !cost.Valid || cost.Int64 != 12_000 || estimated < 1024 {
 		t.Fatalf("accounting=%s/%s input=%d output=%d tools=%d/%d/%s search=%v/%v cost=%v estimate=%d", state, usageStatus, input, output, requestTools, responseTools, toolStatus, searchMax, searchCalls, cost, estimated)
 	}
 
@@ -335,7 +363,7 @@ func publishAnthropicWebFetchModel(t *testing.T, ctx context.Context, database *
 	if err = service.PutCredential(ctx, owner, connection.ID, "provider-secret", ""); err != nil {
 		t.Fatal(err)
 	}
-	upstream, err := service.CreateUpstreamModel(ctx, owner, connection.ID, upstreamID, []string{"chat", "web_fetch"})
+	upstream, err := service.CreateUpstreamModel(ctx, owner, connection.ID, upstreamID, []string{"chat", "web_fetch", "web_fetch_dynamic"})
 	if err != nil {
 		t.Fatal(err)
 	}

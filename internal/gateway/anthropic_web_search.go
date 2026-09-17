@@ -21,6 +21,7 @@ const iso3166Alpha2Codes = "|AD|AE|AF|AG|AI|AL|AM|AO|AQ|AR|AS|AT|AU|AW|AX|AZ|BA|
 
 type anthropicWebSearchRequest struct {
 	enabled bool
+	dynamic bool
 	maxUses int64
 }
 
@@ -50,11 +51,13 @@ func validateAnthropicWebSearch(envelope map[string]json.RawMessage) (anthropicW
 		switch kind {
 		case "custom":
 			continue
-		case "web_search_20250305":
+		case "web_search_20250305", "web_search_20260209":
 			if result.enabled {
-				return result, errors.New("at most one web_search_20250305 tool is supported")
+				return result, errors.New("at most one web_search tool is supported")
 			}
-			if err := validateAnthropicWebSearchTool(tool, &result.maxUses); err != nil {
+			var err error
+			result.dynamic, err = validateAnthropicWebSearchTool(tool, &result.maxUses, kind == "web_search_20260209")
+			if err != nil {
 				return result, err
 			}
 			result.enabled = true
@@ -73,30 +76,30 @@ func validateAnthropicWebSearch(envelope map[string]json.RawMessage) (anthropicW
 	return result, nil
 }
 
-func validateAnthropicWebSearchTool(tool map[string]json.RawMessage, maxUses *int64) error {
+func validateAnthropicWebSearchTool(tool map[string]json.RawMessage, maxUses *int64, dynamicVersion bool) (bool, error) {
 	allowed := map[string]bool{
 		"type": true, "name": true, "max_uses": true, "allowed_domains": true,
 		"blocked_domains": true, "user_location": true, "allowed_callers": true,
-		"cache_control": true,
+		"cache_control": true, "strict": true,
 	}
 	for name := range tool {
 		if !allowed[name] {
-			return fmt.Errorf("web_search.%s is not supported", name)
+			return false, fmt.Errorf("web_search.%s is not supported", name)
 		}
 	}
 	var name string
 	if json.Unmarshal(tool["name"], &name) != nil || name != "web_search" {
-		return errors.New("web_search.name must be web_search")
+		return false, errors.New("web_search.name must be web_search")
 	}
 	if err := requiredBoundedInteger(tool, "max_uses", 1, webSearchMaxCalls, maxUses); err != nil {
-		return err
+		return false, err
 	}
 	allowedRaw, allowedPresent := tool["allowed_domains"]
 	blockedRaw, blockedPresent := tool["blocked_domains"]
 	allowedPresent = allowedPresent && !bytes.Equal(bytes.TrimSpace(allowedRaw), []byte("null"))
 	blockedPresent = blockedPresent && !bytes.Equal(bytes.TrimSpace(blockedRaw), []byte("null"))
 	if allowedPresent && blockedPresent {
-		return errors.New("web_search.allowed_domains and web_search.blocked_domains cannot be combined")
+		return false, errors.New("web_search.allowed_domains and web_search.blocked_domains cannot be combined")
 	}
 	for _, field := range []string{"allowed_domains", "blocked_domains"} {
 		raw, present := tool[field]
@@ -105,24 +108,58 @@ func validateAnthropicWebSearchTool(tool map[string]json.RawMessage, maxUses *in
 		}
 		var domains []string
 		if json.Unmarshal(raw, &domains) != nil || len(domains) > webSearchDomainLimit {
-			return fmt.Errorf("web_search.%s must contain at most 100 domains", field)
+			return false, fmt.Errorf("web_search.%s must contain at most 100 domains", field)
 		}
 		for _, domain := range domains {
 			if !validAnthropicWebSearchDomain(domain) {
-				return fmt.Errorf("web_search.%s contains an invalid domain", field)
+				return false, fmt.Errorf("web_search.%s contains an invalid domain", field)
 			}
 		}
 	}
 	if err := validateAnthropicWebSearchLocation(tool["user_location"]); err != nil {
-		return err
+		return false, err
 	}
-	if raw, present := tool["allowed_callers"]; present {
-		var callers []string
-		if bytes.Equal(bytes.TrimSpace(raw), []byte("null")) || json.Unmarshal(raw, &callers) != nil || len(callers) != 1 || callers[0] != "direct" {
-			return errors.New("web_search.allowed_callers must be [\"direct\"]")
-		}
+	if err := validateAnthropicWebToolStrict(tool["strict"], "web_search"); err != nil {
+		return false, err
+	}
+	return validateAnthropicWebToolCallers(tool["allowed_callers"], "web_search", dynamicVersion)
+}
+
+func validateAnthropicWebToolStrict(raw json.RawMessage, tool string) error {
+	if len(raw) == 0 {
+		return nil
+	}
+	var strict bool
+	if bytes.Equal(bytes.TrimSpace(raw), []byte("null")) || json.Unmarshal(raw, &strict) != nil {
+		return fmt.Errorf("%s.strict must be a boolean", tool)
 	}
 	return nil
+}
+
+func validateAnthropicWebToolCallers(raw json.RawMessage, tool string, dynamicVersion bool) (bool, error) {
+	if len(raw) == 0 {
+		return dynamicVersion, nil
+	}
+	var callers []string
+	if bytes.Equal(bytes.TrimSpace(raw), []byte("null")) || json.Unmarshal(raw, &callers) != nil || len(callers) == 0 {
+		return false, fmt.Errorf("%s.allowed_callers must be a non-empty caller list", tool)
+	}
+	seen := make(map[string]bool, len(callers))
+	dynamic := false
+	for _, caller := range callers {
+		if seen[caller] {
+			return false, fmt.Errorf("%s.allowed_callers must not contain duplicates", tool)
+		}
+		seen[caller] = true
+		switch caller {
+		case "direct":
+		case "code_execution_20250825", "code_execution_20260120", "code_execution_20260521":
+			dynamic = true
+		default:
+			return false, fmt.Errorf("%s.allowed_callers contains an unsupported caller", tool)
+		}
+	}
+	return dynamic, nil
 }
 
 func validateAnthropicWebSearchLocation(raw json.RawMessage) error {
@@ -189,11 +226,14 @@ func validAnthropicWebSearchDomain(value string) bool {
 	return true
 }
 
-func anthropicWebSearchTargetEligibility(target providers.Target) (bool, string) {
+func anthropicWebSearchTargetEligibility(target providers.Target, dynamic bool) (bool, string) {
 	if !providers.NativeTarget("anthropic", target.Adapter) || target.Adapter != "anthropic" || target.Preset != "anthropic" {
 		return false, "web_search_native_required"
 	}
 	if !slices.Contains(target.Capabilities, "chat") || !slices.Contains(target.UpstreamCapabilities, "chat") || !slices.Contains(target.Capabilities, "web_search") || !slices.Contains(target.UpstreamCapabilities, "web_search") {
+		return false, "unsupported_capability"
+	}
+	if dynamic && (!slices.Contains(target.Capabilities, "web_search_dynamic") || !slices.Contains(target.UpstreamCapabilities, "web_search_dynamic")) {
 		return false, "unsupported_capability"
 	}
 	if target.RoutingStrategy == "lowest_cost" || target.FreeOnly {
@@ -202,11 +242,11 @@ func anthropicWebSearchTargetEligibility(target providers.Target) (bool, string)
 	return true, ""
 }
 
-func parseAnthropicWebSearchUsage(raw []byte, maximum int64) (*int64, bool, bool) {
-	return parseAnthropicServerToolUsage(raw, "web_search_requests", maximum)
+func parseAnthropicWebSearchUsage(raw []byte, maximum int64, dynamic bool) (*int64, bool, bool) {
+	return parseAnthropicServerToolUsage(raw, "web_search_requests", maximum, dynamic)
 }
 
-func parseAnthropicServerToolUsage(raw []byte, field string, maximum int64) (*int64, bool, bool) {
+func parseAnthropicServerToolUsage(raw []byte, field string, maximum int64, allowCodeExecution bool) (*int64, bool, bool) {
 	var response map[string]json.RawMessage
 	if json.Unmarshal(raw, &response) != nil || response == nil {
 		return nil, false, false
@@ -237,7 +277,7 @@ func parseAnthropicServerToolUsage(raw []byte, field string, maximum int64) (*in
 			continue
 		}
 		var other int64
-		if json.Unmarshal(raw, &other) != nil || other != 0 {
+		if json.Unmarshal(raw, &other) != nil || other < 0 || other != 0 && !(allowCodeExecution && name == "code_execution_requests") {
 			return nil, false, false
 		}
 	}
@@ -247,11 +287,11 @@ func parseAnthropicServerToolUsage(raw []byte, field string, maximum int64) (*in
 	return &count, true, false
 }
 
-func parseAnthropicWebSearchStream(raw []byte, maximum int64) (*int64, error) {
-	return parseAnthropicServerToolStream(raw, "web_search_requests", maximum)
+func parseAnthropicWebSearchStream(raw []byte, maximum int64, dynamic bool) (*int64, error) {
+	return parseAnthropicServerToolStream(raw, "web_search_requests", maximum, dynamic)
 }
 
-func parseAnthropicServerToolStream(raw []byte, field string, maximum int64) (*int64, error) {
+func parseAnthropicServerToolStream(raw []byte, field string, maximum int64, allowCodeExecution bool) (*int64, error) {
 	scanner := bufio.NewScanner(bytes.NewReader(raw))
 	scanner.Buffer(make([]byte, 4096), maxInferenceBody+1)
 	var data bytes.Buffer
@@ -307,7 +347,7 @@ func parseAnthropicServerToolStream(raw []byte, field string, maximum int64) (*i
 			if json.Unmarshal(object, &delta) != nil || delta.Usage.OutputTokens == nil || *delta.Usage.OutputTokens < 0 {
 				return errors.New("provider omitted terminal output token usage")
 			}
-			parsed, known, exceeded := parseAnthropicServerToolUsage(object, field, maximum)
+			parsed, known, exceeded := parseAnthropicServerToolUsage(object, field, maximum, allowCodeExecution)
 			if exceeded {
 				return errors.New("provider exceeded max_uses")
 			}
