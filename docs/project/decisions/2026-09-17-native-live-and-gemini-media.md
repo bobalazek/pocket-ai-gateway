@@ -1,0 +1,9 @@
+# 2026-09-17 — Native Live transports and Gemini media
+
+ID: ADR-053 · Status: accepted · Source: user decision with delegated protocol boundaries
+
+**Context.** The gateway already exposed OpenAI Realtime and durable provider-neutral media jobs. Current OpenAI and Gemini APIs also provide distinct bidirectional Live WebSocket protocols, OpenAI image-edit SSE, and Gemini Veo long-running video operations. Browser WebRTC session creation would hand media traffic directly to a provider, outside gateway admission and accounting. OpenAI's legacy Videos API is deprecated and scheduled to shut down on September 24, 2026.
+
+**Decision.** Add native OpenAI `/api/openai/v1/live` and Gemini `/api/gemini/v1beta/live` HTTP/1.1 WebSocket relays. Both authenticate a gateway key, read the official first setup event, resolve and rewrite its public model, apply the shared `realtime:connect` admission path, enforce 16 MiB frames and ten-minute sessions, and proxy bidirectional audio/text events. Add native GPT Image edit SSE validation and terminal usage accounting. Add Gemini Veo `predictLongRunning` create/poll support to `/api/v1/media/jobs`; cancellation is local because the reviewed Gemini contract does not expose a matching cancel operation. Keep WebRTC/SIP/session-control resources out until traffic can remain enforceable through the gateway. Do not implement the deprecated OpenAI Videos wire API; provider-neutral video jobs cover the durable product capability.
+
+**Consequences.** Live models use the existing `realtime` capability and `realtime:connect` scope. OpenAI delegated Responses usage and Gemini cumulative token metadata settle when present; otherwise a successful Live session records unknown usage rather than inventing cost. Tests use deterministic WebSocket and long-running-operation fixtures. Paid provider certification remains separate evidence.

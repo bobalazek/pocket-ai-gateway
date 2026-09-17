@@ -10,7 +10,7 @@ Provider credentials, users, application keys, limits, routing rules, usage, and
 
 - **Native client contracts:** separate OpenAI, Anthropic, and Gemini API namespaces with compatible requests, responses, errors, and streams.
 - **Provider routing:** fixed, fallback, weighted, lowest-cost, and observed-latency strategies behind stable public model names.
-- **Media and realtime:** streamed speech, an authenticated OpenAI Realtime WebSocket proxy, and durable provider-neutral media jobs for Replicate, Together video, and custom adapters.
+- **Media and realtime:** streamed speech and image edits, authenticated OpenAI Realtime/OpenAI Live/Gemini Live WebSocket proxies, and durable provider-neutral media jobs for Replicate, Together video, Gemini Veo, and custom adapters.
 - **Custom adapters:** administrator-managed JavaScript request and response transforms run inside the embedded Go process with time, stack, source, input, and output limits and no host filesystem, process, module, timer, or network access.
 - **Access control:** multiple administrators and members, scoped application keys, model and provider grants, expiration, rotation, and revocation.
 - **Usage controls:** normalized token/cache usage, versioned cache-aware pricing, recurring UTC price windows, and request, concurrency, payload, batch, quota, and spend policies at the instance, user, key, and connection levels.
@@ -124,7 +124,7 @@ The embedded dashboard provides:
 | Routing | Target order, weights, fallback, cost routing, latency routing, and free-only policies |
 | Limits | Request, token, spend, concurrency, quota, payload, output, and batch controls |
 | Activity | Requests, attempts, tool-call metadata, accounting status, and audit history |
-| Media jobs | Replicate, Together video, and custom asynchronous generation state and cancellation |
+| Media jobs | Replicate, Together video, Gemini Veo, and custom asynchronous generation state and cancellation |
 | Maintenance | Configuration export/import, encrypted local or S3-compatible backups, restore, retention, and diagnostics |
 
 Ordinary prompt and response content is not captured in request logs. Conversation and stored Response content is retained only when the client explicitly uses those API features.

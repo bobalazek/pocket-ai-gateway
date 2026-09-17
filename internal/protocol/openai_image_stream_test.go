@@ -33,6 +33,19 @@ func TestCopyOpenAIImageGenerationStreamAcceptsCompletedOnly(t *testing.T) {
 	}
 }
 
+func TestCopyOpenAIImageEditStream(t *testing.T) {
+	source := imageStreamEvent("image_edit.partial_image", `{"type":"image_edit.partial_image","b64_json":"cGFydGlhbA==","background":"auto","created_at":1,"output_format":"png","partial_image_index":0,"quality":"high","size":"1024x1024"}`) +
+		imageStreamEvent("image_edit.completed", `{"type":"image_edit.completed","b64_json":"ZmluYWw=","background":"opaque","created_at":2,"output_format":"webp","quality":"medium","size":"1024x1024","usage":{"input_tokens":3,"input_tokens_details":{"image_tokens":1,"text_tokens":2},"output_tokens":4,"total_tokens":7}}`)
+	var output bytes.Buffer
+	usage, err := CopyOpenAIImageEditStream(&output, strings.NewReader(source), 1)
+	if err != nil || output.String() != source || string(usage) != `{"usage":{"input_tokens":3,"input_tokens_details":{"image_tokens":1,"text_tokens":2},"output_tokens":4,"total_tokens":7}}` {
+		t.Fatalf("output=%q usage=%s err=%v", output.String(), usage, err)
+	}
+	if _, err = CopyOpenAIImageEditStream(&bytes.Buffer{}, strings.NewReader(strings.ReplaceAll(source, "image_edit", "image_generation")), 1); !errors.Is(err, ErrInvalidOpenAIImageStream) {
+		t.Fatalf("generation events accepted by edit stream: %v", err)
+	}
+}
+
 func TestCopyOpenAIImageGenerationStreamRejectsInvalidContract(t *testing.T) {
 	partial := `{"type":"image_generation.partial_image","b64_json":"cGFydGlhbA==","background":"auto","created_at":1,"output_format":"png","partial_image_index":0,"quality":"high","size":"1024x1024"}`
 	completed := `{"type":"image_generation.completed","b64_json":"ZmluYWw=","background":"opaque","created_at":2,"output_format":"webp","quality":"medium","size":"1024x1024","usage":{"input_tokens":3,"input_tokens_details":{"image_tokens":1,"text_tokens":2},"output_tokens":4,"total_tokens":7}}`

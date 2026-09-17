@@ -140,7 +140,7 @@ func splitReplicateModel(value string) (string, string, bool) {
 }
 
 func safeSegment(value string) bool {
-	if value == "" || len(value) > 200 {
+	if value == "" || value == "." || value == ".." || len(value) > 200 {
 		return false
 	}
 	for _, character := range value {

@@ -130,6 +130,8 @@ func (service *Service) submit(ctx context.Context, job workerJob) {
 	var prediction providerPrediction
 	if job.Provider == "together" {
 		prediction, err = createTogetherVideo(ctx, target, job.input)
+	} else if job.Provider == "gemini" {
+		prediction, err = createGeminiVideo(ctx, target, job.input)
 	} else if job.Provider == "custom" {
 		prediction, err = createCustomMediaJob(ctx, target, job.input)
 	} else {
@@ -144,7 +146,7 @@ func (service *Service) submit(ctx context.Context, job workerJob) {
 }
 
 func (service *Service) poll(ctx context.Context, job workerJob) {
-	if job.Provider == "together" && job.CancelRequested {
+	if (job.Provider == "together" || job.Provider == "gemini") && job.CancelRequested {
 		service.completeLocalCancel(ctx, job.ID)
 		return
 	}
@@ -161,6 +163,8 @@ func (service *Service) poll(ctx context.Context, job workerJob) {
 	var prediction providerPrediction
 	if job.Provider == "together" {
 		prediction, err = getTogetherVideo(ctx, target, job.ProviderJobID)
+	} else if job.Provider == "gemini" {
+		prediction, err = getGeminiVideo(ctx, target, job.ProviderJobID)
 	} else if job.Provider == "custom" && (job.CancelRequested || job.State == "canceling") {
 		prediction, err = cancelCustomMediaJob(ctx, target, job.ProviderJobID)
 	} else if job.Provider == "custom" {

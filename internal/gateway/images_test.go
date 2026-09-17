@@ -82,7 +82,7 @@ func TestOpenAIImageEditPreservesMultipartAndEnforcement(t *testing.T) {
 	if err = store.SystemDB().QueryRowContext(ctx, "SELECT usage_status,input_tokens,output_tokens FROM attempts WHERE state='succeeded'").Scan(&accounting, &inputTokens, &outputTokens); err != nil || accounting != "provider_reported" || inputTokens != 3 || outputTokens != 2 {
 		t.Fatalf("accounting=%q input=%d output=%d err=%v", accounting, inputTokens, outputTokens, err)
 	}
-	streamBody, streamType := imageForm(t, map[string]string{"model": publicModel.ID, "prompt": "Add a hat", "stream": "true"}, []imageUpload{{"image", "source.png", makePNG(t, 2, 2)}})
+	streamBody, streamType := imageForm(t, map[string]string{"model": publicModel.ID, "prompt": "Add a hat", "stream": "true", "n": "2"}, []imageUpload{{"image", "source.png", makePNG(t, 2, 2)}})
 	if status, _, _ = postImage(t, server.URL, "images/edits", secret, streamBody, streamType); status != http.StatusBadRequest || primaryCalls != 1 {
 		t.Fatalf("stream status=%d calls=%d", status, primaryCalls)
 	}
@@ -123,6 +123,57 @@ func TestOpenAIImageEditPreservesMultipartAndEnforcement(t *testing.T) {
 	}
 	if status, _, _ = postImage(t, server.URL, "images/edits", secret, body, contentType); status != http.StatusTooManyRequests || primaryCalls != 2 {
 		t.Fatalf("token-policy status=%d calls=%d", status, primaryCalls)
+	}
+}
+
+func TestOpenAIImageEditStreaming(t *testing.T) {
+	upstream := httptest.NewServer(http.HandlerFunc(func(response http.ResponseWriter, request *http.Request) {
+		if request.URL.Path != "/v1/images/edits" || request.ParseMultipartForm(maxImageMultipartBody) != nil || request.FormValue("model") != "gpt-image-1" || request.FormValue("stream") != "true" || request.FormValue("partial_images") != "1" {
+			t.Errorf("invalid upstream image-edit request")
+		}
+		response.Header().Set("Content-Type", "text/event-stream")
+		_, _ = io.WriteString(response, "event: image_edit.partial_image\ndata: {\"type\":\"image_edit.partial_image\",\"b64_json\":\"eA==\",\"background\":\"auto\",\"created_at\":1,\"output_format\":\"png\",\"partial_image_index\":0,\"quality\":\"high\",\"size\":\"1024x1024\"}\n\n")
+		_, _ = io.WriteString(response, "event: image_edit.completed\ndata: {\"type\":\"image_edit.completed\",\"b64_json\":\"eA==\",\"background\":\"auto\",\"created_at\":1,\"output_format\":\"png\",\"quality\":\"high\",\"size\":\"1024x1024\",\"usage\":{\"input_tokens\":3,\"input_tokens_details\":{\"image_tokens\":1,\"text_tokens\":2},\"output_tokens\":4,\"total_tokens\":7}}\n\n")
+	}))
+	defer upstream.Close()
+
+	ctx, store, owner, keyService, providerService, usageService := gatewayFixture(t)
+	defer store.Close()
+	connection, err := providerService.CreateConnection(ctx, owner, providers.ConnectionInput{Name: "OpenAI", Preset: "openai", Enabled: true, TimeoutMS: 5000})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err = store.SystemDB().ExecContext(ctx, "UPDATE provider_connections SET base_url=?,allow_private_network=1 WHERE id=?", upstream.URL+"/v1", connection.ID); err != nil {
+		t.Fatal(err)
+	}
+	if err = providerService.PutCredential(ctx, owner, connection.ID, "provider-secret", ""); err != nil {
+		t.Fatal(err)
+	}
+	upstreamModel, err := providerService.CreateUpstreamModel(ctx, owner, connection.ID, "gpt-image-1", []string{"image_edit"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	model, err := providerService.CreatePublicModel(ctx, owner, "assistant", "Assistant", "", upstreamModel.ID, []string{"image_edit"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, secret, err := keyService.Create(ctx, owner.ID, keys.Input{Label: "Streaming edits", Scopes: []string{"images:edit"}, ModelPatterns: []string{model.ID}, ConnectionIDs: []string{connection.ID}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	mux := http.NewServeMux()
+	New(store.SystemDB(), keyService, providerService, usageService).Register(mux)
+	proxy := httptest.NewServer(mux)
+	defer proxy.Close()
+	body, contentType := imageForm(t, map[string]string{"model": model.ID, "prompt": "Add a hat", "stream": "true", "partial_images": "1"}, []imageUpload{{"image", "source.png", makePNG(t, 2, 2)}})
+	status, responseType, responseBody := postImage(t, proxy.URL, "images/edits", secret, body, contentType)
+	if status != http.StatusOK || responseType != "text/event-stream" || !bytes.Contains(responseBody, []byte("image_edit.completed")) {
+		t.Fatalf("status=%d type=%q body=%s", status, responseType, responseBody)
+	}
+	var state, accounting string
+	var inputTokens, outputTokens int64
+	if err = store.SystemDB().QueryRowContext(ctx, "SELECT state,usage_status,input_tokens,output_tokens FROM attempts").Scan(&state, &accounting, &inputTokens, &outputTokens); err != nil || state != "succeeded" || accounting != "provider_reported" || inputTokens != 3 || outputTokens != 4 {
+		t.Fatalf("attempt=%s/%s usage=%d/%d err=%v", state, accounting, inputTokens, outputTokens, err)
 	}
 }
 
@@ -251,13 +302,13 @@ func TestValidateImageMultipartRejectsInvalidForms(t *testing.T) {
 			}
 		})
 	}
-	validBody, validType := imageForm(t, map[string]string{"model": "image", "prompt": "combine", "n": "null", "output_compression": "null"}, []imageUpload{{"image[]", "first.png", pngBody}, {"image[]", "second.png", pngBody}, {"mask", "mask.png", pngBody}})
-	if model, n, err := validateImageMultipart(validBody, validType, false); err != nil || model != "image" || n != 1 {
-		t.Fatalf("valid multi-image edit: model=%q n=%d err=%v", model, n, err)
+	validBody, validType := imageForm(t, map[string]string{"model": "image", "prompt": "combine", "n": "null", "output_compression": "null", "stream": "null", "partial_images": "null"}, []imageUpload{{"image[]", "first.png", pngBody}, {"image[]", "second.png", pngBody}, {"mask", "mask.png", pngBody}})
+	if input, err := validateImageMultipart(validBody, validType, false); err != nil || input.model != "image" || input.n != 1 {
+		t.Fatalf("valid multi-image edit: input=%+v err=%v", input, err)
 	}
 	variationBody, variationType := imageForm(t, map[string]string{"model": "image", "n": "null", "response_format": "null", "size": "null"}, []imageUpload{{"image", "source.png", pngBody}})
-	if model, n, err := validateImageMultipart(variationBody, variationType, true); err != nil || model != "image" || n != 1 {
-		t.Fatalf("valid nullable variation: model=%q n=%d err=%v", model, n, err)
+	if input, err := validateImageMultipart(variationBody, variationType, true); err != nil || input.model != "image" || input.n != 1 {
+		t.Fatalf("valid nullable variation: input=%+v err=%v", input, err)
 	}
 	for name, test := range map[string]struct {
 		fields    map[string]string
@@ -275,7 +326,7 @@ func TestValidateImageMultipartRejectsInvalidForms(t *testing.T) {
 	} {
 		t.Run(name, func(t *testing.T) {
 			body, contentType := imageForm(t, test.fields, test.uploads)
-			if _, _, err := validateImageMultipart(body, contentType, test.variation); err == nil {
+			if _, err := validateImageMultipart(body, contentType, test.variation); err == nil {
 				t.Fatal("invalid form was accepted")
 			}
 		})

@@ -178,12 +178,15 @@ func (handler *Handler) forwardAuthorized(response http.ResponseWriter, request 
 			return
 		}
 	}
-	imageGenerationInput := imageGenerationRequest{}
+	imageStreamInput := imageGenerationRequest{}
 	if upstreamPath == "images/generations" {
-		if imageGenerationInput, err = validateImageGeneration(envelope); err != nil {
+		if imageStreamInput, err = validateImageGeneration(envelope); err != nil {
 			handler.writeError(response, dialect, http.StatusBadRequest, "invalid_request", err.Error())
 			return
 		}
+	} else if upstreamPath == "images/edits" {
+		_ = json.Unmarshal(envelope["stream"], &imageStreamInput.stream)
+		_ = json.Unmarshal(envelope["partial_images"], &imageStreamInput.partialImages)
 	}
 	speechStream := false
 	if upstreamPath == "audio/speech" {
@@ -214,7 +217,7 @@ func (handler *Handler) forwardAuthorized(response http.ResponseWriter, request 
 		stream = speechStream
 	}
 	if upstreamPath == "images/generations" {
-		stream = imageGenerationInput.stream
+		stream = imageStreamInput.stream
 	}
 	if streamOverride != nil {
 		stream = *streamOverride
@@ -362,7 +365,7 @@ func (handler *Handler) forwardAuthorized(response http.ResponseWriter, request 
 				return false, "cache_price_contract_unavailable"
 			}
 		}
-		if eligible, reason := providers.StaticTargetEligibility(target, providers.StaticEligibilityInput{Dialect: dialect, Capability: requiredCapability, Operation: clientOperation, Streaming: stream, OpaqueMedia: opaqueMedia, ImageStreaming: imageGenerationInput.stream}); !eligible {
+		if eligible, reason := providers.StaticTargetEligibility(target, providers.StaticEligibilityInput{Dialect: dialect, Capability: requiredCapability, Operation: clientOperation, Streaming: stream, OpaqueMedia: opaqueMedia, ImageStreaming: imageStreamInput.stream}); !eligible {
 			return false, reason
 		}
 		if !native {
@@ -480,7 +483,7 @@ func (handler *Handler) forwardAuthorized(response http.ResponseWriter, request 
 			result, raw, copyErr = handler.dispatchResponseFileSearch(attemptWriter, request, target, targetBody, publicID, principal.KeyID, fileSearch, releaseDispatch)
 			semanticResponseError = copyErr != nil
 		} else if native {
-			result, raw, copyErr = handler.dispatch(attemptWriter, request, target, targetPath, targetBody, stream, dialect, publicID, (anthropicWebSearch.enabled || anthropicWebFetch.enabled) && stream, int(imageGenerationInput.partialImages), releaseDispatch)
+			result, raw, copyErr = handler.dispatch(attemptWriter, request, target, targetPath, targetBody, stream, dialect, publicID, (anthropicWebSearch.enabled || anthropicWebFetch.enabled) && stream, int(imageStreamInput.partialImages), releaseDispatch)
 			semanticResponseError = errors.Is(copyErr, errAnthropicStreamInvalid) || errors.Is(copyErr, protocol.ErrInvalidOpenAICompletion) || errors.Is(copyErr, protocol.ErrInvalidOpenAIImageStream)
 		} else {
 			result, raw, copyErr = handler.dispatchTranslated(attemptWriter, request, target, targetPath, targetBody, dialect, publicID, stream, releaseDispatch)

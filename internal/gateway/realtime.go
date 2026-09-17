@@ -74,6 +74,15 @@ func (capture *realtimeUsage) observe(message realtimeMessage) {
 			capture.output += *parsed.outputTokens
 			capture.known = true
 		}
+	case "response.event":
+		if nested, err := json.Marshal(envelope["event"]); err == nil {
+			parsed := parseUsageDetails("openai", nested)
+			if parsed.inputTokens != nil && parsed.outputTokens != nil {
+				capture.input += *parsed.inputTokens
+				capture.output += *parsed.outputTokens
+				capture.known = true
+			}
+		}
 	case "session.closed":
 		capture.terminal = true
 	case "error":
@@ -244,7 +253,13 @@ func relayRealtime(source, destination *websocket.Conn, observe func(realtimeMes
 }
 
 func dialRealtime(ctx context.Context, target providers.Target) (*websocket.Conn, error) {
-	endpoint, err := joinURL(target.BaseURL, "realtime")
+	query := make(url.Values)
+	query.Set("model", target.UpstreamID)
+	return dialProviderWebSocket(ctx, target, "realtime", query)
+}
+
+func dialProviderWebSocket(ctx context.Context, target providers.Target, path string, query url.Values) (*websocket.Conn, error) {
+	endpoint, err := joinURL(target.BaseURL, path)
 	if err != nil {
 		return nil, err
 	}
@@ -260,9 +275,13 @@ func dialRealtime(ctx context.Context, target providers.Target) (*websocket.Conn
 	default:
 		return nil, errors.New("provider WebSocket URL is invalid")
 	}
-	query := parsed.Query()
-	query.Set("model", target.UpstreamID)
-	parsed.RawQuery = query.Encode()
+	if len(query) > 0 {
+		parsed.RawQuery = query.Encode()
+	}
+	return dialWebSocketURL(ctx, target, parsed, http.Header{"Authorization": []string{"Bearer " + target.Credential}})
+}
+
+func dialWebSocketURL(ctx context.Context, target providers.Target, parsed *url.URL, header http.Header) (*websocket.Conn, error) {
 	originScheme := "http"
 	if parsed.Scheme == "wss" {
 		originScheme = "https"
@@ -271,7 +290,7 @@ func dialRealtime(ctx context.Context, target providers.Target) (*websocket.Conn
 	if err != nil {
 		return nil, err
 	}
-	config.Header.Set("Authorization", "Bearer "+target.Credential)
+	config.Header = header.Clone()
 	dialContext, cancel := context.WithTimeout(ctx, time.Duration(target.TimeoutMS)*time.Millisecond)
 	defer cancel()
 	connection, err := dialWebSocketTransport(dialContext, parsed, target.AllowPrivateNetwork)

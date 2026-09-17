@@ -136,7 +136,7 @@ func (handler *Handler) dispatch(response http.ResponseWriter, request *http.Req
 		_, err = response.Write(raw)
 		return adapterResponse.Status, raw, err
 	}
-	if relative == "images/generations" {
+	if relative == "images/generations" || relative == "images/edits" {
 		mediaType, _, parseErr := mime.ParseMediaType(contentType)
 		if parseErr != nil || mediaType != "text/event-stream" {
 			handler.writeError(response, dialect, http.StatusBadGateway, "upstream_error", "Provider returned an invalid image stream")
@@ -164,6 +164,8 @@ func (handler *Handler) dispatch(response http.ResponseWriter, request *http.Req
 	var raw []byte
 	if relative == "images/generations" {
 		raw, err = protocol.CopyOpenAIImageGenerationStream(flushWriter{writer: response, flusher: flusher}, result.Body, imageStreamPartialImages)
+	} else if relative == "images/edits" {
+		raw, err = protocol.CopyOpenAIImageEditStream(flushWriter{writer: response, flusher: flusher}, result.Body, imageStreamPartialImages)
 	} else if relative == "completions" {
 		err = protocol.CopyOpenAICompletionStream(io.MultiWriter(flushWriter{writer: response, flusher: flusher}, captureWriter), result.Body, publicModel)
 	} else if dialect == "anthropic" {
@@ -183,7 +185,7 @@ func (handler *Handler) dispatch(response http.ResponseWriter, request *http.Req
 			}
 		}
 	}
-	if relative != "images/generations" {
+	if relative != "images/generations" && relative != "images/edits" {
 		raw = capture.Bytes()
 	}
 	if tail != nil {

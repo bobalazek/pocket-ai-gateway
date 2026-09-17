@@ -1,5 +1,5 @@
 openapi: 3.1.0
-info: { title: Pocket AI Gateway OpenAI-Compatible API, version: 0.11.0 }
+info: { title: Pocket AI Gateway OpenAI-Compatible API, version: 0.12.0 }
 servers: [{ url: /api/openai/v1 }]
 security: [{ bearerAuth: [] }]
 paths:
@@ -187,7 +187,7 @@ paths:
   /images/edits:
     post:
       operationId: editImage
-      description: Edits 1-16 valid PNG, JPEG, or WebP uploads through a native GPT Image target. Each image must be under 50 MB, an optional same-size PNG mask under 4 MB, the aggregate multipart body is limited to 64 MiB, and the response to 16 MiB. An explicit public model, prompt, and images:edit scope are required. Provider fields pass through and only the model is rewritten. DALL-E 2's separate edit contract, streaming, post-dispatch fallback, lowest-cost/free-only routing, and operation under active token/output/spend policies are not supported.
+      description: Edits 1-16 valid PNG, JPEG, or WebP uploads through a native GPT Image target. Each image must be under 50 MB, an optional same-size PNG mask under 4 MB, and the aggregate multipart body is limited to 64 MiB. An explicit public model, prompt, and images:edit scope are required. Provider fields pass through and only the model is rewritten. Named SSE requires n=1 and 0-3 partial images; every event is limited to 16 MiB and a completed event with provider usage is required. DALL-E 2's separate edit contract, post-dispatch fallback, lowest-cost/free-only routing, and operation under active token/output/spend policies are not supported.
       requestBody:
         required: true
         content:
@@ -202,9 +202,17 @@ paths:
                 prompt: { type: string, minLength: 1, maxLength: 32000 }
                 n: { oneOf: [{ type: integer, minimum: 1, maximum: 10 }, { type: "null" }] }
                 output_compression: { oneOf: [{ type: integer, minimum: 0, maximum: 100 }, { type: "null" }] }
-                stream: { oneOf: [{ const: false }, { type: "null" }] }
+                stream: { oneOf: [{ type: boolean }, { type: "null" }] }
+                partial_images: { oneOf: [{ type: integer, minimum: 0, maximum: 3 }, { type: "null" }] }
               additionalProperties: true
-      responses: { "200": { description: Native OpenAI images response }, "404": { description: No capable native target }, default: { description: OpenAI-compatible error } }
+      responses:
+        "200":
+          description: Native OpenAI images response or named image-edit SSE stream
+          content:
+            application/json: { schema: { type: object, additionalProperties: true } }
+            text/event-stream: { schema: { type: string } }
+        "404": { description: No capable native target }
+        default: { description: OpenAI-compatible error }
   /images/variations:
     post:
       operationId: createImageVariation
@@ -271,6 +279,29 @@ paths:
                 temperature: { type: number, minimum: 0, maximum: 1 }
               additionalProperties: true
       responses: { "200": { description: Native translation response }, "404": { description: No capable native target }, default: { description: OpenAI-compatible error } }
+  /realtime:
+    get:
+      operationId: connectRealtime
+      description: Upgrades HTTP/1.1 to a native OpenAI Realtime WebSocket after model routing and admission. Frames are limited to 16 MiB and the session to ten minutes.
+      parameters: [{ name: model, in: query, required: true, schema: { type: string } }]
+      responses:
+        "101": { description: WebSocket protocol switch }
+        "400": { description: Missing upgrade or model }
+        "401": { description: Invalid or missing inference key }
+        "404": { description: No capable native target }
+        "503": { description: Admission, pricing, or provider configuration unavailable }
+        default: { description: OpenAI-compatible error }
+  /live:
+    get:
+      operationId: connectLive
+      description: Upgrades HTTP/1.1 to an OpenAI primary Live WebSocket. The first client event must be session.start with a public session.model; the gateway rewrites it before relaying bidirectional audio, text, and delegation events. Frames are limited to 16 MiB and the session to ten minutes. WebRTC session creation, SIP, and stored-session controls are not exposed.
+      responses:
+        "101": { description: WebSocket protocol switch; session.start is the first application event }
+        "400": { description: Missing WebSocket upgrade }
+        "401": { description: Invalid or missing inference key }
+        "404": { description: No capable native target }
+        "503": { description: Admission, pricing, or provider configuration unavailable }
+        default: { description: OpenAI-compatible error before upgrade, or a Live error event after upgrade }
   /responses/{response_id}:
     parameters: [{ name: response_id, in: path, required: true, schema: { type: string } }]
     get:

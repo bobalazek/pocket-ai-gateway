@@ -1,8 +1,19 @@
 openapi: 3.1.0
-info: { title: Pocket AI Gateway Gemini-Compatible API, version: 0.5.0 }
+info: { title: Pocket AI Gateway Gemini-Compatible API, version: 0.6.0 }
 servers: [{ url: /api/gemini/v1beta }]
 security: [{ apiKey: [] }]
 paths:
+  /live:
+    get:
+      operationId: connectGeminiLive
+      description: Upgrades HTTP/1.1 to a native Gemini BidiGenerateContent WebSocket. The first message must contain setup.model as models/{public_model}; the gateway resolves and rewrites it before relaying bidirectional audio, video, text, tool, and resumption messages. Frames are limited to 16 MiB and the session to ten minutes.
+      responses:
+        "101": { description: WebSocket protocol switch; setup is the first application message }
+        "400": { description: Missing WebSocket upgrade }
+        "401": { description: Invalid or missing inference key }
+        "404": { description: No capable native target }
+        "503": { description: Admission, pricing, or provider configuration unavailable }
+        default: { description: Gemini-compatible error before upgrade, or an error message after upgrade }
   /interactions:
     post:
       operationId: createGeminiInteraction

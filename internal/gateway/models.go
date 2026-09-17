@@ -101,7 +101,7 @@ func modelVisibleInDialect(dialect string, model providers.PublicModel, target p
 		return false
 	}
 	operations := map[string][]struct{ scope, operation string }{
-		"openai":    {{"completions:generate", "completions"}, {"embeddings:generate", "embeddings"}, {"moderations:classify", "moderations"}, {"tokens:count", "responses/input_tokens"}, {"images:generate", "images/generations"}, {"images:edit", "images/edits"}, {"images:variation", "images/variations"}, {"audio:speech", "audio/speech"}, {"audio:transcribe", "audio/transcriptions"}, {"audio:translate", "audio/translations"}, {"realtime:connect", "realtime"}},
+		"openai":    {{"completions:generate", "completions"}, {"embeddings:generate", "embeddings"}, {"moderations:classify", "moderations"}, {"tokens:count", "responses/input_tokens"}, {"images:generate", "images/generations"}, {"images:edit", "images/edits"}, {"images:variation", "images/variations"}, {"audio:speech", "audio/speech"}, {"audio:transcribe", "audio/transcriptions"}, {"audio:translate", "audio/translations"}, {"realtime:connect", "realtime"}, {"realtime:connect", "live"}},
 		"anthropic": {{"tokens:count", "messages/count_tokens"}},
 		"gemini":    {{"embeddings:generate", "embedContent"}, {"tokens:count", "countTokens"}, {"interactions:generate", "interactions"}},
 	}[dialect]
@@ -202,6 +202,8 @@ func geminiMethods(capabilities []string) []string {
 			out = append(out, "embedContent")
 		case "interactions":
 			out = append(out, "interactions")
+		case "realtime":
+			out = append(out, "BidiGenerateContent")
 		}
 	}
 	return out

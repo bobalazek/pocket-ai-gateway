@@ -18,7 +18,7 @@ flowchart LR
     Beta --> P7[7 Operations and release]
     P7 --> Stable[v0.1 stable]
     Stable --> P8[8 Provider expansion and updates]
-    P8 --> P9[9 Realtime and extensible media]
+    P8 --> P9[9 Realtime, Live, and extensible media]
 ~~~
 
 Effort bands are relative implementation sizes, not calendar promises: S is a bounded feature, M spans a few related behaviors, L is a substantial integration, XL must be split further before execution. Confidence reflects known contract risk, not whether work is complete.
@@ -33,7 +33,7 @@ Effort bands are relative implementation sizes, not calendar promises: S is a bo
 | 6 | Provider presets, catalog, all routing strategies | Route preview, strategy controls, catalog/price refresh | L / medium | Provider certification evidence |
 | 7 | Local SQLite authority, local/S3 recovery, Docker/binaries, security | Settings, backups, audit, recovery guidance | XL / medium | Signing/release setup and security contact |
 | 8 | Broader providers, remaining API parity, optional safe self-update | New presets and explicit update flow | XL / low until probes | Cloud accounts/auth flows and platform evidence |
-| 9 | Realtime transport, persistent media jobs, Replicate/Together drivers, trusted JavaScript transforms | Media-job operations and custom-adapter editor | L / medium | Optional live provider credentials |
+| 9 | Realtime/Live transports, image-edit SSE, persistent media jobs, Replicate/Together/Gemini drivers, trusted JavaScript transforms | Media-job operations and custom-adapter editor | L / medium | Optional live provider credentials |
 
 ## Phase specifications
 

@@ -21,9 +21,9 @@ type Preset struct {
 }
 
 var presets = []Preset{
-	{ID: "openai", Label: "OpenAI", Adapter: "openai", BaseURL: "https://api.openai.com/v1", CredentialRequired: true, Operations: []string{"chat/completions", "completions", "responses", "responses/compact", "responses/input_tokens", "embeddings", "moderations", "images/generations", "images/edits", "images/variations", "audio/speech", "audio/transcriptions", "audio/translations", "realtime"}, DocumentationURL: "https://developers.openai.com/api/reference/overview", ReviewedAt: "2026-09-17"},
+	{ID: "openai", Label: "OpenAI", Adapter: "openai", BaseURL: "https://api.openai.com/v1", CredentialRequired: true, Operations: []string{"chat/completions", "completions", "responses", "responses/compact", "responses/input_tokens", "embeddings", "moderations", "images/generations", "images/edits", "images/variations", "audio/speech", "audio/transcriptions", "audio/translations", "realtime", "live"}, DocumentationURL: "https://developers.openai.com/api/reference/overview", ReviewedAt: "2026-09-17"},
 	{ID: "anthropic", Label: "Anthropic", Adapter: "anthropic", BaseURL: "https://api.anthropic.com/v1", CredentialRequired: true, Operations: []string{"messages", "messages/count_tokens"}, DocumentationURL: "https://platform.claude.com/docs/en/api/overview", ReviewedAt: "2026-09-15"},
-	{ID: "gemini", Label: "Google Gemini", Adapter: "gemini", BaseURL: "https://generativelanguage.googleapis.com/v1beta", CredentialRequired: true, Operations: []string{"generateContent", "streamGenerateContent", "countTokens", "embedContent", "batchEmbedContents", "interactions"}, DocumentationURL: "https://ai.google.dev/api", ReviewedAt: "2026-09-16"},
+	{ID: "gemini", Label: "Google Gemini", Adapter: "gemini", BaseURL: "https://generativelanguage.googleapis.com/v1beta", CredentialRequired: true, Operations: []string{"generateContent", "streamGenerateContent", "countTokens", "embedContent", "batchEmbedContents", "interactions", "BidiGenerateContent", "predictLongRunning"}, DocumentationURL: "https://ai.google.dev/api", ReviewedAt: "2026-09-17"},
 	{ID: "openrouter", Label: "OpenRouter", Adapter: "openai_compatible", BaseURL: "https://openrouter.ai/api/v1", CredentialRequired: true, Operations: []string{"chat/completions", "responses", "embeddings", "audio/speech"}, DocumentationURL: "https://openrouter.ai/docs/api/reference/overview", ReviewedAt: "2026-09-16"},
 	{ID: "zai", Label: "Z.AI", Adapter: "openai_compatible", BaseURL: "https://api.z.ai/api/paas/v4", CredentialRequired: true, Operations: []string{"chat/completions", "images/generations"}, DocumentationURL: "https://docs.z.ai/api-reference/introduction", ReviewedAt: "2026-09-16"},
 	{ID: "minimax", Label: "MiniMax", Adapter: "openai_compatible", BaseURL: "https://api.minimax.io/v1", CredentialRequired: true, Operations: []string{"chat/completions", "responses", "responses/input_tokens"}, DocumentationURL: "https://platform.minimax.io/docs/api-reference/text-openai-api", ReviewedAt: "2026-09-16"},
@@ -121,13 +121,13 @@ func PresetSupportsCapabilities(presetID string, capabilities []string) bool {
 			return false
 		}
 		if capability == "media_jobs" {
-			if presetID == "replicate" || presetID == "together" || presetID == "custom" {
+			if presetID == "replicate" || presetID == "together" || presetID == "gemini" || presetID == "custom" {
 				continue
 			}
 			return false
 		}
 		supported := false
-		for _, operation := range []string{"chat/completions", "completions", "messages", "generateContent", "responses", "responses/compact", "responses/input_tokens", "embeddings", "embedContent", "batchEmbedContents", "moderations", "images/generations", "images/edits", "images/variations", "audio/speech", "audio/transcriptions", "audio/translations", "messages/count_tokens", "countTokens", "interactions", "realtime", "predictions", "videos"} {
+		for _, operation := range []string{"chat/completions", "completions", "messages", "generateContent", "responses", "responses/compact", "responses/input_tokens", "embeddings", "embedContent", "batchEmbedContents", "moderations", "images/generations", "images/edits", "images/variations", "audio/speech", "audio/transcriptions", "audio/translations", "messages/count_tokens", "countTokens", "interactions", "realtime", "live", "BidiGenerateContent", "predictions", "videos", "predictLongRunning"} {
 			if operationCapability(operation) == capability && PresetSupports(presetID, operation) {
 				supported = true
 				break
@@ -194,9 +194,9 @@ func operationCapability(operation string) string {
 		return "count_tokens"
 	case "interactions":
 		return "interactions"
-	case "realtime":
+	case "realtime", "live", "BidiGenerateContent":
 		return "realtime"
-	case "predictions", "videos":
+	case "predictions", "videos", "predictLongRunning":
 		return "media_jobs"
 	default:
 		return ""

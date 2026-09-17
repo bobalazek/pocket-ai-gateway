@@ -100,7 +100,7 @@ func (service *Service) Create(ctx context.Context, principal keys.Principal, in
 	if !mediaTargetSupported(target) || !principal.Allows(Scope, input.Model, target.TargetConnectionID) || !providers.PresetSupportsModelCapabilities(target.Preset, target.UpstreamID, []string{"media_jobs"}) {
 		return Job{}, ErrDenied
 	}
-	if target.Preset == "together" && input.MediaType != "video" {
+	if (target.Preset == "together" || target.Preset == "gemini") && input.MediaType != "video" {
 		return Job{}, ErrInvalid
 	}
 	token, err := credentials.RandomToken(18)
@@ -120,6 +120,8 @@ func (service *Service) Create(ctx context.Context, principal keys.Principal, in
 	targetOperation := "predictions"
 	if target.Preset == "together" {
 		targetOperation = "videos"
+	} else if target.Preset == "gemini" {
+		targetOperation = "predictLongRunning"
 	}
 	admission, err := service.usage.Admit(ctx, usage.AdmissionInput{KeyID: principal.KeyID, ConnectionID: target.TargetConnectionID, ModelID: input.Model, UpstreamModelRecordID: target.TargetModelID, UpstreamModelID: target.UpstreamID, ConnectionRevision: target.ConnectionRevision, ModelRevision: target.Revision, Operation: "media/jobs", TargetOperation: targetOperation, Scope: Scope, Dialect: "gateway", TargetDialect: target.Preset, SelectionReason: "fixed media provider", PriceQuoteAt: quoteAt, PriceUnavailable: true, BodyBytes: int64(len(input.Input))})
 	if err != nil {
@@ -135,7 +137,7 @@ func (service *Service) Create(ctx context.Context, principal keys.Principal, in
 }
 
 func mediaTargetSupported(target providers.Target) bool {
-	return target.RoutingStrategy == "fixed" && (target.Preset == "replicate" || target.Preset == "together" || target.Preset == "custom" && strings.TrimSpace(target.AdapterRequestScript) != "")
+	return target.RoutingStrategy == "fixed" && (target.Preset == "replicate" || target.Preset == "together" || target.Preset == "gemini" || target.Preset == "custom" && strings.TrimSpace(target.AdapterRequestScript) != "")
 }
 
 func (service *Service) Get(ctx context.Context, principal keys.Principal, id string) (Job, error) {

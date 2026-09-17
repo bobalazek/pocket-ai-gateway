@@ -1407,7 +1407,7 @@ components:
       properties:
         model: { type: string, minLength: 1, maxLength: 200 }
         media_type: { type: string, enum: [image, video, audio, other] }
-        input: { type: object, description: Provider-specific JSON input, maxProperties: 1000 }
+        input: { type: object, description: Provider-specific JSON input. Gemini Veo accepts native instances/parameters or wraps a simple object as one instance., maxProperties: 1000 }
     MediaJob:
       type: object
       required: [id, object, state, model, media_type, provider, request_id, cancel_requested, cancelable, created_at, updated_at]

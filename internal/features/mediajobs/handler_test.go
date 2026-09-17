@@ -231,6 +231,66 @@ func TestTogetherVideoCancellationIsLocalAndStopsPolling(t *testing.T) {
 	t.Fatal("Together job was not locally canceled")
 }
 
+func TestGeminiVeoMediaJobNormalizesPollsAndAccounts(t *testing.T) {
+	var creates, polls atomic.Int64
+	upstream := httptest.NewServer(http.HandlerFunc(func(response http.ResponseWriter, request *http.Request) {
+		response.Header().Set("Content-Type", "application/json")
+		if request.Header.Get("x-goog-api-key") != "secret" {
+			t.Errorf("provider key=%q", request.Header.Get("x-goog-api-key"))
+		}
+		switch {
+		case request.Method == http.MethodPost && request.URL.Path == "/v1beta/models/veo-3.1-generate-preview:predictLongRunning":
+			creates.Add(1)
+			body, _ := io.ReadAll(request.Body)
+			if !bytes.Contains(body, []byte(`"instances":[{"prompt":"movie"}]`)) || !bytes.Contains(body, []byte(`"aspectRatio":"16:9"`)) {
+				t.Errorf("Gemini video body=%s", body)
+			}
+			_, _ = io.WriteString(response, `{"name":"operations/video_1","done":false}`)
+		case request.Method == http.MethodGet && request.URL.Path == "/v1beta/operations/video_1":
+			polls.Add(1)
+			_, _ = io.WriteString(response, `{"name":"operations/video_1","done":true,"response":{"generatedVideos":[{"video":{"uri":"https://files.example.test/video.mp4"}}]}}`)
+		default:
+			http.NotFound(response, request)
+		}
+	}))
+	defer upstream.Close()
+	ctx, store, _, _, keyService, service, secret := mediaFixture(t, "gemini", "veo-3.1-generate-preview", "video")
+	defer store.Close()
+	if _, err := store.SystemDB().ExecContext(ctx, "UPDATE provider_connections SET base_url=?,allow_private_network=1 WHERE preset='gemini'", upstream.URL+"/v1beta"); err != nil {
+		t.Fatal(err)
+	}
+	mux := http.NewServeMux()
+	NewHandler(service, keyService, auth.NewHandler(auth.New(store.SystemDB()))).Register(mux)
+	workerCtx, stop := context.WithCancel(ctx)
+	done := make(chan struct{})
+	go func() { defer close(done); service.Run(workerCtx) }()
+	defer func() { stop(); <-done }()
+	created := performRequest(t, mux, secret, http.MethodPost, "/api/v1/media/jobs", `{"model":"media-model","media_type":"video","input":{"prompt":"movie","parameters":{"aspectRatio":"16:9"}}}`)
+	var body struct {
+		Job Job `json:"job"`
+	}
+	if created.Code != http.StatusAccepted || json.Unmarshal(created.Body.Bytes(), &body) != nil {
+		t.Fatalf("create status=%d body=%s", created.Code, created.Body.String())
+	}
+	principal := mustPrincipal(t, keyService, secret)
+	deadline := time.Now().Add(4 * time.Second)
+	for time.Now().Before(deadline) {
+		job, err := service.Get(ctx, principal, body.Job.ID)
+		if err == nil && job.State == "succeeded" {
+			if !strings.Contains(string(job.Output), "video.mp4") || job.ProviderJobID != "operations/video_1" || creates.Load() != 1 || polls.Load() == 0 {
+				t.Fatalf("job=%#v creates=%d polls=%d", job, creates.Load(), polls.Load())
+			}
+			var state, status, operation string
+			if err = store.SystemDB().QueryRowContext(ctx, "SELECT state,usage_status,target_operation FROM attempts WHERE request_id=?", job.RequestID).Scan(&state, &status, &operation); err != nil || state != "succeeded" || status != "unknown" || operation != "predictLongRunning" {
+				t.Fatalf("attempt=%s/%s operation=%s err=%v", state, status, operation, err)
+			}
+			return
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+	t.Fatal("Gemini video job did not complete")
+}
+
 func TestReplicateRunningJobUsesProviderCancel(t *testing.T) {
 	var canceled atomic.Int64
 	upstream := httptest.NewServer(http.HandlerFunc(func(response http.ResponseWriter, request *http.Request) {
@@ -324,6 +384,12 @@ func TestProviderPollErrorClassification(t *testing.T) {
 		if retryableProviderError(test.err) != test.retryable {
 			t.Fatalf("retryableProviderError(%v)=%t, want %t", test.err, retryableProviderError(test.err), test.retryable)
 		}
+	}
+}
+
+func TestProviderIdentifiersRejectPathTraversal(t *testing.T) {
+	if safeSegment("..") || safeProviderPath("operations/../admin") {
+		t.Fatal("provider identifiers accepted path traversal")
 	}
 }
 

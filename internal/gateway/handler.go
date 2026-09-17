@@ -128,6 +128,7 @@ func (handler *Handler) Register(mux *http.ServeMux) {
 	mux.HandleFunc("POST /api/openai/v1/audio/transcriptions", handler.audioTranscription)
 	mux.HandleFunc("POST /api/openai/v1/audio/translations", handler.audioTranslation)
 	mux.HandleFunc("GET /api/openai/v1/realtime", handler.realtime)
+	mux.HandleFunc("GET /api/openai/v1/live", handler.live)
 	mux.HandleFunc("GET /api/anthropic/v1/models", handler.anthropicModels)
 	mux.HandleFunc("GET /api/anthropic/v1/models/{model}", handler.anthropicModel)
 	mux.HandleFunc("POST /api/anthropic/v1/messages", func(w http.ResponseWriter, r *http.Request) {
@@ -144,6 +145,7 @@ func (handler *Handler) Register(mux *http.ServeMux) {
 	mux.HandleFunc("GET /api/anthropic/v1/messages/batches/{message_batch_id}/results", handler.messageBatchResults)
 	mux.HandleFunc("GET /api/gemini/v1beta/models", handler.geminiModels)
 	mux.HandleFunc("GET /api/gemini/v1beta/models/{model}", handler.geminiModel)
+	mux.HandleFunc("GET /api/gemini/v1beta/live", handler.geminiLive)
 	mux.HandleFunc("POST /api/gemini/v1beta/interactions", func(w http.ResponseWriter, r *http.Request) {
 		handler.forward(w, r, "gemini", "chat:generate", "interactions", "", nil)
 	})

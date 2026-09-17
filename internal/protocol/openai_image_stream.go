@@ -19,6 +19,15 @@ var ErrInvalidOpenAIImageStream = errors.New("invalid OpenAI image stream")
 // SSE events. It returns only the terminal usage document so callers do not need
 // to retain base64 image data for accounting.
 func CopyOpenAIImageGenerationStream(destination io.Writer, source io.Reader, partialImages int) ([]byte, error) {
+	return copyOpenAIImageStream(destination, source, partialImages, "image_generation")
+}
+
+// CopyOpenAIImageEditStream validates and forwards complete image-edit SSE events.
+func CopyOpenAIImageEditStream(destination io.Writer, source io.Reader, partialImages int) ([]byte, error) {
+	return copyOpenAIImageStream(destination, source, partialImages, "image_edit")
+}
+
+func copyOpenAIImageStream(destination io.Writer, source io.Reader, partialImages int, kind string) ([]byte, error) {
 	if partialImages < 0 || partialImages > 3 {
 		return nil, fmt.Errorf("%w: partial image count must be between 0 and 3", ErrInvalidOpenAIImageStream)
 	}
@@ -43,7 +52,7 @@ func CopyOpenAIImageGenerationStream(destination io.Writer, source io.Reader, pa
 			if completed {
 				return nil, fmt.Errorf("%w: provider sent an event after completion", ErrInvalidOpenAIImageStream)
 			}
-			terminalUsage, partialIndex, terminal, err := validateOpenAIImageStreamFrame(frame.Bytes(), partialImages)
+			terminalUsage, partialIndex, terminal, err := validateOpenAIImageStreamFrame(frame.Bytes(), partialImages, kind)
 			if err != nil {
 				return nil, err
 			}
@@ -73,14 +82,14 @@ func CopyOpenAIImageGenerationStream(destination io.Writer, source io.Reader, pa
 			return nil, fmt.Errorf("%w: provider event is truncated", ErrInvalidOpenAIImageStream)
 		}
 		if !completed {
-			return nil, fmt.Errorf("%w: provider stream omitted image_generation.completed", ErrInvalidOpenAIImageStream)
+			return nil, fmt.Errorf("%w: provider stream omitted %s.completed", ErrInvalidOpenAIImageStream, kind)
 		}
 		return usage, nil
 	}
 }
 
-func validateOpenAIImageStreamFrame(frame []byte, partialImages int) ([]byte, int64, bool, error) {
-	event, payload, err := openAIImageStreamFrame(frame)
+func validateOpenAIImageStreamFrame(frame []byte, partialImages int, kind string) ([]byte, int64, bool, error) {
+	event, payload, err := openAIImageStreamFrame(frame, kind)
 	if err != nil {
 		return nil, -1, false, err
 	}
@@ -92,13 +101,14 @@ func validateOpenAIImageStreamFrame(frame []byte, partialImages int) ([]byte, in
 	if !ok || eventType != event {
 		return nil, -1, false, fmt.Errorf("%w: provider event name and type do not match", ErrInvalidOpenAIImageStream)
 	}
-	if event != "image_generation.partial_image" && event != "image_generation.completed" {
+	partialEvent, completedEvent := kind+".partial_image", kind+".completed"
+	if event != partialEvent && event != completedEvent {
 		return nil, -1, false, fmt.Errorf("%w: unsupported provider event %q", ErrInvalidOpenAIImageStream, event)
 	}
 	if err := validateOpenAIImageFields(value); err != nil {
 		return nil, -1, false, err
 	}
-	if event == "image_generation.partial_image" {
+	if event == partialEvent {
 		index, ok := imageStreamInteger(value["partial_image_index"])
 		if !ok || index < 0 || index >= int64(partialImages) {
 			return nil, -1, false, fmt.Errorf("%w: partial_image_index exceeds the requested partial image count", ErrInvalidOpenAIImageStream)
@@ -116,7 +126,7 @@ func validateOpenAIImageStreamFrame(frame []byte, partialImages int) ([]byte, in
 	return metadata, -1, true, nil
 }
 
-func openAIImageStreamFrame(frame []byte) (string, []byte, error) {
+func openAIImageStreamFrame(frame []byte, kind string) (string, []byte, error) {
 	var event string
 	var data bytes.Buffer
 	for len(frame) > 0 {
@@ -149,7 +159,7 @@ func openAIImageStreamFrame(frame []byte) (string, []byte, error) {
 		return "", nil, fmt.Errorf("%w: provider event omitted data", ErrInvalidOpenAIImageStream)
 	}
 	if bytes.Equal(payload, []byte("[DONE]")) {
-		return "", nil, fmt.Errorf("%w: image streams must end with image_generation.completed", ErrInvalidOpenAIImageStream)
+		return "", nil, fmt.Errorf("%w: image streams must end with %s.completed", ErrInvalidOpenAIImageStream, kind)
 	}
 	return event, payload, nil
 }

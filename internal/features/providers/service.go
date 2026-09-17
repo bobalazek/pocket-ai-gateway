@@ -26,7 +26,7 @@ var (
 var adapters = map[string][]string{
 	"openai":            {"chat", "completions", "web_search", "embeddings", "moderations", "count_tokens", "images", "image_edit", "image_variation", "audio_speech", "audio_transcription", "audio_translation", "realtime"},
 	"anthropic":         {"chat", "web_search", "web_fetch", "count_tokens", "prompt_cache"},
-	"gemini":            {"chat", "count_tokens", "embeddings", "interactions"},
+	"gemini":            {"chat", "count_tokens", "embeddings", "interactions", "realtime", "media_jobs"},
 	"openai_compatible": {"chat", "completions", "embeddings", "moderations", "count_tokens", "images", "image_edit", "image_variation", "audio_speech", "audio_transcription", "audio_translation", "media_jobs"},
 }
 

@@ -172,7 +172,7 @@ func PreviewRouteEligibility(operation string, streaming bool) func(Target) (boo
 	switch operation {
 	case "messages", "messages/count_tokens":
 		dialect = "anthropic"
-	case "generateContent", "streamGenerateContent", "countTokens", "embedContent", "batchEmbedContents", "interactions":
+	case "generateContent", "streamGenerateContent", "countTokens", "embedContent", "batchEmbedContents", "interactions", "BidiGenerateContent":
 		dialect = "gemini"
 	case "responses":
 		dialect = "responses"
@@ -180,7 +180,7 @@ func PreviewRouteEligibility(operation string, streaming bool) func(Target) (boo
 		dialect = "responses_compact"
 	}
 	opaqueMedia := capability == "images" || capability == "image_edit" || capability == "image_variation" || strings.HasPrefix(capability, "audio_")
-	input := StaticEligibilityInput{Dialect: dialect, Capability: capability, Operation: operation, Streaming: streaming, OpaqueMedia: opaqueMedia, ImageStreaming: operation == "images/generations" && streaming}
+	input := StaticEligibilityInput{Dialect: dialect, Capability: capability, Operation: operation, Streaming: streaming, OpaqueMedia: opaqueMedia, ImageStreaming: (operation == "images/generations" || operation == "images/edits") && streaming}
 	return func(target Target) (bool, string) {
 		if eligible, reason := StaticTargetEligibility(target, input); !eligible {
 			return false, reason
