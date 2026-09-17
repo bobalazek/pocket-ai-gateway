@@ -4,7 +4,8 @@ import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Label } from "@/components/ui/label";
 import { Field } from "@/features/providers/components/provider-form";
-import type { ProviderConnection } from "@/features/providers/types/providers.types";
+import { ProviderAdapterScriptEditor } from "@/features/providers/components/provider-adapter-script";
+import type { ProviderAdapterScript, ProviderConnection } from "@/features/providers/types/providers.types";
 
 type Props = {
   item: ProviderConnection;
@@ -12,9 +13,13 @@ type Props = {
   onToggle: (item: ProviderConnection) => void;
   onCredential: (event: FormEvent<HTMLFormElement>, id: string) => void;
   onAddModel: (event: FormEvent<HTMLFormElement>, id: string) => void;
+  script: ProviderAdapterScript | null | undefined;
+  onLoadScript: (item: ProviderConnection) => void;
+  onSaveScript: (event: FormEvent<HTMLFormElement>, item: ProviderConnection) => void;
+  onRemoveScript: (item: ProviderConnection) => void;
 };
 
-export function ProviderCard({ item, busy, onToggle, onCredential, onAddModel }: Props) {
+export function ProviderCard({ item, busy, onToggle, onCredential, onAddModel, script, onLoadScript, onSaveScript, onRemoveScript }: Props) {
   return (
     <Card className="panel">
       <div className="resource-row-main">
@@ -33,6 +38,7 @@ export function ProviderCard({ item, busy, onToggle, onCredential, onAddModel }:
           </form>
         </details>
       )}
+      <ProviderAdapterScriptEditor item={item} script={script} busy={busy} onOpen={onLoadScript} onSave={onSaveScript} onRemove={onRemoveScript} />
       <details className="grant-editor">
         <summary>Add upstream model</summary>
         <form onSubmit={(event) => onAddModel(event, item.id)}>

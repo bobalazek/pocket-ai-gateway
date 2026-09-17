@@ -22,6 +22,8 @@ var inferenceScopes = []InferenceScope{
 	{ID: "audio:speech"},
 	{ID: "audio:transcribe"},
 	{ID: "audio:translate"},
+	{ID: "realtime:connect", Policy: "OpenAI Realtime WebSocket sessions use this scope."},
+	{ID: "media:generate", Policy: "Create and manage provider-neutral asynchronous media jobs."},
 	{ID: "batches:manage"},
 	{ID: "files:manage"},
 	{ID: "vector_stores:manage"},

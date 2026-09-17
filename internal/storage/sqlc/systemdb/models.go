@@ -216,6 +216,34 @@ type LoginThrottle struct {
 	BlockedUntil    int64  `json:"blocked_until"`
 }
 
+type MediaJob struct {
+	ID               string        `json:"id"`
+	OwnerUserID      string        `json:"owner_user_id"`
+	KeyID            string        `json:"key_id"`
+	RequestID        string        `json:"request_id"`
+	AttemptID        string        `json:"attempt_id"`
+	ModelID          string        `json:"model_id"`
+	ConnectionID     string        `json:"connection_id"`
+	Provider         string        `json:"provider"`
+	ProviderJobID    string        `json:"provider_job_id"`
+	MediaType        string        `json:"media_type"`
+	State            string        `json:"state"`
+	InputCiphertext  []byte        `json:"input_ciphertext"`
+	InputNonce       []byte        `json:"input_nonce"`
+	InputBytes       int64         `json:"input_bytes"`
+	OutputCiphertext []byte        `json:"output_ciphertext"`
+	OutputNonce      []byte        `json:"output_nonce"`
+	OutputBytes      int64         `json:"output_bytes"`
+	ErrorJson        string        `json:"error_json"`
+	CancelRequested  int64         `json:"cancel_requested"`
+	PollFailures     int64         `json:"poll_failures"`
+	NextPollAt       int64         `json:"next_poll_at"`
+	Revision         int64         `json:"revision"`
+	CreatedAt        int64         `json:"created_at"`
+	UpdatedAt        int64         `json:"updated_at"`
+	CompletedAt      sql.NullInt64 `json:"completed_at"`
+}
+
 type MessageBatch struct {
 	ID                string        `json:"id"`
 	OwnerUserID       string        `json:"owner_user_id"`
@@ -414,6 +442,13 @@ type PricingJob struct {
 	DeltaNanos       int64          `json:"delta_nanos"`
 	CreatedAt        int64          `json:"created_at"`
 	CompletedAt      sql.NullInt64  `json:"completed_at"`
+}
+
+type ProviderAdapterScript struct {
+	ConnectionID   string `json:"connection_id"`
+	RequestScript  string `json:"request_script"`
+	ResponseScript string `json:"response_script"`
+	UpdatedAt      int64  `json:"updated_at"`
 }
 
 type ProviderConnection struct {

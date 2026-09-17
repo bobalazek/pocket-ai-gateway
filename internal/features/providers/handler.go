@@ -26,6 +26,9 @@ func (handler *Handler) Register(mux *http.ServeMux) {
 	mux.HandleFunc("GET /api/v1/connections/{id}", handler.getConnection)
 	mux.HandleFunc("PATCH /api/v1/connections/{id}", handler.updateConnection)
 	mux.HandleFunc("PUT /api/v1/connections/{id}/credential", handler.putCredential)
+	mux.HandleFunc("GET /api/v1/connections/{id}/adapter-script", handler.getAdapterScript)
+	mux.HandleFunc("PUT /api/v1/connections/{id}/adapter-script", handler.putAdapterScript)
+	mux.HandleFunc("DELETE /api/v1/connections/{id}/adapter-script", handler.deleteAdapterScript)
 	mux.HandleFunc("GET /api/v1/connections/{id}/models", handler.listUpstreamModels)
 	mux.HandleFunc("POST /api/v1/connections/{id}/models", handler.createUpstreamModel)
 	mux.HandleFunc("GET /api/v1/models", handler.listPublicModels)
@@ -127,6 +130,60 @@ func (handler *Handler) putCredential(response http.ResponseWriter, request *htt
 		return
 	}
 	if err := handler.service.PutCredential(request.Context(), current.User, request.PathValue("id"), input.Credential, input.ExternalRef); err != nil {
+		handler.writeError(response, err)
+		return
+	}
+	response.WriteHeader(http.StatusNoContent)
+}
+
+func (handler *Handler) getAdapterScript(response http.ResponseWriter, request *http.Request) {
+	current, _, ok := handler.auth.Authorize(response, request)
+	if !ok {
+		return
+	}
+	item, err := handler.service.GetAdapterScript(request.Context(), current.User, request.PathValue("id"))
+	if err != nil {
+		handler.writeError(response, err)
+		return
+	}
+	response.Header().Set("Cache-Control", "no-store")
+	response.Header().Set("ETag", auth.ETag(item.Revision))
+	auth.WriteJSON(response, http.StatusOK, map[string]any{"adapter_script": item})
+}
+
+func (handler *Handler) putAdapterScript(response http.ResponseWriter, request *http.Request) {
+	current, _, ok := handler.auth.AuthorizeMutation(response, request)
+	if !ok {
+		return
+	}
+	revision, ok := auth.RequireRevision(response, request)
+	if !ok {
+		return
+	}
+	var input AdapterScriptInput
+	if !auth.DecodeJSONMax(response, request, &input, 2*maxAdapterScriptBytes+1024) {
+		return
+	}
+	item, err := handler.service.PutAdapterScript(request.Context(), current.User, request.PathValue("id"), revision, input)
+	if err != nil {
+		handler.writeError(response, err)
+		return
+	}
+	response.Header().Set("Cache-Control", "no-store")
+	response.Header().Set("ETag", auth.ETag(item.Revision))
+	auth.WriteJSON(response, http.StatusOK, map[string]any{"adapter_script": item})
+}
+
+func (handler *Handler) deleteAdapterScript(response http.ResponseWriter, request *http.Request) {
+	current, _, ok := handler.auth.AuthorizeMutation(response, request)
+	if !ok {
+		return
+	}
+	revision, ok := auth.RequireRevision(response, request)
+	if !ok {
+		return
+	}
+	if err := handler.service.DeleteAdapterScript(request.Context(), current.User, request.PathValue("id"), revision); err != nil {
 		handler.writeError(response, err)
 		return
 	}

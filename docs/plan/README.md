@@ -1,6 +1,6 @@
 # Implementation phases
 
-Status: Phases 1 through 7 are complete. Phase 8 is closed for this release with optional live-provider, remote-database, and additional vendor-resource expansion explicitly deferred.
+Status: Phases 1 through 9 are complete. Optional live-provider and remote-database certification remain explicitly deferred.
 
 ## Build order
 
@@ -18,6 +18,7 @@ flowchart LR
     Beta --> P7[7 Operations and release]
     P7 --> Stable[v0.1 stable]
     Stable --> P8[8 Provider expansion and updates]
+    P8 --> P9[9 Realtime and extensible media]
 ~~~
 
 Effort bands are relative implementation sizes, not calendar promises: S is a bounded feature, M spans a few related behaviors, L is a substantial integration, XL must be split further before execution. Confidence reflects known contract risk, not whether work is complete.
@@ -32,6 +33,7 @@ Effort bands are relative implementation sizes, not calendar promises: S is a bo
 | 6 | Provider presets, catalog, all routing strategies | Route preview, strategy controls, catalog/price refresh | L / medium | Provider certification evidence |
 | 7 | Local SQLite authority, local/S3 recovery, Docker/binaries, security | Settings, backups, audit, recovery guidance | XL / medium | Signing/release setup and security contact |
 | 8 | Broader providers, remaining API parity, optional safe self-update | New presets and explicit update flow | XL / low until probes | Cloud accounts/auth flows and platform evidence |
+| 9 | Realtime transport, persistent media jobs, Replicate/Together drivers, trusted JavaScript transforms | Media-job operations and custom-adapter editor | L / medium | Optional live provider credentials |
 
 ## Phase specifications
 
@@ -47,6 +49,7 @@ Each phase file contains backend work items, frontend scope, requirements, depen
 | 6 | [Routing strategies and provider catalog](phase-06-routing-provider-catalog.md) | Complete |
 | 7 | [Operations, security, and v0.1 release](phase-07-operations-release.md) | Complete |
 | 8 | [Provider expansion, compatibility inventory, and optional self-update](phase-08-provider-api-expansion.md) | Closed; optional expansion deferred |
+| 9 | [Realtime and extensible media](phase-09-realtime-extensible-media.md) | Complete; live certification remains optional |
 
 ## Requirement coverage
 
@@ -57,9 +60,9 @@ This table assigns each requirement to delivery phases. Phase 1 provides only th
 | RUN-01 | 1, 4, 7 |
 | IAM-01 | 2 |
 | KEY-01 | 2, 3 |
-| PROV-01 | 4, 6; expanded coverage 8 |
+| PROV-01 | 4, 6; expanded coverage 8–9 |
 | MODEL-01 | 4, 6 |
-| API-01 | 4, 5 |
+| API-01 | 4, 5, 9 realtime/media extension |
 | API-02 | 4, 5 |
 | API-03 | 4, 5 |
 | LIMIT-01 | 3 |
@@ -68,8 +71,8 @@ This table assigns each requirement to delivery phases. Phase 1 provides only th
 | DATA-01 | 1–5, 7 |
 | DATA-02 | 1 local stores, 3 outbox, 7 local recovery; optional remote certification deferred by ADR-051 |
 | COST-02 | 3 historical pricing, 6 catalog price source, 7 retention/recovery |
-| UI-01 | 1–7, paired with backend slices |
-| SEC-01 | 1–7, applied as each boundary is introduced |
+| UI-01 | 1–9, paired with backend slices |
+| SEC-01 | 1–9, applied as each boundary is introduced |
 | OPS-01 | 1 groundwork, 3 accounting recovery, 7 complete |
 | OPS-02 | 1 build, 7 distribution/manual upgrades, 8 self-update |
 | NFR-01 | 4 first journey, 7 observed usability |

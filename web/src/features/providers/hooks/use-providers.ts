@@ -3,7 +3,7 @@
 import { useEffect, useState, type FormEvent } from "react";
 
 import { useGatewayUser } from "@/components/setup-gate";
-import type { ProviderAdapter, ProviderConnection, ProviderPreset } from "@/features/providers/types/providers.types";
+import type { ProviderAdapter, ProviderAdapterScript, ProviderConnection, ProviderPreset } from "@/features/providers/types/providers.types";
 import { GatewayAPIError, pocketAIGatewayAdmin } from "@/lib/pocket-ai-gateway-admin.client";
 
 export function useProviders() {
@@ -11,6 +11,7 @@ export function useProviders() {
   const [items, setItems] = useState<ProviderConnection[]>([]);
   const [presets, setPresets] = useState<ProviderPreset[]>([]);
   const [adapters, setAdapters] = useState<ProviderAdapter[]>([]);
+  const [scripts, setScripts] = useState<Record<string, ProviderAdapterScript | null>>({});
   const [selectedPreset, setSelectedPreset] = useState("");
   const [adapter, setAdapter] = useState<ProviderConnection["adapter"]>("");
   const [error, setError] = useState("");
@@ -85,11 +86,52 @@ export function useProviders() {
     } catch (failure) { fail(failure, "Connection could not be updated"); } finally { setBusy(false); }
   }
 
+  async function loadScript(item: ProviderConnection) {
+    if (scripts[item.id] !== undefined) return;
+    try {
+      const result = await pocketAIGatewayAdmin.providers.adapterScript(item.id);
+      const script = result.adapter_script;
+      setScripts((current) => ({ ...current, [item.id]: script.request_script || script.response_script ? script : null }));
+    } catch (failure) {
+      if (failure instanceof GatewayAPIError && failure.status === 404) {
+        setScripts((current) => ({ ...current, [item.id]: null }));
+        return;
+      }
+      fail(failure, "Adapter script could not be loaded");
+    }
+  }
+
+  async function saveScript(event: FormEvent<HTMLFormElement>, item: ProviderConnection) {
+    event.preventDefault();
+    const form = new FormData(event.currentTarget);
+    setBusy(true);
+    try {
+      const result = await pocketAIGatewayAdmin.providers.putAdapterScript(item, {
+        request_script: String(form.get("request_script")),
+        response_script: String(form.get("response_script")),
+      });
+      setScripts((current) => ({ ...current, [item.id]: result.adapter_script }));
+      setError("");
+      await load();
+    } catch (failure) { fail(failure, "Adapter script could not be saved"); } finally { setBusy(false); }
+  }
+
+  async function removeScript(item: ProviderConnection) {
+    if (!window.confirm(`Remove the adapter script from ${item.name}?`)) return;
+    setBusy(true);
+    try {
+      await pocketAIGatewayAdmin.providers.deleteAdapterScript(item);
+      setScripts((current) => ({ ...current, [item.id]: null }));
+      setError("");
+      await load();
+    } catch (failure) { fail(failure, "Adapter script could not be removed"); } finally { setBusy(false); }
+  }
+
   function choosePreset(value: string) {
     const preset = value === "custom" ? "" : value;
     setSelectedPreset(preset);
     setAdapter(presets.find((item) => item.id === preset)?.adapter ?? defaultAdapter());
   }
 
-  return { user, items, presets, adapters, selectedPreset, adapter, setAdapter, selected, error, busy, create, credential, addModel, toggle, choosePreset };
+  return { user, items, presets, adapters, scripts, selectedPreset, adapter, setAdapter, selected, error, busy, create, credential, addModel, toggle, choosePreset, loadScript, saveScript, removeScript };
 }

@@ -1,6 +1,6 @@
 # API parity inventory
 
-Updated September 16, 2026. This inventory distinguishes implemented wire compatibility from future API breadth. An endpoint is supported only when its namespace contract and failure behavior are tested. Unknown routes return the selected protocol's safe error rather than being forwarded opportunistically.
+Updated September 17, 2026. This inventory distinguishes implemented wire compatibility from future API breadth. An endpoint is supported only when its namespace contract and failure behavior are tested. Unknown routes return the selected protocol's safe error rather than being forwarded opportunistically.
 
 ## Status terms
 
@@ -32,7 +32,7 @@ Base URL: `/api/openai/v1`.
 | `POST /images/generations` | Constrained, native target only | Bounded JSON plus named SSE on built-in OpenAI GPT Image targets; streaming requires `n=1`, accepts 0–3 partial images, limits each event to 16 MiB, and accounts terminal provider usage; explicit public model, `images:generate`, no post-dispatch fallback, and rejection under token/output/spend/free-only policies or lowest-cost routing because the request has no portable output/price contract |
 | `POST /images/edits` | Constrained, native target only | Non-streaming GPT Image multipart edit with 1-16 validated PNG/JPEG/WebP inputs, optional same-size PNG mask, 64 MiB aggregate upload and 16 MiB response bounds; explicit public model, prompt, and `images:edit`; DALL-E 2 edits, post-dispatch fallback, token/output/spend/free-only policies, and lowest-cost routing remain unsupported |
 | `POST /images/variations` | Constrained, native target only | One square PNG under 4 MB; explicit public model and `images:variation`; OpenAI preset restricted to upstream `dall-e-2`, custom compatible endpoints operator-declared; 64 MiB body and 16 MiB response bounds; no post-dispatch fallback, token/output/spend/free-only policies, or lowest-cost routing |
-| `POST /audio/speech` | Constrained, native target only | Built-in voices and buffered audio output up to 16 MiB; explicit public model, `audio:speech`, no custom voice references, SSE, post-dispatch fallback, token/output/spend/free-only policies, or lowest-cost routing |
+| `POST /audio/speech` | Constrained, native target only | Buffered output up to 16 MiB or explicit HTTP streaming up to 64 MiB; built-in, custom-reference, and provider voice names; raw audio or SSE passthrough; explicit public model and `audio:speech`; no post-dispatch fallback, token/output/spend/free-only policies, or lowest-cost routing |
 | `POST /audio/transcriptions` | Constrained, native target only | Multipart upload with one supported audio file up to 25 MB; explicit public model, `audio:transcribe`, provider fields preserved, streaming limited to presets with the OpenAI terminal event contract, no post-dispatch fallback, token/output/spend/free-only policies, or lowest-cost routing |
 | `POST /audio/translations` | Constrained, native target only | Multipart audio-to-English translation with one supported file up to 25 MB; explicit public model, `audio:translate`, OpenAI preset restricted to upstream `whisper-1`, custom compatible endpoints operator-declared, 16 MiB response bound, no streaming, post-dispatch fallback, token/output/spend/free-only policies, or lowest-cost routing |
 | `GET /responses/{id}`, `DELETE /responses/{id}` | Implemented, gateway-owned | Creating-key retrieval and deletion; the gateway replaces the upstream ID and keeps upstream storage disabled |
@@ -42,12 +42,23 @@ Base URL: `/api/openai/v1`.
 | Uploads | Constrained, gateway-owned | Four official operations under `files:manage`; one-hour key-owned Uploads assemble a declared 1–16 MiB Batch JSONL File from at most 16 encrypted non-empty Parts in caller-supplied order; exact byte match; completed-File expiry from 1 hour through 30 days; no checksum validation, provider dispatch, or accounting |
 | Batches | Constrained, gateway-owned | Four official SDK methods over creating-key-owned resources; `batches:manage` plus the endpoint scope; one same-key Batch File with 1–4 non-streaming `/v1/responses`, `/v1/chat/completions`, `/v1/completions`, `/v1/embeddings`, `/v1/moderations`, `/v1/images/generations`, or `/v1/images/edits` requests for one public model; local routing/accounting; strict native legacy Completion validation; fixed-vector Embeddings; native-only Moderations and Images without fallback; Image Edits accept HTTPS or bounded PNG/JPEG/WebP data URLs and reject provider `file_id`; standard endpoint output; aggregate usage only when terminal Batch usage is complete; 24-hour processing expiry; separate success/error output Files; no provider Batch discount, limits, or rate pool |
 | Vector Stores | Constrained, gateway-owned | Store lifecycle, atomic create-with-files, file attachment and file-batch SDK methods; same-key ownership, bounded attributes, aggregate bytes/counts, expiry, retained-resource ceilings, validated pagination, UTF-8/ASCII, BOM-marked UTF-16, HTML, DOCX, PPTX, and XLSX parsed content, backend lexical search, and bounded Responses `file_search`; static token chunking, PDF/legacy Office parsing, and embedding-backed semantic search remain pending |
-| Additional OpenAI and provider-owned Batches | Pending | Video endpoints, provider file references, and provider execution need their own validation, capability, billing, and retention contracts |
+| Additional OpenAI and provider-owned Batches | Pending | Exact vendor-owned video endpoints, provider file references, and provider Batch execution need their own compatibility contracts; the gateway's provider-neutral media-job API is listed below |
 | DALL-E 2 edits | Deferred | OpenAI marks [DALL-E 2](https://developers.openai.com/api/docs/models/dall-e-2) deprecated; the gateway avoids extra routing complexity for its legacy edit contract |
-| Image-edit streaming and video | Pending | Each media format needs its own bounded upload/download, event, and accounting contract |
-| Realtime | Pending | Needs WebSocket/WebRTC authentication, event limits, connection accounting, and protocol tests |
+| Image-edit streaming and OpenAI video compatibility | Pending | Provider-neutral asynchronous video jobs exist under `/api/v1/media/jobs`; exact OpenAI image-edit streaming and deprecated OpenAI Videos wire compatibility are not claimed |
+| `GET /realtime?model={public_model}` | Constrained, native OpenAI target only | Bidirectional HTTP/1.1 WebSocket proxy with `realtime:connect`, public/upstream `realtime`, 16 MiB frames, 10-minute sessions, pre-upgrade routing/admission, an upstream query limited to the rewritten model, and terminal token accounting when `response.done` reports usage; WebRTC, SIP, sideband/fork resources, and cross-provider translation remain pending. `/live/sessions` is intentionally absent because its client secret permits traffic that bypasses gateway limits and accounting. |
 | Fine-tuning and evaluations | Pending | Administrative provider resources need ownership, polling, and cost controls |
 | Legacy Assistants, Threads, and Runs | Pending | No compatibility alias is exposed |
+
+## Provider-neutral media namespace
+
+Base URL: `/api/v1/media/jobs`.
+
+| Resource or operation | Status | Boundary |
+| --- | --- | --- |
+| Create, list, retrieve, cancel | Constrained, gateway-owned | Durable key-owned jobs with `media:generate`, model/connection grants, a fixed route for provider affinity, encrypted input/output, bounded transient poll retries, explicit `interrupted_unknown` recovery after an unconfirmed dispatch, shared request/concurrency/body/spend admission, and admin-redacted dashboard views |
+| Replicate predictions | Implemented | Model, version, and deployment prediction create/poll/cancel contracts; provider-specific input/output stays JSON |
+| Together video | Implemented | Video create/poll contract; cancellation stops local polling because the reviewed provider contract has no video cancel operation |
+| Custom scripted media jobs | Constrained | A trusted owner/admin JavaScript request/response transform maps create/poll/cancel and normalizes `{id,status,output,cost_usd?}` while the gateway retains destination, credential, egress, timeout, size, ownership, and accounting control; the embedded VM has execution and I/O limits but shares the server heap |
 
 ## Anthropic client namespace
 

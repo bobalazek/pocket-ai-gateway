@@ -12,19 +12,20 @@ import (
 	"github.com/bobalazek/pocket-ai-gateway/internal/features/providers"
 )
 
-const configFormat = 2
+const configFormat = 3
 
 type ConfigBundle struct {
-	Format         int                `json:"format"`
-	ExportedAt     string             `json:"exported_at,omitempty"`
-	Settings       Settings           `json:"settings"`
-	Connections    []ConfigConnection `json:"connections"`
-	UpstreamModels []ConfigUpstream   `json:"upstream_models"`
-	PublicModels   []ConfigModel      `json:"public_models"`
-	Targets        []ConfigTarget     `json:"targets"`
-	Policies       []ConfigPolicy     `json:"policies"`
-	Prices         []ConfigPrice      `json:"prices"`
-	Catalog        ConfigCatalog      `json:"catalog"`
+	Format         int                   `json:"format"`
+	ExportedAt     string                `json:"exported_at,omitempty"`
+	Settings       Settings              `json:"settings"`
+	Connections    []ConfigConnection    `json:"connections"`
+	AdapterScripts []ConfigAdapterScript `json:"adapter_scripts,omitempty"`
+	UpstreamModels []ConfigUpstream      `json:"upstream_models"`
+	PublicModels   []ConfigModel         `json:"public_models"`
+	Targets        []ConfigTarget        `json:"targets"`
+	Policies       []ConfigPolicy        `json:"policies"`
+	Prices         []ConfigPrice         `json:"prices"`
+	Catalog        ConfigCatalog         `json:"catalog"`
 }
 
 type ConfigConnection struct {
@@ -36,6 +37,12 @@ type ConfigConnection struct {
 	AllowPrivateNetwork bool   `json:"allow_private_network"`
 	TimeoutMS           int64  `json:"timeout_ms"`
 	Preset              string `json:"preset"`
+}
+
+type ConfigAdapterScript struct {
+	ConnectionID   string `json:"connection_id"`
+	RequestScript  string `json:"request_script"`
+	ResponseScript string `json:"response_script"`
 }
 
 type ConfigUpstream struct {
@@ -102,6 +109,7 @@ type ConfigCatalog struct {
 
 type ConfigPreview struct {
 	Connections    int      `json:"connections"`
+	AdapterScripts int      `json:"adapter_scripts"`
 	UpstreamModels int      `json:"upstream_models"`
 	PublicModels   int      `json:"public_models"`
 	Targets        int      `json:"targets"`
@@ -127,6 +135,14 @@ func (service *Service) ExportConfig(ctx context.Context) (ConfigBundle, error) 
 				return err
 			}
 			bundle.Connections = append(bundle.Connections, item)
+			return nil
+		}},
+		{`SELECT connection_id,request_script,response_script FROM provider_adapter_scripts ORDER BY connection_id`, func(rows *sql.Rows) error {
+			var item ConfigAdapterScript
+			if err := rows.Scan(&item.ConnectionID, &item.RequestScript, &item.ResponseScript); err != nil {
+				return err
+			}
+			bundle.AdapterScripts = append(bundle.AdapterScripts, item)
 			return nil
 		}},
 		{`SELECT id,connection_id,upstream_id,capabilities_json,active FROM upstream_models ORDER BY id`, func(rows *sql.Rows) error {
@@ -212,7 +228,7 @@ func (service *Service) ExportConfig(ctx context.Context) (ConfigBundle, error) 
 }
 
 func PreviewConfig(bundle ConfigBundle) (ConfigPreview, error) {
-	if bundle.Format != 1 && bundle.Format != configFormat || len(bundle.Connections) > 1000 || len(bundle.UpstreamModels) > 10000 || len(bundle.PublicModels) > 10000 || len(bundle.Targets) > 50000 || len(bundle.Policies) > 10000 || len(bundle.Prices) > 100000 {
+	if bundle.Format != 1 && bundle.Format != 2 && bundle.Format != configFormat || len(bundle.Connections) > 1000 || len(bundle.AdapterScripts) > 1000 || len(bundle.UpstreamModels) > 10000 || len(bundle.PublicModels) > 10000 || len(bundle.Targets) > 50000 || len(bundle.Policies) > 10000 || len(bundle.Prices) > 100000 {
 		return ConfigPreview{}, ErrInvalid
 	}
 	normalizeSettings(&bundle.Settings)
@@ -228,7 +244,7 @@ func PreviewConfig(bundle ConfigBundle) (ConfigPreview, error) {
 			seen[id] = true
 		}
 	}
-	connections, connectionPresets, upstream, models := map[string]bool{}, map[string]string{}, map[string]ConfigUpstream{}, map[string]ConfigModel{}
+	connections, connectionPresets, connectionAdapters, upstream, models := map[string]bool{}, map[string]string{}, map[string]string{}, map[string]ConfigUpstream{}, map[string]ConfigModel{}
 	for _, item := range bundle.Connections {
 		connections[item.ID] = true
 		validated, err := providers.ValidatePortableConnection(providers.ConnectionInput{Name: item.Name, Adapter: item.Adapter, BaseURL: item.BaseURL, Enabled: item.Enabled, AllowPrivateNetwork: item.AllowPrivateNetwork, TimeoutMS: item.TimeoutMS, Preset: item.Preset})
@@ -236,6 +252,15 @@ func PreviewConfig(bundle ConfigBundle) (ConfigPreview, error) {
 			return ConfigPreview{}, ErrInvalid
 		}
 		connectionPresets[item.ID] = validated.Preset
+		connectionAdapters[item.ID] = validated.Adapter
+	}
+	adapterScriptConnections := map[string]bool{}
+	for _, item := range bundle.AdapterScripts {
+		_, scriptErr := providers.ValidateAdapterScriptInput(providers.AdapterScriptInput{RequestScript: item.RequestScript, ResponseScript: item.ResponseScript})
+		if !connections[item.ConnectionID] || adapterScriptConnections[item.ConnectionID] || connectionPresets[item.ConnectionID] != "custom" || connectionAdapters[item.ConnectionID] != "openai_compatible" || scriptErr != nil {
+			return ConfigPreview{}, ErrInvalid
+		}
+		adapterScriptConnections[item.ConnectionID] = true
 	}
 	for _, item := range bundle.UpstreamModels {
 		upstream[item.ID] = item
@@ -302,7 +327,7 @@ func PreviewConfig(bundle ConfigBundle) (ConfigPreview, error) {
 		return ConfigPreview{}, ErrInvalid
 	}
 	warnings := []string{"Provider credentials, users, sessions, and API keys are intentionally excluded."}
-	return ConfigPreview{len(bundle.Connections), len(bundle.UpstreamModels), len(bundle.PublicModels), len(bundle.Targets), len(bundle.Policies), len(bundle.Prices), warnings}, nil
+	return ConfigPreview{Connections: len(bundle.Connections), AdapterScripts: len(bundle.AdapterScripts), UpstreamModels: len(bundle.UpstreamModels), PublicModels: len(bundle.PublicModels), Targets: len(bundle.Targets), Policies: len(bundle.Policies), Prices: len(bundle.Prices), Warnings: warnings}, nil
 }
 
 func (service *Service) ImportConfig(ctx context.Context, actor string, bundle ConfigBundle) (ConfigPreview, error) {
@@ -331,6 +356,14 @@ func (service *Service) ImportConfig(ctx context.Context, actor string, bundle C
 			return ConfigPreview{}, err
 		}
 		if _, err = tx.ExecContext(ctx, `INSERT INTO provider_connections(id,name,adapter,base_url,enabled,allow_private_network,timeout_ms,preset,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?,?,?) ON CONFLICT(id) DO UPDATE SET name=excluded.name,adapter=excluded.adapter,base_url=excluded.base_url,enabled=excluded.enabled,allow_private_network=excluded.allow_private_network,timeout_ms=excluded.timeout_ms,preset=excluded.preset,revision=provider_connections.revision+1,updated_at=excluded.updated_at`, item.ID, item.Name, item.Adapter, item.BaseURL, item.Enabled, item.AllowPrivateNetwork, item.TimeoutMS, item.Preset, now, now); err != nil {
+			return ConfigPreview{}, err
+		}
+		if _, err = tx.ExecContext(ctx, `DELETE FROM provider_adapter_scripts WHERE connection_id=?`, item.ID); err != nil {
+			return ConfigPreview{}, err
+		}
+	}
+	for _, item := range bundle.AdapterScripts {
+		if _, err = tx.ExecContext(ctx, `INSERT INTO provider_adapter_scripts(connection_id,request_script,response_script,updated_at) VALUES(?,?,?,?)`, item.ConnectionID, strings.TrimSpace(item.RequestScript), strings.TrimSpace(item.ResponseScript), now); err != nil {
 			return ConfigPreview{}, err
 		}
 	}

@@ -596,11 +596,10 @@ func TestNativeOpenAISpeechUsesScopedModel(t *testing.T) {
 		`{"model":"` + publicModel.ID + `","input":"` + strings.Repeat("a", 4097) + `","voice":"alloy"}`,
 		`{"model":"` + publicModel.ID + `","input":"x","voice":""}`,
 		`{"model":"` + publicModel.ID + `","input":"x","voice":{}}`,
-		`{"model":"` + publicModel.ID + `","input":"x","voice":{"id":"voice_123"}}`,
-		`{"model":"` + publicModel.ID + `","input":"x","voice":"voice_123"}`,
+		`{"model":"` + publicModel.ID + `","input":"x","voice":{"id":""}}`,
 		`{"model":"` + publicModel.ID + `","input":"x","voice":"alloy","response_format":"mp4"}`,
-		`{"model":"` + publicModel.ID + `","input":"x","voice":"alloy","stream_format":"sse"}`,
-		`{"model":"` + publicModel.ID + `","input":"x","voice":"alloy","stream":true}`,
+		`{"model":"` + publicModel.ID + `","input":"x","voice":"alloy","stream_format":"events"}`,
+		`{"model":"` + publicModel.ID + `","input":"x","voice":"alloy","stream":1}`,
 		`{"model":"` + publicModel.ID + `","input":"x","voice":"alloy","speed":0.1}`,
 		`{"model":"` + publicModel.ID + `","input":"x","voice":"alloy","speed":4.1}`,
 		`{"model":"` + publicModel.ID + `","input":"x","voice":"alloy","instructions":1}`,
@@ -638,6 +637,69 @@ func TestNativeOpenAISpeechUsesScopedModel(t *testing.T) {
 	status, _, _ = speak(denied, `{"model":"`+publicModel.ID+`","input":"x","voice":"alloy"}`)
 	if status != http.StatusNotFound || calls != 1 {
 		t.Fatalf("denied status=%d upstream calls=%d", status, calls)
+	}
+}
+
+func TestSpeechStreamingFlushesProviderEvents(t *testing.T) {
+	finish := make(chan struct{})
+	upstream := httptest.NewServer(http.HandlerFunc(func(response http.ResponseWriter, request *http.Request) {
+		var body map[string]any
+		_ = json.NewDecoder(request.Body).Decode(&body)
+		if body["voice"] != "laidback woman" || body["response_format"] != "raw" || body["stream"] != true {
+			t.Errorf("upstream body=%v", body)
+		}
+		response.Header().Set("Content-Type", "text/event-stream")
+		_, _ = io.WriteString(response, "data: {\"type\":\"conversation.item.audio_output.delta\",\"delta\":\"Zmlyc3Q=\"}\n\n")
+		response.(http.Flusher).Flush()
+		<-finish
+		_, _ = io.WriteString(response, "data: [DONE]\n\n")
+		response.(http.Flusher).Flush()
+	}))
+	defer upstream.Close()
+	ctx, store, owner, keyService, providerService, usageService := gatewayFixture(t)
+	defer store.Close()
+	connection, publicModel := publishModel(t, ctx, providerService, owner, "openai", upstream.URL+"/v1", "speech-upstream", []string{"audio_speech"})
+	_, secret, err := keyService.Create(ctx, owner.ID, keys.Input{Label: "Streaming speech", Scopes: []string{"audio:speech"}, ModelPatterns: []string{publicModel.ID}, ConnectionIDs: []string{connection.ID}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	mux := http.NewServeMux()
+	New(store.SystemDB(), keyService, providerService, usageService).Register(mux)
+	server := httptest.NewServer(mux)
+	defer server.Close()
+	request, _ := http.NewRequest(http.MethodPost, server.URL+"/api/openai/v1/audio/speech", strings.NewReader(`{"model":"`+publicModel.ID+`","input":"Hello","voice":"laidback woman","response_format":"raw","stream":true}`))
+	request.Header.Set("Authorization", "Bearer "+secret)
+	type result struct {
+		response *http.Response
+		err      error
+	}
+	resultChannel := make(chan result, 1)
+	go func() {
+		response, requestErr := http.DefaultClient.Do(request)
+		resultChannel <- result{response: response, err: requestErr}
+	}()
+	var httpResult result
+	select {
+	case httpResult = <-resultChannel:
+	case <-time.After(2 * time.Second):
+		close(finish)
+		t.Fatal("gateway buffered the provider speech stream")
+	}
+	if httpResult.err != nil {
+		close(finish)
+		t.Fatal(httpResult.err)
+	}
+	defer httpResult.response.Body.Close()
+	reader := bufio.NewReader(httpResult.response.Body)
+	first, err := reader.ReadString('\n')
+	if err != nil || httpResult.response.StatusCode != http.StatusOK || httpResult.response.Header.Get("Content-Type") != "text/event-stream" || !strings.Contains(first, "audio_output.delta") {
+		close(finish)
+		t.Fatalf("status=%d content-type=%q first=%q err=%v", httpResult.response.StatusCode, httpResult.response.Header.Get("Content-Type"), first, err)
+	}
+	close(finish)
+	remaining, err := io.ReadAll(reader)
+	if err != nil || !bytes.Contains(remaining, []byte("[DONE]")) {
+		t.Fatalf("remaining=%q err=%v", remaining, err)
 	}
 }
 

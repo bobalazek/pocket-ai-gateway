@@ -158,6 +158,7 @@ h2 { margin: 0; font-size: 20px; letter-spacing: -.015em; }
 .select { min-height: 44px; width: 100%; border: 1px solid var(--input-border); border-radius: 8px; padding: 8px 32px 8px 12px; color: var(--text); background: #fff; font: inherit; }
 .select:focus-visible { outline: 3px solid var(--focus); outline-offset: 2px; }
 textarea.select { resize: vertical; }
+.code-input { font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace; font-size: .8rem; line-height: 1.55; tab-size: 2; }
 .code-block { max-height: 480px; overflow: auto; white-space: pre-wrap; overflow-wrap: anywhere; font: 12px/1.6 ui-monospace, SFMono-Regular, Menlo, monospace; }
 .section-block { margin-top: 48px; }
 .resource-list { display: grid; gap: 12px; }

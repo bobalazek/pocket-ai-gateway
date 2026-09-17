@@ -177,7 +177,7 @@ func TestCatalogValidationAndPresets(t *testing.T) {
 		"groq":       {"chat/completions", "responses", "audio/speech", "audio/transcriptions", "audio/translations"},
 		"deepseek":   {"chat/completions", "responses"},
 		"xai":        {"chat/completions", "responses", "embeddings"},
-		"together":   {"chat/completions", "completions", "embeddings", "images/generations", "audio/speech", "audio/transcriptions", "audio/translations"},
+		"together":   {"chat/completions", "completions", "embeddings", "images/generations", "audio/speech", "audio/transcriptions", "audio/translations", "videos"},
 		"fireworks":  {"chat/completions", "completions", "responses", "embeddings"},
 		"cohere":     {"chat/completions", "embeddings"},
 		"perplexity": {"chat/completions", "responses", "embeddings"},
@@ -208,7 +208,11 @@ func TestCatalogValidationAndPresets(t *testing.T) {
 		found := false
 		for _, preset := range available {
 			if preset.ID == id {
-				found = slices.Equal(preset.Operations, expectedOperations[id]) && preset.DocumentationURL != "" && preset.ReviewedAt == "2026-09-16"
+				reviewedAt := "2026-09-16"
+				if id == "together" {
+					reviewedAt = "2026-09-17"
+				}
+				found = slices.Equal(preset.Operations, expectedOperations[id]) && preset.DocumentationURL != "" && preset.ReviewedAt == reviewedAt
 			}
 		}
 		if !found {
@@ -249,10 +253,10 @@ func TestCatalogValidationAndPresets(t *testing.T) {
 			t.Errorf("%s accepted malformed cloud endpoint %s", invalid.Preset, invalid.BaseURL)
 		}
 	}
-	if !PresetSupports("openrouter", "responses") || !PresetSupports("openrouter", "audio/speech") || PresetSupports("openrouter", "audio/transcriptions") || !PresetSupports("zai", "images/generations") || PresetSupports("zai", "audio/transcriptions") || !PresetSupports("minimax", "responses") || !PresetSupports("minimax", "responses/input_tokens") || !PresetSupports("mistral", "audio/transcriptions") || !PresetSupports("fireworks", "responses") || !PresetSupports("fireworks", "embeddings") || PresetSupports("together", "responses") || !PresetSupports("together", "images/generations") || PresetSupports("cohere", "audio/transcriptions") || !PresetSupports("perplexity", "embeddings") || !PresetSupports("gemini", "models/test:generateContent") || !PresetSupports("gemini", "interactions") || !PresetSupports("custom", "anything") {
+	if !PresetSupports("openrouter", "responses") || !PresetSupports("openrouter", "audio/speech") || PresetSupports("openrouter", "audio/transcriptions") || !PresetSupports("zai", "images/generations") || PresetSupports("zai", "audio/transcriptions") || !PresetSupports("minimax", "responses") || !PresetSupports("minimax", "responses/input_tokens") || !PresetSupports("mistral", "audio/transcriptions") || !PresetSupports("fireworks", "responses") || !PresetSupports("fireworks", "embeddings") || PresetSupports("together", "responses") || !PresetSupports("together", "images/generations") || !PresetSupports("together", "audio/speech") || PresetSupports("cohere", "audio/transcriptions") || !PresetSupports("perplexity", "embeddings") || !PresetSupports("gemini", "models/test:generateContent") || !PresetSupports("gemini", "interactions") || !PresetSupports("custom", "anything") {
 		t.Fatal("preset operation limits are not enforced")
 	}
-	if !PresetSupports("openai", "completions") || !PresetSupports("openai", "moderations") || !PresetSupports("openai", "responses/input_tokens") || !PresetSupports("openai", "images/generations") || !PresetSupports("openai", "images/edits") || !PresetSupports("openai", "images/variations") || !PresetSupports("openai", "audio/speech") || !PresetSupports("openai", "audio/transcriptions") || !PresetSupports("openai", "audio/translations") || PresetSupports("anthropic", "completions") || PresetSupports("anthropic", "moderations") || !PresetSupportsCapabilities("openai", []string{"completions", "moderations", "count_tokens", "images", "image_edit", "image_variation", "audio_speech", "audio_transcription", "audio_translation"}) {
+	if !PresetSupports("openai", "completions") || !PresetSupports("openai", "moderations") || !PresetSupports("openai", "responses/input_tokens") || !PresetSupports("openai", "images/generations") || !PresetSupports("openai", "images/edits") || !PresetSupports("openai", "images/variations") || !PresetSupports("openai", "audio/speech") || !PresetSupports("openai", "audio/transcriptions") || !PresetSupports("openai", "audio/translations") || !PresetSupports("openai", "realtime") || PresetSupports("anthropic", "completions") || PresetSupports("anthropic", "moderations") || !PresetSupportsCapabilities("openai", []string{"completions", "moderations", "count_tokens", "images", "image_edit", "image_variation", "audio_speech", "audio_transcription", "audio_translation", "realtime"}) {
 		t.Fatal("OpenAI preset capability mapping is incorrect")
 	}
 	if !containsString(availableCapabilities("openai", "openai"), "completions") || containsString(availableCapabilities("anthropic", "anthropic"), "completions") {

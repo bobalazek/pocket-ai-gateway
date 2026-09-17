@@ -101,7 +101,7 @@ func modelVisibleInDialect(dialect string, model providers.PublicModel, target p
 		return false
 	}
 	operations := map[string][]struct{ scope, operation string }{
-		"openai":    {{"completions:generate", "completions"}, {"embeddings:generate", "embeddings"}, {"moderations:classify", "moderations"}, {"tokens:count", "responses/input_tokens"}, {"images:generate", "images/generations"}, {"images:edit", "images/edits"}, {"images:variation", "images/variations"}, {"audio:speech", "audio/speech"}, {"audio:transcribe", "audio/transcriptions"}, {"audio:translate", "audio/translations"}},
+		"openai":    {{"completions:generate", "completions"}, {"embeddings:generate", "embeddings"}, {"moderations:classify", "moderations"}, {"tokens:count", "responses/input_tokens"}, {"images:generate", "images/generations"}, {"images:edit", "images/edits"}, {"images:variation", "images/variations"}, {"audio:speech", "audio/speech"}, {"audio:transcribe", "audio/transcriptions"}, {"audio:translate", "audio/translations"}, {"realtime:connect", "realtime"}},
 		"anthropic": {{"tokens:count", "messages/count_tokens"}},
 		"gemini":    {{"embeddings:generate", "embedContent"}, {"tokens:count", "countTokens"}, {"interactions:generate", "interactions"}},
 	}[dialect]

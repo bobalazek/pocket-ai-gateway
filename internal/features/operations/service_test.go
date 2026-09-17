@@ -65,7 +65,7 @@ func TestLocalBackupSettingsAndDiagnostics(t *testing.T) {
 		t.Fatalf("diagnostics = %+v, error = %v", diagnostics, err)
 	}
 	bundle, err := service.ExportConfig(ctx)
-	if err != nil || bundle.Format != 2 {
+	if err != nil || bundle.Format != 3 {
 		t.Fatalf("export = %+v, error = %v", bundle, err)
 	}
 	preview, err := PreviewConfig(bundle)
@@ -77,7 +77,7 @@ func TestLocalBackupSettingsAndDiagnostics(t *testing.T) {
 	}
 }
 
-func TestConfigV2ScheduledCachePriceRoundTripAndV1Compatibility(t *testing.T) {
+func TestConfigV3ScheduledCachePriceRoundTripAndOlderCompatibility(t *testing.T) {
 	ctx := context.Background()
 	store, err := storage.Open(ctx, filepath.Join(t.TempDir(), "data"))
 	if err != nil {
@@ -107,7 +107,7 @@ func TestConfigV2ScheduledCachePriceRoundTripAndV1Compatibility(t *testing.T) {
 		t.Fatal(err)
 	}
 	exported, err := service.ExportConfig(ctx)
-	if err != nil || exported.Format != 2 || len(exported.Prices) != 1 || exported.Prices[0].CacheReadNanosPerMillion == nil || *exported.Prices[0].CacheReadNanosPerMillion != cache || exported.Prices[0].WeeklyStartMinuteUTC == nil || *exported.Prices[0].WeeklyStartMinuteUTC != start || exported.Prices[0].WeeklyEndMinuteUTC == nil || *exported.Prices[0].WeeklyEndMinuteUTC != end {
+	if err != nil || exported.Format != 3 || len(exported.Prices) != 1 || exported.Prices[0].CacheReadNanosPerMillion == nil || *exported.Prices[0].CacheReadNanosPerMillion != cache || exported.Prices[0].WeeklyStartMinuteUTC == nil || *exported.Prices[0].WeeklyStartMinuteUTC != start || exported.Prices[0].WeeklyEndMinuteUTC == nil || *exported.Prices[0].WeeklyEndMinuteUTC != end {
 		t.Fatalf("exported=%#v err=%v", exported.Prices, err)
 	}
 	existingOverlap := exported
@@ -138,6 +138,38 @@ func TestConfigV2ScheduledCachePriceRoundTripAndV1Compatibility(t *testing.T) {
 	bundle.Prices[0].CacheReadNanosPerMillion = &cache
 	if _, err := PreviewConfig(bundle); err == nil {
 		t.Fatal("v1 config accepted v2 price fields")
+	}
+}
+
+func TestConfigV3AdapterScriptRoundTrip(t *testing.T) {
+	ctx := context.Background()
+	store, err := storage.Open(ctx, filepath.Join(t.TempDir(), "data"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+	now := time.Now().UnixMilli()
+	if _, err = store.SystemDB().ExecContext(ctx, `INSERT INTO users(id,email,display_name,password_hash,role,status,inference_unrestricted,created_at,updated_at) VALUES('usr_owner','owner@example.test','Owner','hash','owner','active',1,?,?)`, now, now); err != nil {
+		t.Fatal(err)
+	}
+	bundle := ConfigBundle{
+		Format:         3,
+		Settings:       Settings{BackupIntervalHours: 24, BackupRetention: 14, BackupDestination: "local", S3Region: "us-east-1", S3AccessKeyEnv: "AWS_ACCESS_KEY_ID", S3SecretKeyEnv: "AWS_SECRET_ACCESS_KEY", RequestRetention: 90, AuditRetention: 365},
+		Catalog:        ConfigCatalog{RefreshIntervalHours: 24},
+		Connections:    []ConfigConnection{{ID: "con_script", Name: "Scripted", Adapter: "openai_compatible", BaseURL: "https://api.example.test/v1", Enabled: true, TimeoutMS: 60000, Preset: "custom"}},
+		AdapterScripts: []ConfigAdapterScript{{ConnectionID: "con_script", RequestScript: `(input) => ({body: input.body})`, ResponseScript: `(input) => ({body: input.body})`}},
+	}
+	service := New(store, providers.New(store.SystemDB(), make([]byte, 32)), "test", func(string) string { return "" })
+	if _, err = service.ImportConfig(ctx, "usr_owner", bundle); err != nil {
+		t.Fatal(err)
+	}
+	exported, err := service.ExportConfig(ctx)
+	if err != nil || len(exported.AdapterScripts) != 1 || exported.AdapterScripts[0] != bundle.AdapterScripts[0] {
+		t.Fatalf("adapter scripts=%#v err=%v", exported.AdapterScripts, err)
+	}
+	bundle.AdapterScripts[0].RequestScript = `() => {`
+	if _, err = PreviewConfig(bundle); err == nil {
+		t.Fatal("invalid adapter script was accepted")
 	}
 }
 

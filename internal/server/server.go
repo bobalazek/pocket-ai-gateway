@@ -16,6 +16,7 @@ import (
 	"github.com/bobalazek/pocket-ai-gateway/internal/credentials"
 	"github.com/bobalazek/pocket-ai-gateway/internal/features/auth"
 	"github.com/bobalazek/pocket-ai-gateway/internal/features/keys"
+	"github.com/bobalazek/pocket-ai-gateway/internal/features/mediajobs"
 	"github.com/bobalazek/pocket-ai-gateway/internal/features/operations"
 	"github.com/bobalazek/pocket-ai-gateway/internal/features/providers"
 	"github.com/bobalazek/pocket-ai-gateway/internal/features/usage"
@@ -37,22 +38,30 @@ func NewWithUsage(systemDatabase *sql.DB, publicOrigin string, usageService *usa
 }
 
 func NewWithServices(systemDatabase *sql.DB, publicOrigin string, usageService *usage.Service, providerService *providers.Service) http.Handler {
-	return newHandler(systemDatabase, publicOrigin, usageService, providerService, nil, nil)
+	return newHandler(systemDatabase, publicOrigin, usageService, providerService, nil, nil, nil)
 }
 
-func NewRuntime(systemDatabase *sql.DB, publicOrigin string, usageService *usage.Service, providerService *providers.Service, operationService *operations.Service, gatewayHandler *gateway.Handler) http.Handler {
-	return newHandler(systemDatabase, publicOrigin, usageService, providerService, operationService, gatewayHandler)
+func NewRuntime(systemDatabase *sql.DB, publicOrigin string, usageService *usage.Service, providerService *providers.Service, operationService *operations.Service, gatewayHandler *gateway.Handler, mediaServices ...*mediajobs.Service) http.Handler {
+	var mediaService *mediajobs.Service
+	if len(mediaServices) > 0 {
+		mediaService = mediaServices[0]
+	}
+	return newHandler(systemDatabase, publicOrigin, usageService, providerService, operationService, gatewayHandler, mediaService)
 }
 
-func newHandler(systemDatabase *sql.DB, publicOrigin string, usageService *usage.Service, providerService *providers.Service, operationService *operations.Service, gatewayHandler *gateway.Handler) http.Handler {
+func newHandler(systemDatabase *sql.DB, publicOrigin string, usageService *usage.Service, providerService *providers.Service, operationService *operations.Service, gatewayHandler *gateway.Handler, mediaService *mediajobs.Service) http.Handler {
 	mux := http.NewServeMux()
 	authHandler := auth.NewHandler(auth.New(systemDatabase), publicOrigin)
 	keyService := keys.New(systemDatabase)
+	if mediaService == nil {
+		mediaService = mediajobs.New(systemDatabase, keyService, providerService, usageService, make([]byte, 32))
+	}
 	authHandler.Register(mux)
 	users.NewHandler(users.New(systemDatabase), authHandler).Register(mux)
 	keys.NewHandler(keyService, authHandler).Register(mux)
 	usage.NewHandler(usageService, authHandler).Register(mux)
 	providers.NewHandler(providerService, authHandler).Register(mux)
+	mediajobs.NewHandler(mediaService, keyService, authHandler).Register(mux)
 	if operationService != nil {
 		operations.NewHandler(operationService, authHandler).Register(mux)
 		mux.HandleFunc("GET /readyz", func(response http.ResponseWriter, request *http.Request) {

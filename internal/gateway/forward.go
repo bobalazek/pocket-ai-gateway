@@ -185,8 +185,9 @@ func (handler *Handler) forwardAuthorized(response http.ResponseWriter, request 
 			return
 		}
 	}
+	speechStream := false
 	if upstreamPath == "audio/speech" {
-		if err = validateSpeech(envelope); err != nil {
+		if speechStream, err = validateSpeech(envelope); err != nil {
 			handler.writeError(response, dialect, http.StatusBadRequest, "invalid_request", err.Error())
 			return
 		}
@@ -209,6 +210,9 @@ func (handler *Handler) forwardAuthorized(response http.ResponseWriter, request 
 	}
 	stream := false
 	_ = json.Unmarshal(envelope["stream"], &stream)
+	if upstreamPath == "audio/speech" {
+		stream = speechStream
+	}
 	if upstreamPath == "images/generations" {
 		stream = imageGenerationInput.stream
 	}

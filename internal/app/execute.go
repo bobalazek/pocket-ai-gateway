@@ -18,6 +18,7 @@ import (
 	"github.com/bobalazek/pocket-ai-gateway/internal/credentials"
 	"github.com/bobalazek/pocket-ai-gateway/internal/features/auth"
 	"github.com/bobalazek/pocket-ai-gateway/internal/features/keys"
+	"github.com/bobalazek/pocket-ai-gateway/internal/features/mediajobs"
 	"github.com/bobalazek/pocket-ai-gateway/internal/features/operations"
 	"github.com/bobalazek/pocket-ai-gateway/internal/features/providers"
 	"github.com/bobalazek/pocket-ai-gateway/internal/features/usage"
@@ -199,7 +200,7 @@ func serve(ctx context.Context, version string, cfg Config, logOutput io.Writer)
 	authService := auth.New(stores.SystemDB())
 	usageService := usage.New(stores.SystemDB())
 	var encryptedRows int
-	if err := stores.SystemDB().QueryRowContext(ctx, "SELECT (SELECT COUNT(*) FROM provider_credentials WHERE ciphertext IS NOT NULL) + (SELECT COUNT(*) FROM openai_files) + (SELECT COUNT(*) FROM openai_batch_items WHERE request_ciphertext IS NOT NULL OR result_ciphertext IS NOT NULL) + (SELECT COUNT(*) FROM openai_upload_parts WHERE ciphertext IS NOT NULL)").Scan(&encryptedRows); err != nil {
+	if err := stores.SystemDB().QueryRowContext(ctx, "SELECT (SELECT COUNT(*) FROM provider_credentials WHERE ciphertext IS NOT NULL) + (SELECT COUNT(*) FROM openai_files) + (SELECT COUNT(*) FROM openai_batch_items WHERE request_ciphertext IS NOT NULL OR result_ciphertext IS NOT NULL) + (SELECT COUNT(*) FROM openai_upload_parts WHERE ciphertext IS NOT NULL) + (SELECT COUNT(*) FROM media_jobs WHERE input_ciphertext IS NOT NULL OR output_ciphertext IS NOT NULL)").Scan(&encryptedRows); err != nil {
 		return fmt.Errorf("inspect encrypted storage: %w", err)
 	}
 	masterKey, err := providers.LoadOrCreateMasterKey(stores.DataDir(), encryptedRows > 0)
@@ -208,6 +209,7 @@ func serve(ctx context.Context, version string, cfg Config, logOutput io.Writer)
 	}
 	providerService := providers.New(stores.SystemDB(), masterKey)
 	keyService := keys.New(stores.SystemDB())
+	mediaService := mediajobs.New(stores.SystemDB(), keyService, providerService, usageService, masterKey)
 	gatewayHandler := gateway.NewWithMasterKey(stores.SystemDB(), keyService, providerService, usageService, masterKey, publicOrigin)
 	operationService := operations.New(stores, providerService, version, os.Getenv)
 	if err := operationService.Recover(ctx); err != nil {
@@ -235,9 +237,18 @@ func serve(ctx context.Context, version string, cfg Config, logOutput io.Writer)
 	go runOperations(workerContext, operationService, logger, operationsDone)
 	responsesDone := make(chan struct{})
 	go func() { defer close(responsesDone); gatewayHandler.RunBackground(workerContext) }()
-	defer func() { stopWorker(); <-workerDone; <-catalogDone; <-operationsDone; <-responsesDone }()
+	mediaDone := make(chan struct{})
+	go func() { defer close(mediaDone); mediaService.Run(workerContext) }()
+	defer func() {
+		stopWorker()
+		<-workerDone
+		<-catalogDone
+		<-operationsDone
+		<-responsesDone
+		<-mediaDone
+	}()
 	httpServer := &http.Server{
-		Handler:           server.NewRuntime(stores.SystemDB(), publicOrigin, usageService, providerService, operationService, gatewayHandler),
+		Handler:           server.NewRuntime(stores.SystemDB(), publicOrigin, usageService, providerService, operationService, gatewayHandler, mediaService),
 		ReadHeaderTimeout: 5 * time.Second,
 		ReadTimeout:       5 * time.Minute,
 		IdleTimeout:       60 * time.Second,

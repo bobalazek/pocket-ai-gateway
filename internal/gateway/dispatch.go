@@ -20,6 +20,8 @@ import (
 
 var errUpstreamResponseInterrupted = protocol.ErrUpstreamResponseInterrupted
 
+const maxSpeechStreamBytes = 64 << 20
+
 func (handler *Handler) settle(attemptID string, input usage.SettlementInput) error {
 	var last error
 	for attempt := 0; attempt < 5; attempt++ {
@@ -53,20 +55,38 @@ func (handler *Handler) dispatch(response http.ResponseWriter, request *http.Req
 		}
 	}
 	defer release()
+	operation := relative
+	requestContentType := "application/json"
+	multipartBody, multipart := multipartRequest(request)
+	if multipart {
+		requestContentType = multipartBody.contentType
+	}
+	if stream && (target.AdapterRequestScript != "" || target.AdapterResponseScript != "") || multipart && target.AdapterRequestScript != "" {
+		handler.writeError(response, dialect, http.StatusBadGateway, "adapter_error", "Provider adapter does not support this request mode")
+		return 0, nil, providers.ErrAdapterTransform
+	}
+	adapterRequest := providers.AdapterRequest{Method: http.MethodPost, Path: relative, Headers: make(http.Header), Body: body}
+	adapterRequest.Headers.Set("Content-Type", requestContentType)
+	adapterRequest, err := providers.TransformAdapterRequest(request.Context(), target.AdapterRequestScript, operation, target.UpstreamID, adapterRequest)
+	if err != nil {
+		handler.writeError(response, dialect, http.StatusBadGateway, "adapter_error", "Provider adapter request transform failed")
+		return 0, nil, err
+	}
+	relative, body = adapterRequest.Path, adapterRequest.Body
 	endpoint, err := joinURL(target.BaseURL, relative)
 	if err != nil {
 		handler.writeError(response, dialect, http.StatusBadGateway, "upstream_error", "Provider URL is invalid")
 		return 0, nil, err
 	}
-	upstream, err := http.NewRequestWithContext(request.Context(), http.MethodPost, endpoint, bytes.NewReader(body))
+	upstream, err := http.NewRequestWithContext(request.Context(), adapterRequest.Method, endpoint, bytes.NewReader(body))
 	if err != nil {
 		return 0, nil, err
 	}
-	requestContentType := "application/json"
-	if multipart, ok := multipartRequest(request); ok {
-		requestContentType = multipart.contentType
+	for name, values := range adapterRequest.Headers {
+		for _, value := range values {
+			upstream.Header.Add(name, value)
+		}
 	}
-	upstream.Header.Set("Content-Type", requestContentType)
 	setProviderCredential(upstream, target.Adapter, target.Preset, target.Credential, target.BearerCredential)
 	copyProtocolHeaders(upstream.Header, request.Header, target.Adapter)
 	client := safeClient(time.Duration(target.TimeoutMS)*time.Millisecond, target.AllowPrivateNetwork)
@@ -94,7 +114,16 @@ func (handler *Handler) dispatch(response http.ResponseWriter, request *http.Req
 			handler.writeError(response, dialect, http.StatusBadGateway, "upstream_error", "Provider response exceeds 16 MiB")
 			return result.StatusCode, nil, errors.New("provider response exceeds 16 MiB")
 		}
-		if relative == "completions" {
+		adapterResponse, transformErr := providers.TransformAdapterResponse(request.Context(), target.AdapterResponseScript, operation, target.UpstreamID, providers.AdapterResponse{Status: result.StatusCode, Headers: result.Header.Clone(), Body: raw})
+		if transformErr != nil {
+			handler.writeError(response, dialect, http.StatusBadGateway, "adapter_error", "Provider adapter response transform failed")
+			return result.StatusCode, nil, transformErr
+		}
+		raw = adapterResponse.Body
+		if transformedContentType := adapterResponse.Headers.Get("Content-Type"); transformedContentType != "" {
+			contentType = transformedContentType
+		}
+		if operation == "completions" {
 			raw, readErr = protocol.NormalizeOpenAICompletionResponse(raw, publicModel)
 			if readErr != nil {
 				handler.writeError(response, dialect, http.StatusBadGateway, "upstream_error", "Provider returned an invalid Completion response")
@@ -103,9 +132,9 @@ func (handler *Handler) dispatch(response http.ResponseWriter, request *http.Req
 		}
 		response.Header().Set("Content-Type", contentType)
 		response.Header().Set("Cache-Control", "no-store")
-		response.WriteHeader(result.StatusCode)
+		response.WriteHeader(adapterResponse.Status)
 		_, err = response.Write(raw)
-		return result.StatusCode, raw, err
+		return adapterResponse.Status, raw, err
 	}
 	if relative == "images/generations" {
 		mediaType, _, parseErr := mime.ParseMediaType(contentType)
@@ -140,7 +169,19 @@ func (handler *Handler) dispatch(response http.ResponseWriter, request *http.Req
 	} else if dialect == "anthropic" {
 		err = copyAnthropicStream(io.MultiWriter(flushWriter{writer: response, flusher: flusher}, captureWriter), result.Body, publicModel)
 	} else {
-		_, err = io.Copy(flushWriter{writer: response, flusher: flusher}, io.TeeReader(result.Body, captureWriter))
+		reader := io.Reader(result.Body)
+		if relative == "audio/speech" {
+			reader = io.LimitReader(result.Body, maxSpeechStreamBytes)
+		}
+		_, err = io.Copy(flushWriter{writer: response, flusher: flusher}, io.TeeReader(reader, captureWriter))
+		if err == nil && relative == "audio/speech" {
+			var extra [1]byte
+			if count, readErr := result.Body.Read(extra[:]); count > 0 {
+				err = errors.New("provider speech stream exceeds 64 MiB")
+			} else if readErr != nil && !errors.Is(readErr, io.EOF) {
+				err = readErr
+			}
+		}
 	}
 	if relative != "images/generations" {
 		raw = capture.Bytes()
@@ -165,16 +206,33 @@ func (handler *Handler) dispatchTranslated(response http.ResponseWriter, request
 		}
 	}
 	defer release()
+	operation := relative
+	if stream && (target.AdapterRequestScript != "" || target.AdapterResponseScript != "") {
+		handler.writeError(response, dialect, http.StatusBadGateway, "adapter_error", "Provider adapter does not support streaming")
+		return 0, nil, providers.ErrAdapterTransform
+	}
+	adapterRequest := providers.AdapterRequest{Method: http.MethodPost, Path: relative, Headers: make(http.Header), Body: body}
+	adapterRequest.Headers.Set("Content-Type", "application/json")
+	adapterRequest, err := providers.TransformAdapterRequest(request.Context(), target.AdapterRequestScript, operation, target.UpstreamID, adapterRequest)
+	if err != nil {
+		handler.writeError(response, dialect, http.StatusBadGateway, "adapter_error", "Provider adapter request transform failed")
+		return 0, nil, err
+	}
+	relative, body = adapterRequest.Path, adapterRequest.Body
 	endpoint, err := joinURL(target.BaseURL, relative)
 	if err != nil {
 		handler.writeError(response, dialect, http.StatusBadGateway, "upstream_error", "Provider URL is invalid")
 		return 0, nil, err
 	}
-	upstream, err := http.NewRequestWithContext(request.Context(), http.MethodPost, endpoint, bytes.NewReader(body))
+	upstream, err := http.NewRequestWithContext(request.Context(), adapterRequest.Method, endpoint, bytes.NewReader(body))
 	if err != nil {
 		return 0, nil, err
 	}
-	upstream.Header.Set("Content-Type", "application/json")
+	for name, values := range adapterRequest.Headers {
+		for _, value := range values {
+			upstream.Header.Add(name, value)
+		}
+	}
 	setProviderCredential(upstream, target.Adapter, target.Preset, target.Credential, target.BearerCredential)
 	if target.Adapter == "anthropic" {
 		upstream.Header.Set("anthropic-version", "2023-06-01")
@@ -203,6 +261,12 @@ func (handler *Handler) dispatchTranslated(response http.ResponseWriter, request
 		handler.writeError(response, dialect, http.StatusBadGateway, "upstream_error", "Provider response could not be translated")
 		return result.StatusCode, nil, errors.New("translated response exceeds 16 MiB")
 	}
+	adapterResponse, transformErr := providers.TransformAdapterResponse(request.Context(), target.AdapterResponseScript, operation, target.UpstreamID, providers.AdapterResponse{Status: result.StatusCode, Headers: result.Header.Clone(), Body: raw})
+	if transformErr != nil {
+		handler.writeError(response, dialect, http.StatusBadGateway, "adapter_error", "Provider adapter response transform failed")
+		return result.StatusCode, nil, transformErr
+	}
+	raw = adapterResponse.Body
 	translated, err := protocol.TranslateResponse(dialect, target.Adapter, publicModel, raw)
 	if err != nil {
 		handler.writeError(response, dialect, http.StatusBadGateway, "translation_error", "Provider response could not be translated")

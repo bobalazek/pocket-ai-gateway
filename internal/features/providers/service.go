@@ -24,10 +24,10 @@ var (
 )
 
 var adapters = map[string][]string{
-	"openai":            {"chat", "completions", "web_search", "embeddings", "moderations", "count_tokens", "images", "image_edit", "image_variation", "audio_speech", "audio_transcription", "audio_translation"},
+	"openai":            {"chat", "completions", "web_search", "embeddings", "moderations", "count_tokens", "images", "image_edit", "image_variation", "audio_speech", "audio_transcription", "audio_translation", "realtime"},
 	"anthropic":         {"chat", "web_search", "web_fetch", "count_tokens", "prompt_cache"},
 	"gemini":            {"chat", "count_tokens", "embeddings", "interactions"},
-	"openai_compatible": {"chat", "completions", "embeddings", "moderations", "count_tokens", "images", "image_edit", "image_variation", "audio_speech", "audio_transcription", "audio_translation"},
+	"openai_compatible": {"chat", "completions", "embeddings", "moderations", "count_tokens", "images", "image_edit", "image_variation", "audio_speech", "audio_transcription", "audio_translation", "media_jobs"},
 }
 
 var adapterLabels = map[string]string{
@@ -50,7 +50,9 @@ var capabilityLabels = map[string]string{
 	"images":              "Image generation",
 	"interactions":        "Interactions",
 	"moderations":         "Moderation",
+	"media_jobs":          "Asynchronous media jobs",
 	"prompt_cache":        "Prompt caching",
+	"realtime":            "Realtime audio and text",
 	"web_fetch":           "Web fetch",
 	"web_search":          "Web search",
 }
@@ -67,6 +69,8 @@ var scopeCapabilities = map[string]string{
 	"images:variation":      "image_variation",
 	"interactions:generate": "interactions",
 	"moderations:classify":  "moderations",
+	"media:generate":        "media_jobs",
+	"realtime:connect":      "realtime",
 	"responses:generate":    "chat",
 	"tokens:count":          "count_tokens",
 }
@@ -158,14 +162,16 @@ type VisibleModel struct {
 
 type Target struct {
 	PublicModel
-	UpstreamCapabilities []string
-	BaseURL              string
-	AllowPrivateNetwork  bool
-	TimeoutMS            int64
-	ConnectionRevision   int64
-	Credential           string
-	BearerCredential     bool
-	Preset               string
+	UpstreamCapabilities  []string
+	BaseURL               string
+	AllowPrivateNetwork   bool
+	TimeoutMS             int64
+	ConnectionRevision    int64
+	Credential            string
+	BearerCredential      bool
+	Preset                string
+	AdapterRequestScript  string
+	AdapterResponseScript string
 }
 
 func New(database *sql.DB, key []byte) *Service {
@@ -310,6 +316,11 @@ func (service *Service) UpdateConnection(ctx context.Context, actor auth.User, i
 	}
 	if _, err = tx.ExecContext(ctx, `DELETE FROM provider_credentials WHERE connection_id=? AND EXISTS (SELECT 1 FROM provider_connections WHERE id=? AND (adapter<>? OR base_url<>? OR preset<>?))`, id, id, input.Adapter, input.BaseURL, input.Preset); err != nil {
 		return Connection{}, err
+	}
+	if input.Preset != "custom" || input.Adapter != "openai_compatible" {
+		if _, err = tx.ExecContext(ctx, "DELETE FROM provider_adapter_scripts WHERE connection_id=?", id); err != nil {
+			return Connection{}, err
+		}
 	}
 	result, err := tx.ExecContext(ctx, `UPDATE provider_connections SET name=?,adapter=?,base_url=?,enabled=?,allow_private_network=?,timeout_ms=?,preset=?,revision=revision+1,updated_at=? WHERE id=? AND revision=?`, input.Name, input.Adapter, input.BaseURL, input.Enabled, input.AllowPrivateNetwork, input.TimeoutMS, input.Preset, time.Now().UnixMilli(), id, revision)
 	if err != nil {
@@ -587,7 +598,7 @@ func (service *Service) Target(ctx context.Context, id string) (Target, error) {
 	target.PublicModel = model
 	var ciphertext, nonce []byte
 	var external sql.NullString
-	err = service.database.QueryRowContext(ctx, `SELECT base_url,allow_private_network,timeout_ms,revision,preset,provider_credentials.ciphertext,provider_credentials.nonce,provider_credentials.external_ref FROM provider_connections JOIN provider_credentials ON provider_credentials.connection_id=provider_connections.id WHERE provider_connections.id=? AND enabled=1`, model.TargetConnectionID).Scan(&target.BaseURL, &target.AllowPrivateNetwork, &target.TimeoutMS, &target.ConnectionRevision, &target.Preset, &ciphertext, &nonce, &external)
+	err = service.database.QueryRowContext(ctx, `SELECT base_url,allow_private_network,timeout_ms,revision,preset,provider_credentials.ciphertext,provider_credentials.nonce,provider_credentials.external_ref,COALESCE(CASE WHEN provider_connections.preset='custom' AND provider_connections.adapter='openai_compatible' THEN provider_adapter_scripts.request_script END,''),COALESCE(CASE WHEN provider_connections.preset='custom' AND provider_connections.adapter='openai_compatible' THEN provider_adapter_scripts.response_script END,'') FROM provider_connections JOIN provider_credentials ON provider_credentials.connection_id=provider_connections.id LEFT JOIN provider_adapter_scripts ON provider_adapter_scripts.connection_id=provider_connections.id WHERE provider_connections.id=? AND enabled=1`, model.TargetConnectionID).Scan(&target.BaseURL, &target.AllowPrivateNetwork, &target.TimeoutMS, &target.ConnectionRevision, &target.Preset, &ciphertext, &nonce, &external, &target.AdapterRequestScript, &target.AdapterResponseScript)
 	if errors.Is(err, sql.ErrNoRows) {
 		return Target{}, ErrNotFound
 	}

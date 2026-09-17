@@ -8,6 +8,12 @@ func TestOpenAICompletionsScopeIsAnInferenceScope(t *testing.T) {
 	}
 }
 
+func TestOpenAIRealtimeScopeIsAnInferenceScope(t *testing.T) {
+	if !ValidInferenceScope("realtime:connect") {
+		t.Fatal("realtime:connect was rejected")
+	}
+}
+
 func TestAnthropicWebSearchScopeIsAnInferenceScope(t *testing.T) {
 	if !ValidInferenceScope("messages:web_search") {
 		t.Fatal("messages:web_search was rejected")

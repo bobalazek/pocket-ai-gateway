@@ -287,43 +287,58 @@ func validateBatchImageReference(raw json.RawMessage) error {
 	return nil
 }
 
-func validateSpeech(envelope map[string]json.RawMessage) error {
+func validateSpeech(envelope map[string]json.RawMessage) (bool, error) {
 	var input string
 	if json.Unmarshal(envelope["input"], &input) != nil || strings.TrimSpace(input) == "" || len([]rune(input)) > 4096 {
-		return errors.New("input must contain 1-4096 characters")
+		return false, errors.New("input must contain 1-4096 characters")
 	}
 	var voice string
-	if json.Unmarshal(envelope["voice"], &voice) != nil || !slices.Contains([]string{"alloy", "ash", "ballad", "coral", "echo", "fable", "onyx", "nova", "sage", "shimmer", "verse", "marin", "cedar"}, voice) {
-		return errors.New("voice must be a built-in OpenAI voice; custom voice references are not supported")
+	if json.Unmarshal(envelope["voice"], &voice) == nil {
+		if strings.TrimSpace(voice) == "" || len(voice) > 200 {
+			return false, errors.New("voice must be a non-empty string or custom voice reference")
+		}
+	} else {
+		var custom struct {
+			ID string `json:"id"`
+		}
+		if json.Unmarshal(envelope["voice"], &custom) != nil || strings.TrimSpace(custom.ID) == "" || len(custom.ID) > 200 {
+			return false, errors.New("voice must be a non-empty string or custom voice reference")
+		}
 	}
 	if raw := bytes.TrimSpace(envelope["response_format"]); len(raw) > 0 && !bytes.Equal(raw, []byte("null")) {
 		var format string
-		if json.Unmarshal(raw, &format) != nil || !slices.Contains([]string{"mp3", "opus", "aac", "flac", "wav", "pcm"}, format) {
-			return errors.New("response_format must be mp3, opus, aac, flac, wav, or pcm")
+		if json.Unmarshal(raw, &format) != nil || !slices.Contains([]string{"mp3", "opus", "aac", "flac", "wav", "pcm", "raw"}, format) {
+			return false, errors.New("response_format must be mp3, opus, aac, flac, wav, pcm, or raw")
 		}
 	}
+	stream := false
 	if raw := bytes.TrimSpace(envelope["stream_format"]); len(raw) > 0 && !bytes.Equal(raw, []byte("null")) {
 		var format string
-		if json.Unmarshal(raw, &format) != nil || format != "audio" {
-			return errors.New("stream_format must be audio; SSE speech is not supported")
+		if json.Unmarshal(raw, &format) != nil || !slices.Contains([]string{"audio", "sse"}, format) {
+			return false, errors.New("stream_format must be audio or sse")
 		}
+		stream = true
 	}
-	if raw := bytes.TrimSpace(envelope["stream"]); len(raw) > 0 && !bytes.Equal(raw, []byte("null")) && !bytes.Equal(raw, []byte("false")) {
-		return errors.New("streaming speech responses are not supported")
+	if raw := bytes.TrimSpace(envelope["stream"]); len(raw) > 0 && !bytes.Equal(raw, []byte("null")) {
+		var requested bool
+		if json.Unmarshal(raw, &requested) != nil {
+			return false, errors.New("stream must be a boolean")
+		}
+		stream = stream || requested
 	}
 	if raw := bytes.TrimSpace(envelope["speed"]); len(raw) > 0 && !bytes.Equal(raw, []byte("null")) {
 		var speed float64
 		if json.Unmarshal(raw, &speed) != nil || speed < 0.25 || speed > 4 {
-			return errors.New("speed must be between 0.25 and 4")
+			return false, errors.New("speed must be between 0.25 and 4")
 		}
 	}
 	if raw := bytes.TrimSpace(envelope["instructions"]); len(raw) > 0 && !bytes.Equal(raw, []byte("null")) {
 		var instructions string
 		if json.Unmarshal(raw, &instructions) != nil {
-			return errors.New("instructions must be a string")
+			return false, errors.New("instructions must be a string")
 		}
 	}
-	return nil
+	return stream, nil
 }
 
 func validateResponses(envelope map[string]json.RawMessage) (bool, error) {

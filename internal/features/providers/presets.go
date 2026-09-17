@@ -21,7 +21,7 @@ type Preset struct {
 }
 
 var presets = []Preset{
-	{ID: "openai", Label: "OpenAI", Adapter: "openai", BaseURL: "https://api.openai.com/v1", CredentialRequired: true, Operations: []string{"chat/completions", "completions", "responses", "responses/compact", "responses/input_tokens", "embeddings", "moderations", "images/generations", "images/edits", "images/variations", "audio/speech", "audio/transcriptions", "audio/translations"}, DocumentationURL: "https://developers.openai.com/api/reference/overview", ReviewedAt: "2026-09-16"},
+	{ID: "openai", Label: "OpenAI", Adapter: "openai", BaseURL: "https://api.openai.com/v1", CredentialRequired: true, Operations: []string{"chat/completions", "completions", "responses", "responses/compact", "responses/input_tokens", "embeddings", "moderations", "images/generations", "images/edits", "images/variations", "audio/speech", "audio/transcriptions", "audio/translations", "realtime"}, DocumentationURL: "https://developers.openai.com/api/reference/overview", ReviewedAt: "2026-09-17"},
 	{ID: "anthropic", Label: "Anthropic", Adapter: "anthropic", BaseURL: "https://api.anthropic.com/v1", CredentialRequired: true, Operations: []string{"messages", "messages/count_tokens"}, DocumentationURL: "https://platform.claude.com/docs/en/api/overview", ReviewedAt: "2026-09-15"},
 	{ID: "gemini", Label: "Google Gemini", Adapter: "gemini", BaseURL: "https://generativelanguage.googleapis.com/v1beta", CredentialRequired: true, Operations: []string{"generateContent", "streamGenerateContent", "countTokens", "embedContent", "batchEmbedContents", "interactions"}, DocumentationURL: "https://ai.google.dev/api", ReviewedAt: "2026-09-16"},
 	{ID: "openrouter", Label: "OpenRouter", Adapter: "openai_compatible", BaseURL: "https://openrouter.ai/api/v1", CredentialRequired: true, Operations: []string{"chat/completions", "responses", "embeddings", "audio/speech"}, DocumentationURL: "https://openrouter.ai/docs/api/reference/overview", ReviewedAt: "2026-09-16"},
@@ -32,7 +32,8 @@ var presets = []Preset{
 	{ID: "groq", Label: "Groq", Adapter: "openai_compatible", BaseURL: "https://api.groq.com/openai/v1", CredentialRequired: true, Operations: []string{"chat/completions", "responses", "audio/speech", "audio/transcriptions", "audio/translations"}, DocumentationURL: "https://console.groq.com/docs/openai", ReviewedAt: "2026-09-16"},
 	{ID: "deepseek", Label: "DeepSeek", Adapter: "openai_compatible", BaseURL: "https://api.deepseek.com", CredentialRequired: true, Operations: []string{"chat/completions", "responses"}, DocumentationURL: "https://api-docs.deepseek.com", ReviewedAt: "2026-09-16"},
 	{ID: "xai", Label: "xAI", Adapter: "openai_compatible", BaseURL: "https://api.x.ai/v1", CredentialRequired: true, Operations: []string{"chat/completions", "responses", "embeddings"}, DocumentationURL: "https://docs.x.ai/developers/rest-api-reference/inference", ReviewedAt: "2026-09-16"},
-	{ID: "together", Label: "Together AI", Adapter: "openai_compatible", BaseURL: "https://api.together.ai/v1", CredentialRequired: true, Operations: []string{"chat/completions", "completions", "embeddings", "images/generations", "audio/speech", "audio/transcriptions", "audio/translations"}, DocumentationURL: "https://docs.together.ai/docs/inference/openai-compatibility", ReviewedAt: "2026-09-16"},
+	{ID: "together", Label: "Together AI", Adapter: "openai_compatible", BaseURL: "https://api.together.ai/v1", CredentialRequired: true, Operations: []string{"chat/completions", "completions", "embeddings", "images/generations", "audio/speech", "audio/transcriptions", "audio/translations", "videos"}, DocumentationURL: "https://docs.together.ai/docs/inference/openai-compatibility", ReviewedAt: "2026-09-17"},
+	{ID: "replicate", Label: "Replicate", Adapter: "openai_compatible", BaseURL: "https://api.replicate.com/v1", CredentialRequired: true, Operations: []string{"predictions"}, DocumentationURL: "https://replicate.com/docs/reference/http", ReviewedAt: "2026-09-17"},
 	{ID: "fireworks", Label: "Fireworks AI", Adapter: "openai_compatible", BaseURL: "https://api.fireworks.ai/inference/v1", CredentialRequired: true, Operations: []string{"chat/completions", "completions", "responses", "embeddings"}, DocumentationURL: "https://docs.fireworks.ai/tools-sdks/openai-compatibility", ReviewedAt: "2026-09-16"},
 	{ID: "cohere", Label: "Cohere", Adapter: "openai_compatible", BaseURL: "https://api.cohere.ai/compatibility/v1", CredentialRequired: true, Operations: []string{"chat/completions", "embeddings"}, DocumentationURL: "https://docs.cohere.com/docs/compatibility-api", ReviewedAt: "2026-09-16"},
 	{ID: "perplexity", Label: "Perplexity", Adapter: "openai_compatible", BaseURL: "https://api.perplexity.ai/v1", CredentialRequired: true, Operations: []string{"chat/completions", "responses", "embeddings"}, DocumentationURL: "https://docs.perplexity.ai/docs/agent-api/openai-compatibility", ReviewedAt: "2026-09-16"},
@@ -119,8 +120,14 @@ func PresetSupportsCapabilities(presetID string, capabilities []string) bool {
 			}
 			return false
 		}
+		if capability == "media_jobs" {
+			if presetID == "replicate" || presetID == "together" || presetID == "custom" {
+				continue
+			}
+			return false
+		}
 		supported := false
-		for _, operation := range []string{"chat/completions", "completions", "messages", "generateContent", "responses", "responses/compact", "responses/input_tokens", "embeddings", "embedContent", "batchEmbedContents", "moderations", "images/generations", "images/edits", "images/variations", "audio/speech", "audio/transcriptions", "audio/translations", "messages/count_tokens", "countTokens", "interactions"} {
+		for _, operation := range []string{"chat/completions", "completions", "messages", "generateContent", "responses", "responses/compact", "responses/input_tokens", "embeddings", "embedContent", "batchEmbedContents", "moderations", "images/generations", "images/edits", "images/variations", "audio/speech", "audio/transcriptions", "audio/translations", "messages/count_tokens", "countTokens", "interactions", "realtime", "predictions", "videos"} {
 			if operationCapability(operation) == capability && PresetSupports(presetID, operation) {
 				supported = true
 				break
@@ -187,6 +194,10 @@ func operationCapability(operation string) string {
 		return "count_tokens"
 	case "interactions":
 		return "interactions"
+	case "realtime":
+		return "realtime"
+	case "predictions", "videos":
+		return "media_jobs"
 	default:
 		return ""
 	}

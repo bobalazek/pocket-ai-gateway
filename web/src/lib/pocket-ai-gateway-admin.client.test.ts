@@ -7,7 +7,7 @@ import { gatewayTransport } from "@/lib/api-client";
 describe("pocketAIGatewayAdmin", () => {
   it("exposes every management namespace through one facade", () => {
     expect(Object.keys(pocketAIGatewayAdmin).sort()).toEqual([
-      "account", "audit", "auth", "keys", "models", "playground",
+      "account", "audit", "auth", "keys", "mediaJobs", "models", "playground",
       "providers", "requests", "settings", "status", "usage", "users",
     ]);
   });

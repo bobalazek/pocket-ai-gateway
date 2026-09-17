@@ -27,6 +27,14 @@ export type ProviderAdapter = {
   capability_details: CapabilityDetail[];
 };
 
+export type ProviderAdapterScript = {
+  connection_id: string;
+  request_script: string;
+  response_script: string;
+  revision: number;
+  updated_at: string;
+};
+
 export type ProviderPreset = {
   id: string;
   label: string;
