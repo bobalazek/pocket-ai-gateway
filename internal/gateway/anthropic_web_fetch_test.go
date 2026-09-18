@@ -123,23 +123,26 @@ func TestAnthropicWebFetchUsageAndStreamParsing(t *testing.T) {
 		{`{"usage":{"input_tokens":1,"output_tokens":2,"server_tool_use":{"web_fetch_requests":1,"web_search_requests":1}}}`, 4, nil, false},
 		{`{"usage":{"input_tokens":1,"output_tokens":2,"server_tool_use":{"web_fetch_requests":2}}}`, 1, nil, true},
 	} {
-		got, known, exceeded := parseAnthropicWebFetchUsage([]byte(test.raw), test.max, false)
+		got, known, exceeded := parseAnthropicWebFetchUsage([]byte(test.raw), test.max, false, "")
 		if (test.want != nil) != known || test.want != nil && (got == nil || *got != *test.want) || exceeded != test.exceeded {
 			t.Fatalf("parse %s = %v/%t/%t, want %v exceeded=%t", test.raw, got, known, exceeded, test.want, test.exceeded)
 		}
 	}
-	got, known, exceeded := parseAnthropicWebFetchUsage([]byte(`{"usage":{"server_tool_use":{"web_fetch_requests":1,"code_execution_requests":1}}}`), 1, true)
+	got, known, exceeded := parseAnthropicWebFetchUsage([]byte(`{"usage":{"server_tool_use":{"web_fetch_requests":1,"code_execution_requests":1}}}`), 1, true, "")
 	if !known || exceeded || got == nil || *got != 1 {
 		t.Fatalf("dynamic usage=%v/%t/%t", got, known, exceeded)
 	}
+	if got, known, exceeded := parseAnthropicWebFetchUsage([]byte(`{"usage":{"server_tool_use":{"web_fetch_requests":1,"web_search_requests":1}}}`), 2, false, "web_search_requests"); !known || exceeded || got == nil || *got != 1 {
+		t.Fatalf("companion search usage=%v/%t/%t", got, known, exceeded)
+	}
 
 	valid := anthropicWebFetchSSE(`{"web_fetch_requests":1,"web_search_requests":0}`, "")
-	count, err := parseAnthropicWebFetchStream([]byte(valid), 1, false)
+	count, err := parseAnthropicWebFetchStream([]byte(valid), 1, false, "")
 	if err != nil || count == nil || *count != 1 {
 		t.Fatalf("valid stream count=%v err=%v", count, err)
 	}
 	nullableTerminalInput := strings.Replace(valid, `"input_tokens":7,"output_tokens":2`, `"input_tokens":null,"output_tokens":2`, 1)
-	count, err = parseAnthropicWebFetchStream([]byte(nullableTerminalInput), 1, false)
+	count, err = parseAnthropicWebFetchStream([]byte(nullableTerminalInput), 1, false, "")
 	if err != nil || count == nil || *count != 1 {
 		t.Fatalf("nullable terminal input count=%v err=%v", count, err)
 	}
@@ -155,10 +158,14 @@ func TestAnthropicWebFetchUsageAndStreamParsing(t *testing.T) {
 		"error":            "event: error\ndata: {\"type\":\"error\",\"error\":{\"type\":\"overloaded_error\"}}\n\n",
 	} {
 		t.Run(name, func(t *testing.T) {
-			if _, err := parseAnthropicWebFetchStream([]byte(raw), 1, false); err == nil {
+			if _, err := parseAnthropicWebFetchStream([]byte(raw), 1, false, ""); err == nil {
 				t.Fatalf("invalid stream accepted: %s", raw)
 			}
 		})
+	}
+	combined := anthropicWebFetchSSE(`{"web_fetch_requests":1,"web_search_requests":2}`, "")
+	if count, err := parseAnthropicWebFetchStream([]byte(combined), 2, false, "web_search_requests"); err != nil || count == nil || *count != 1 {
+		t.Fatalf("combined stream count=%v err=%v", count, err)
 	}
 }
 
@@ -285,7 +292,7 @@ func TestAnthropicWebFetchNativeAccountingAndBoundaries(t *testing.T) {
 	}
 }
 
-func TestAnthropicWebFetchRejectsCombinationsBeforeDispatch(t *testing.T) {
+func TestAnthropicHostedWebToolsRejectPromptCacheBeforeDispatch(t *testing.T) {
 	var calls atomic.Int64
 	upstream := httptest.NewServer(http.HandlerFunc(func(response http.ResponseWriter, _ *http.Request) {
 		calls.Add(1)
@@ -303,8 +310,8 @@ func TestAnthropicWebFetchRejectsCombinationsBeforeDispatch(t *testing.T) {
 	New(store.SystemDB(), keyService, providerService, usageService).Register(mux)
 	tool := `{"type":"web_fetch_20250910","name":"web_fetch","max_uses":1,"max_content_tokens":1024}`
 	for name, body := range map[string]string{
-		"prompt cache":      `{"model":"claude-fetch","max_tokens":8,"cache_control":{"type":"ephemeral"},"messages":[{"role":"user","content":"Fetch"}],"tools":[` + tool + `]}`,
-		"search plus fetch": `{"model":"claude-fetch","max_tokens":8,"messages":[{"role":"user","content":"Fetch"}],"tools":[` + tool + `,{"type":"web_search_20250305","name":"web_search","max_uses":1}]}`,
+		"prompt cache":          `{"model":"claude-fetch","max_tokens":8,"cache_control":{"type":"ephemeral"},"messages":[{"role":"user","content":"Fetch"}],"tools":[` + tool + `]}`,
+		"combined prompt cache": `{"model":"claude-fetch","max_tokens":8,"cache_control":{"type":"ephemeral"},"messages":[{"role":"user","content":"Fetch"}],"tools":[` + tool + `,{"type":"web_search_20250305","name":"web_search","max_uses":1}]}`,
 	} {
 		t.Run(name, func(t *testing.T) {
 			response := performAnthropicRequest(t, mux, secret, body)
@@ -403,7 +410,7 @@ func publishAnthropicWebFetchModel(t *testing.T, ctx context.Context, database *
 	if err = service.PutCredential(ctx, owner, connection.ID, "provider-secret", ""); err != nil {
 		t.Fatal(err)
 	}
-	upstream, err := service.CreateUpstreamModel(ctx, owner, connection.ID, upstreamID, []string{"chat", "web_fetch", "web_fetch_dynamic", "web_fetch_cache_bypass", "web_fetch_response_inclusion"})
+	upstream, err := service.CreateUpstreamModel(ctx, owner, connection.ID, upstreamID, []string{"chat", "web_search", "web_search_dynamic", "web_search_response_inclusion", "web_fetch", "web_fetch_dynamic", "web_fetch_cache_bypass", "web_fetch_response_inclusion"})
 	if err != nil {
 		t.Fatal(err)
 	}

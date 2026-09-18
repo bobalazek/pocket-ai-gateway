@@ -61,6 +61,7 @@ Each record states status/source, context, decision, and consequences. A recomme
 | ADR-053 | [Native Live transports and Gemini media](2026-09-17-native-live-and-gemini-media.md) | Accepted user decision extending ADR-052 and Phase 9 |
 | ADR-054 | [Anthropic dynamic web filtering](2026-09-17-anthropic-dynamic-web-tools.md) | Delegated parity expansion extending ADR-020 and ADR-032 |
 | ADR-055 | [Anthropic web-tool response inclusion and cache bypass](2026-09-18-anthropic-web-tool-response-inclusion.md) | Delegated parity expansion extending ADR-020, ADR-032, and ADR-054 |
+| ADR-056 | [Anthropic combined web search and fetch](2026-09-18-anthropic-combined-web-tools.md) | Delegated parity expansion extending ADR-020, ADR-032, ADR-054, and ADR-055 |
 
 Historical: [initial proposal](2026-09-14-initial-proposal.md), superseded by the records above where they differ. Its A/P/D/M identifiers are historical references only; current documents use ADR IDs.
 

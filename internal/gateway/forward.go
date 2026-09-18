@@ -97,14 +97,8 @@ func (handler *Handler) forwardAuthorized(response http.ResponseWriter, request 
 			handler.writeError(response, dialect, http.StatusBadRequest, "invalid_request_error", err.Error())
 			return
 		}
-		if !anthropicWebFetch.enabled {
-			if anthropicWebSearch, err = validateAnthropicWebSearch(envelope); err != nil {
-				handler.writeError(response, dialect, http.StatusBadRequest, "invalid_request_error", err.Error())
-				return
-			}
-		}
-		if anthropicWebSearch.enabled && anthropicWebFetch.enabled {
-			handler.writeError(response, dialect, http.StatusBadRequest, "invalid_request_error", "web search and web fetch cannot be combined")
+		if anthropicWebSearch, err = validateAnthropicWebSearch(envelope); err != nil {
+			handler.writeError(response, dialect, http.StatusBadRequest, "invalid_request_error", err.Error())
 			return
 		}
 		if (anthropicWebSearch.enabled || anthropicWebFetch.enabled) && promptCache.enabled {
@@ -519,7 +513,7 @@ func (handler *Handler) forwardAuthorized(response http.ResponseWriter, request 
 				_, copyErr = attemptWriter.Write(raw)
 			}
 		}
-		if native && !stream && anthropicWebFetch.enabled && copyErr == nil && result >= 200 && result < 300 {
+		if native && !stream && (anthropicWebSearch.enabled || anthropicWebFetch.enabled) && copyErr == nil && result >= 200 && result < 300 {
 			raw, copyErr = rewriteResponseModel(raw, publicID)
 			semanticResponseError = copyErr != nil
 			if copyErr == nil {
@@ -541,6 +535,7 @@ func (handler *Handler) forwardAuthorized(response http.ResponseWriter, request 
 		anthropicWebFetchUsageKnown := true
 		webSearchTerminalFailure := false
 		webSearchResponseStatus := ""
+		anthropicWebToolDynamic := anthropicWebSearch.dynamic || anthropicWebFetch.dynamic
 		if webSearch.enabled && copyErr == nil && result >= 200 && result < 300 {
 			var parsedWebSearch responseWebSearchResult
 			parsedWebSearch, copyErr = parseWebSearchResponse(raw)
@@ -559,12 +554,16 @@ func (handler *Handler) forwardAuthorized(response http.ResponseWriter, request 
 			}
 		}
 		if anthropicWebSearch.enabled && copyErr == nil && result >= 200 && result < 300 {
+			searchCompanion := ""
+			if anthropicWebFetch.enabled {
+				searchCompanion = "web_fetch_requests"
+			}
 			if stream {
-				webSearchCallCount, copyErr = parseAnthropicWebSearchStream(raw, anthropicWebSearch.maxUses, anthropicWebSearch.dynamic)
+				webSearchCallCount, copyErr = parseAnthropicWebSearchStream(raw, anthropicWebSearch.maxUses, anthropicWebToolDynamic, searchCompanion)
 				anthropicWebSearchUsageKnown = copyErr == nil
 			} else {
 				var exceeded bool
-				webSearchCallCount, anthropicWebSearchUsageKnown, exceeded = parseAnthropicWebSearchUsage(raw, anthropicWebSearch.maxUses, anthropicWebSearch.dynamic)
+				webSearchCallCount, anthropicWebSearchUsageKnown, exceeded = parseAnthropicWebSearchUsage(raw, anthropicWebSearch.maxUses, anthropicWebToolDynamic, searchCompanion)
 				if exceeded {
 					copyErr = errors.New("provider exceeded max_uses")
 				}
@@ -577,12 +576,16 @@ func (handler *Handler) forwardAuthorized(response http.ResponseWriter, request 
 			}
 		}
 		if anthropicWebFetch.enabled && copyErr == nil && result >= 200 && result < 300 {
+			fetchCompanion := ""
+			if anthropicWebSearch.enabled {
+				fetchCompanion = "web_search_requests"
+			}
 			if stream {
-				webFetchCallCount, copyErr = parseAnthropicWebFetchStream(raw, anthropicWebFetch.maxUses, anthropicWebFetch.dynamic)
+				webFetchCallCount, copyErr = parseAnthropicWebFetchStream(raw, anthropicWebFetch.maxUses, anthropicWebToolDynamic, fetchCompanion)
 				anthropicWebFetchUsageKnown = copyErr == nil
 			} else {
 				var exceeded bool
-				webFetchCallCount, anthropicWebFetchUsageKnown, exceeded = parseAnthropicWebFetchUsage(raw, anthropicWebFetch.maxUses, anthropicWebFetch.dynamic)
+				webFetchCallCount, anthropicWebFetchUsageKnown, exceeded = parseAnthropicWebFetchUsage(raw, anthropicWebFetch.maxUses, anthropicWebToolDynamic, fetchCompanion)
 				if exceeded {
 					copyErr = errors.New("provider exceeded max_uses")
 				}

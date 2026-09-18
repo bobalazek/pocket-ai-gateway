@@ -43,7 +43,6 @@ func containsAnthropicWebFetchTool(raw json.RawMessage) bool {
 
 func validateAnthropicWebFetch(envelope map[string]json.RawMessage) (anthropicWebFetchRequest, error) {
 	var result anthropicWebFetchRequest
-	searchPresent := false
 	rawTools, exists := envelope["tools"]
 	if !exists || bytes.Equal(bytes.TrimSpace(rawTools), []byte("null")) {
 		return result, nil
@@ -69,7 +68,6 @@ func validateAnthropicWebFetch(envelope map[string]json.RawMessage) (anthropicWe
 		case "custom":
 			continue
 		case "web_search_20250305", "web_search_20260209", "web_search_20260318":
-			searchPresent = true
 			continue
 		case "web_fetch_20250910", "web_fetch_20260209", "web_fetch_20260309", "web_fetch_20260318":
 			if result.enabled {
@@ -84,9 +82,6 @@ func validateAnthropicWebFetch(envelope map[string]json.RawMessage) (anthropicWe
 		default:
 			return result, fmt.Errorf("server tool type %q is not supported", kind)
 		}
-	}
-	if result.enabled && searchPresent {
-		return result, errors.New("web search and web fetch cannot be combined")
 	}
 	if result.enabled {
 		if raw, exists := envelope["stream"]; exists && !bytes.Equal(bytes.TrimSpace(raw), []byte("null")) {
@@ -198,10 +193,10 @@ func anthropicWebFetchTargetEligibility(target providers.Target, request anthrop
 	return true, ""
 }
 
-func parseAnthropicWebFetchUsage(raw []byte, maximum int64, dynamic bool) (*int64, bool, bool) {
-	return parseAnthropicServerToolUsage(raw, "web_fetch_requests", maximum, dynamic)
+func parseAnthropicWebFetchUsage(raw []byte, maximum int64, dynamic bool, companion string) (*int64, bool, bool) {
+	return parseAnthropicServerToolUsage(raw, "web_fetch_requests", companion, maximum, dynamic)
 }
 
-func parseAnthropicWebFetchStream(raw []byte, maximum int64, dynamic bool) (*int64, error) {
-	return parseAnthropicServerToolStream(raw, "web_fetch_requests", maximum, dynamic)
+func parseAnthropicWebFetchStream(raw []byte, maximum int64, dynamic bool, companion string) (*int64, error) {
+	return parseAnthropicServerToolStream(raw, "web_fetch_requests", companion, maximum, dynamic)
 }

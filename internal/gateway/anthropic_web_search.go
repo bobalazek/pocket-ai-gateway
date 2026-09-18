@@ -52,6 +52,8 @@ func validateAnthropicWebSearch(envelope map[string]json.RawMessage) (anthropicW
 		switch kind {
 		case "custom":
 			continue
+		case "web_fetch_20250910", "web_fetch_20260209", "web_fetch_20260309", "web_fetch_20260318":
+			continue
 		case "web_search_20250305", "web_search_20260209", "web_search_20260318":
 			if result.enabled {
 				return result, errors.New("at most one web_search tool is supported")
@@ -264,11 +266,11 @@ func anthropicWebSearchTargetEligibility(target providers.Target, request anthro
 	return true, ""
 }
 
-func parseAnthropicWebSearchUsage(raw []byte, maximum int64, dynamic bool) (*int64, bool, bool) {
-	return parseAnthropicServerToolUsage(raw, "web_search_requests", maximum, dynamic)
+func parseAnthropicWebSearchUsage(raw []byte, maximum int64, dynamic bool, companion string) (*int64, bool, bool) {
+	return parseAnthropicServerToolUsage(raw, "web_search_requests", companion, maximum, dynamic)
 }
 
-func parseAnthropicServerToolUsage(raw []byte, field string, maximum int64, allowCodeExecution bool) (*int64, bool, bool) {
+func parseAnthropicServerToolUsage(raw []byte, field, companion string, maximum int64, allowCodeExecution bool) (*int64, bool, bool) {
 	var response map[string]json.RawMessage
 	if json.Unmarshal(raw, &response) != nil || response == nil {
 		return nil, false, false
@@ -295,7 +297,7 @@ func parseAnthropicServerToolUsage(raw []byte, field string, maximum int64, allo
 		return nil, false, false
 	}
 	for name, raw := range serverToolUse {
-		if name == field || bytes.Equal(bytes.TrimSpace(raw), []byte("null")) {
+		if name == field || name == companion || bytes.Equal(bytes.TrimSpace(raw), []byte("null")) {
 			continue
 		}
 		var other int64
@@ -309,11 +311,11 @@ func parseAnthropicServerToolUsage(raw []byte, field string, maximum int64, allo
 	return &count, true, false
 }
 
-func parseAnthropicWebSearchStream(raw []byte, maximum int64, dynamic bool) (*int64, error) {
-	return parseAnthropicServerToolStream(raw, "web_search_requests", maximum, dynamic)
+func parseAnthropicWebSearchStream(raw []byte, maximum int64, dynamic bool, companion string) (*int64, error) {
+	return parseAnthropicServerToolStream(raw, "web_search_requests", companion, maximum, dynamic)
 }
 
-func parseAnthropicServerToolStream(raw []byte, field string, maximum int64, allowCodeExecution bool) (*int64, error) {
+func parseAnthropicServerToolStream(raw []byte, field, companion string, maximum int64, allowCodeExecution bool) (*int64, error) {
 	scanner := bufio.NewScanner(bytes.NewReader(raw))
 	scanner.Buffer(make([]byte, 4096), maxInferenceBody+1)
 	var data bytes.Buffer
@@ -369,7 +371,7 @@ func parseAnthropicServerToolStream(raw []byte, field string, maximum int64, all
 			if json.Unmarshal(object, &delta) != nil || delta.Usage.OutputTokens == nil || *delta.Usage.OutputTokens < 0 {
 				return errors.New("provider omitted terminal output token usage")
 			}
-			parsed, known, exceeded := parseAnthropicServerToolUsage(object, field, maximum, allowCodeExecution)
+			parsed, known, exceeded := parseAnthropicServerToolUsage(object, field, companion, maximum, allowCodeExecution)
 			if exceeded {
 				return errors.New("provider exceeded max_uses")
 			}
