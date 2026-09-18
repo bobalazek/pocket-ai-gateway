@@ -328,7 +328,7 @@ func TestAnthropicWebSearchNativeAccountingAndUnknownUsage(t *testing.T) {
 	}
 }
 
-func TestAnthropicWebSearchScopePromptCacheAndSpendPolicyPreventDispatch(t *testing.T) {
+func TestAnthropicWebSearchScopeAndSpendPolicyPreventDispatch(t *testing.T) {
 	var calls atomic.Int64
 	upstream := httptest.NewServer(http.HandlerFunc(func(response http.ResponseWriter, _ *http.Request) {
 		calls.Add(1)
@@ -351,10 +351,6 @@ func TestAnthropicWebSearchScopePromptCacheAndSpendPolicyPreventDispatch(t *test
 	}
 	if _, err := store.SystemDB().ExecContext(ctx, `UPDATE api_keys SET scopes_json='["chat:generate","messages:web_search"]' WHERE id=?`, key.ID); err != nil {
 		t.Fatal(err)
-	}
-	promptCache := performAnthropicRequest(t, mux, unscoped, `{"model":"claude-search","max_tokens":8,"cache_control":{"type":"ephemeral"},"messages":[{"role":"user","content":"News"}],"tools":[{"type":"web_search_20250305","name":"web_search","max_uses":1}]}`)
-	if promptCache.Code != http.StatusBadRequest || calls.Load() != 0 {
-		t.Fatalf("cache status=%d calls=%d body=%s", promptCache.Code, calls.Load(), promptCache.Body.String())
 	}
 	if _, err := usageService.CreatePolicy(ctx, owner, usage.PolicyInput{ScopeKind: "key", ScopeID: key.ID, Metric: "spend", Algorithm: "quota", Period: "lifetime", LimitUSD: "100"}); err != nil {
 		t.Fatal(err)

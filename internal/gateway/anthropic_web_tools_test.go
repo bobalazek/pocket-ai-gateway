@@ -137,6 +137,47 @@ func TestAnthropicCombinedWebToolsMixedCallers(t *testing.T) {
 	}
 }
 
+func TestAnthropicHostedWebToolsWithPromptCache(t *testing.T) {
+	var calls atomic.Int64
+	var forwarded []byte
+	knownBody := `{"id":"msg_cached","type":"message","role":"assistant","model":"claude-upstream","content":[{"type":"server_tool_use","id":"srvtoolu_s","name":"web_search","input":{"query":"news"}},{"type":"web_search_tool_result","tool_use_id":"srvtoolu_s","content":[]}],"stop_reason":"end_turn","usage":{"input_tokens":4,"output_tokens":2,"cache_creation_input_tokens":10,"cache_read_input_tokens":6,"server_tool_use":{"web_search_requests":1}}}`
+	upstream := httptest.NewServer(http.HandlerFunc(func(response http.ResponseWriter, request *http.Request) {
+		calls.Add(1)
+		forwarded, _ = io.ReadAll(request.Body)
+		response.Header().Set("Content-Type", "application/json")
+		_, _ = io.WriteString(response, knownBody)
+	}))
+	defer upstream.Close()
+	ctx, store, owner, keyService, providerService, usageService := gatewayFixture(t)
+	defer store.Close()
+	connection, _, model := publishAnthropicWebFetchModel(t, ctx, store.SystemDB(), providerService, owner, upstream.URL+"/v1", "claude-upstream", "claude-both")
+	_, secret, err := keyService.Create(ctx, owner.ID, keys.Input{Label: "Anthropic cached", Scopes: []string{"chat:generate", "messages:web_search", "messages:web_fetch"}, ModelPatterns: []string{model.ID}, ConnectionIDs: []string{connection.ID}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	mux := http.NewServeMux()
+	New(store.SystemDB(), keyService, providerService, usageService).Register(mux)
+	body := `{"model":"claude-both","max_tokens":64,"cache_control":{"type":"ephemeral"},"messages":[{"role":"user","content":"News"}],"tools":[{"type":"web_search_20260209","name":"web_search","max_uses":2}]}`
+	response := performAnthropicRequest(t, mux, secret, body)
+	if response.Code != http.StatusOK || calls.Load() != 1 || !strings.Contains(response.Body.String(), `"model":"claude-both"`) || !strings.Contains(response.Body.String(), `"type":"web_search_tool_result"`) {
+		t.Fatalf("status=%d calls=%d body=%s", response.Code, calls.Load(), response.Body.String())
+	}
+	for _, want := range []string{`"model":"claude-upstream"`, `"type":"web_search_20260209"`, `"cache_control":{"type":"ephemeral"}`} {
+		if !strings.Contains(string(forwarded), want) {
+			t.Fatalf("forwarded body=%s", forwarded)
+		}
+	}
+	var state, usageStatus, toolStatus string
+	var input, output, searchCalls, tools int64
+	var cacheCreation, cacheRead sql.NullInt64
+	if err := store.SystemDB().QueryRowContext(ctx, `SELECT state,usage_status,input_tokens,output_tokens,cache_creation_input_tokens,cache_read_input_tokens,web_search_call_count,response_tool_call_count,tool_call_status FROM attempts`).Scan(&state, &usageStatus, &input, &output, &cacheCreation, &cacheRead, &searchCalls, &tools, &toolStatus); err != nil {
+		t.Fatal(err)
+	}
+	if state != "succeeded" || input != 20 || output != 2 || !cacheCreation.Valid || cacheCreation.Int64 != 10 || !cacheRead.Valid || cacheRead.Int64 != 6 || searchCalls != 1 || tools != 1 || toolStatus != "completed" {
+		t.Fatalf("accounting=%s/%s input=%d output=%d cache=%v/%v search=%d tools=%d/%s", state, usageStatus, input, output, cacheCreation, cacheRead, searchCalls, tools, toolStatus)
+	}
+}
+
 func anthropicCombinedWebToolsStreamFixture(t *testing.T, serve http.HandlerFunc) (context.Context, *sql.DB, http.Handler, string, *atomic.Int64) {
 	t.Helper()
 	calls := new(atomic.Int64)

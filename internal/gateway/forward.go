@@ -101,10 +101,6 @@ func (handler *Handler) forwardAuthorized(response http.ResponseWriter, request 
 			handler.writeError(response, dialect, http.StatusBadRequest, "invalid_request_error", err.Error())
 			return
 		}
-		if (anthropicWebSearch.enabled || anthropicWebFetch.enabled) && promptCache.enabled {
-			handler.writeError(response, dialect, http.StatusBadRequest, "invalid_request_error", "prompt caching cannot be combined with hosted web tools")
-			return
-		}
 		if anthropicWebSearch.enabled && !principalHasScope(principal.Scopes, "messages:web_search") {
 			handler.writeError(response, dialect, http.StatusForbidden, "permission_error", "Web search access is not permitted")
 			return
