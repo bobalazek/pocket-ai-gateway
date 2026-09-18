@@ -10,6 +10,24 @@ Read [docs/README.md](docs/README.md), the current [decisions](docs/project/deci
 - Never log secrets; raw content capture is opt-in. No public telemetry.
 - Record decisions as dated entries with context, decision, and consequences; update the plan with real verification evidence.
 
+- Record decisions as dated entries with context, decision, and consequences; update the plan with real verification evidence.
+
+## Git workflow
+
+Use the typical feature-branch flow: branch from an up-to-date `master`, keep the branch short-lived and focused, then merge it back with `git merge --no-ff` so the merge is recorded. Keep `master` releasable, and never rebase or force-push a shared branch.
+
+Write commit subjects as [Conventional Commits](https://www.conventionalcommits.org/): a lowercase prefix, a colon, then an imperative, present-tense summary under about 72 characters (for example `feat: add Anthropic combined web tools`).
+
+- `feat:` a user-visible capability
+- `fix:` a bug fix
+- `docs:` documentation, decision records, or plan updates
+- `test:` test-only changes
+- `refactor:` a behavior-preserving code change
+- `chore:` tooling, dependencies, or maintenance
+- `merge:` a branch merged into `master`
+
+Keep each commit focused on one change, stage only the intended files, and never commit secrets. Do not commit, amend, or push unless the user asks.
+
 <!-- CODEGRAPH_START -->
 ## CodeGraph
 
