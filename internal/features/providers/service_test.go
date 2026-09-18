@@ -112,6 +112,34 @@ func TestWebFetchCapabilityRequiresAnthropicPresetAndChat(t *testing.T) {
 	}
 }
 
+func TestWebToolResponseInclusionAndCacheBypassCapabilities(t *testing.T) {
+	if validCapabilities([]string{"chat", "web_search", "web_search_response_inclusion"}) {
+		t.Fatal("web_search response inclusion accepted without web_search_dynamic")
+	}
+	if validCapabilities([]string{"chat", "web_fetch", "web_fetch_cache_bypass", "web_fetch_response_inclusion"}) {
+		t.Fatal("web_fetch response inclusion accepted without web_fetch_dynamic")
+	}
+	if validCapabilities([]string{"chat", "web_fetch", "web_fetch_dynamic", "web_fetch_response_inclusion"}) {
+		t.Fatal("web_fetch response inclusion accepted without web_fetch_cache_bypass")
+	}
+	if !validCapabilities([]string{"chat", "web_search", "web_search_dynamic", "web_search_response_inclusion"}) {
+		t.Fatal("complete web_search capability chain was rejected")
+	}
+	if !validCapabilities([]string{"chat", "web_fetch", "web_fetch_dynamic", "web_fetch_cache_bypass", "web_fetch_response_inclusion"}) {
+		t.Fatal("complete web_fetch capability chain was rejected")
+	}
+	searchChain := []string{"chat", "web_search", "web_search_dynamic", "web_search_response_inclusion"}
+	fetchChain := []string{"chat", "web_fetch", "web_fetch_dynamic", "web_fetch_cache_bypass", "web_fetch_response_inclusion"}
+	if !PresetSupportsCapabilities("anthropic", searchChain) || !PresetSupportsCapabilities("anthropic", fetchChain) {
+		t.Fatal("Anthropic preset rejected a web-tool capability chain")
+	}
+	for _, preset := range []string{"custom", "openai", "openai_compatible", "gemini"} {
+		if PresetSupportsCapabilities(preset, searchChain) || PresetSupportsCapabilities(preset, fetchChain) {
+			t.Fatalf("%s preset accepted a web-tool capability chain", preset)
+		}
+	}
+}
+
 func TestMasterKeyAndStoredCredentialRoundTrip(t *testing.T) {
 	directory := t.TempDir()
 	if _, err := LoadOrCreateMasterKey(directory, true); err == nil || !strings.Contains(err.Error(), "stored encrypted data") {

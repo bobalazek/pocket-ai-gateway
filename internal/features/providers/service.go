@@ -25,7 +25,7 @@ var (
 
 var adapters = map[string][]string{
 	"openai":            {"chat", "completions", "web_search", "embeddings", "moderations", "count_tokens", "images", "image_edit", "image_variation", "audio_speech", "audio_transcription", "audio_translation", "realtime"},
-	"anthropic":         {"chat", "web_search", "web_search_dynamic", "web_fetch", "web_fetch_dynamic", "count_tokens", "prompt_cache"},
+	"anthropic":         {"chat", "web_search", "web_search_dynamic", "web_search_response_inclusion", "web_fetch", "web_fetch_dynamic", "web_fetch_cache_bypass", "web_fetch_response_inclusion", "count_tokens", "prompt_cache"},
 	"gemini":            {"chat", "count_tokens", "embeddings", "interactions", "realtime", "media_jobs"},
 	"openai_compatible": {"chat", "completions", "embeddings", "moderations", "count_tokens", "images", "image_edit", "image_variation", "audio_speech", "audio_transcription", "audio_translation", "media_jobs"},
 }
@@ -38,25 +38,28 @@ var adapterLabels = map[string]string{
 }
 
 var capabilityLabels = map[string]string{
-	"audio_speech":        "Text to speech",
-	"audio_transcription": "Audio transcription",
-	"audio_translation":   "Audio translation",
-	"chat":                "Chat",
-	"completions":         "Legacy completions",
-	"count_tokens":        "Token counting",
-	"embeddings":          "Embeddings",
-	"image_edit":          "Image editing",
-	"image_variation":     "Image variation",
-	"images":              "Image generation",
-	"interactions":        "Interactions",
-	"moderations":         "Moderation",
-	"media_jobs":          "Asynchronous media jobs",
-	"prompt_cache":        "Prompt caching",
-	"realtime":            "Realtime audio and text",
-	"web_fetch":           "Web fetch",
-	"web_fetch_dynamic":   "Dynamic web fetch",
-	"web_search":          "Web search",
-	"web_search_dynamic":  "Dynamic web search",
+	"audio_speech":                  "Text to speech",
+	"audio_transcription":           "Audio transcription",
+	"audio_translation":             "Audio translation",
+	"chat":                          "Chat",
+	"completions":                   "Legacy completions",
+	"count_tokens":                  "Token counting",
+	"embeddings":                    "Embeddings",
+	"image_edit":                    "Image editing",
+	"image_variation":               "Image variation",
+	"images":                        "Image generation",
+	"interactions":                  "Interactions",
+	"moderations":                   "Moderation",
+	"media_jobs":                    "Asynchronous media jobs",
+	"prompt_cache":                  "Prompt caching",
+	"realtime":                      "Realtime audio and text",
+	"web_fetch":                     "Web fetch",
+	"web_fetch_cache_bypass":        "Web fetch cache bypass",
+	"web_fetch_dynamic":             "Dynamic web fetch",
+	"web_fetch_response_inclusion":  "Web fetch response inclusion",
+	"web_search":                    "Web search",
+	"web_search_dynamic":            "Dynamic web search",
+	"web_search_response_inclusion": "Web search response inclusion",
 }
 
 var scopeCapabilities = map[string]string{
@@ -734,19 +737,30 @@ func SupportsScope(values []string, scope string) bool {
 	return wanted != "" && containsString(values, wanted)
 }
 func validCapabilities(values []string) bool {
-	hasChat, hasWebSearch, hasWebFetch, hasDynamicSearch, hasDynamicFetch, hasHostedChatCapability := false, false, false, false, false, false
+	seen := make(map[string]bool, len(values))
+	hosted := false
 	for _, value := range values {
 		if _, valid := capabilityLabels[value]; !valid {
 			return false
 		}
-		hasChat = hasChat || value == "chat"
-		hasWebSearch = hasWebSearch || value == "web_search"
-		hasWebFetch = hasWebFetch || value == "web_fetch"
-		hasDynamicSearch = hasDynamicSearch || value == "web_search_dynamic"
-		hasDynamicFetch = hasDynamicFetch || value == "web_fetch_dynamic"
-		hasHostedChatCapability = hasHostedChatCapability || value == "prompt_cache" || value == "web_search" || value == "web_search_dynamic" || value == "web_fetch" || value == "web_fetch_dynamic"
+		seen[value] = true
+		hosted = hosted || value == "prompt_cache" || strings.HasPrefix(value, "web_search") || strings.HasPrefix(value, "web_fetch")
 	}
-	return (!hasHostedChatCapability || hasChat) && (!hasDynamicSearch || hasWebSearch) && (!hasDynamicFetch || hasWebFetch)
+	if hosted && !seen["chat"] {
+		return false
+	}
+	for capability, parent := range map[string]string{
+		"web_search_dynamic":            "web_search",
+		"web_search_response_inclusion": "web_search_dynamic",
+		"web_fetch_dynamic":             "web_fetch",
+		"web_fetch_cache_bypass":        "web_fetch_dynamic",
+		"web_fetch_response_inclusion":  "web_fetch_cache_bypass",
+	} {
+		if seen[capability] && !seen[parent] {
+			return false
+		}
+	}
+	return true
 }
 func validPublicID(value string) bool {
 	if value == "" || len(value) > 200 {

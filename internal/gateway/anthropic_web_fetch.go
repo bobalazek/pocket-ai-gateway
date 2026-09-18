@@ -18,10 +18,12 @@ const (
 )
 
 type anthropicWebFetchRequest struct {
-	enabled          bool
-	dynamic          bool
-	maxUses          int64
-	maxContentTokens int64
+	enabled           bool
+	dynamic           bool
+	cacheBypass       bool
+	responseInclusion bool
+	maxUses           int64
+	maxContentTokens  int64
 }
 
 func containsAnthropicWebFetchTool(raw json.RawMessage) bool {
@@ -66,14 +68,16 @@ func validateAnthropicWebFetch(envelope map[string]json.RawMessage) (anthropicWe
 		switch kind {
 		case "custom":
 			continue
-		case "web_search_20250305", "web_search_20260209":
+		case "web_search_20250305", "web_search_20260209", "web_search_20260318":
 			searchPresent = true
 			continue
-		case "web_fetch_20250910", "web_fetch_20260209":
+		case "web_fetch_20250910", "web_fetch_20260209", "web_fetch_20260309", "web_fetch_20260318":
 			if result.enabled {
 				return result, errors.New("at most one web_fetch tool is supported")
 			}
-			if err := validateAnthropicWebFetchTool(tool, &result, kind == "web_fetch_20260209"); err != nil {
+			result.cacheBypass = kind == "web_fetch_20260309" || kind == "web_fetch_20260318"
+			result.responseInclusion = kind == "web_fetch_20260318"
+			if err := validateAnthropicWebFetchTool(tool, &result, kind != "web_fetch_20250910", result.cacheBypass, result.responseInclusion); err != nil {
 				return result, err
 			}
 			result.enabled = true
@@ -95,11 +99,12 @@ func validateAnthropicWebFetch(envelope map[string]json.RawMessage) (anthropicWe
 	return result, nil
 }
 
-func validateAnthropicWebFetchTool(tool map[string]json.RawMessage, result *anthropicWebFetchRequest, dynamicVersion bool) error {
+func validateAnthropicWebFetchTool(tool map[string]json.RawMessage, result *anthropicWebFetchRequest, dynamicVersion, cacheBypassVersion, responseInclusionVersion bool) error {
 	allowed := map[string]bool{
 		"type": true, "name": true, "max_uses": true, "max_content_tokens": true,
 		"allowed_domains": true, "blocked_domains": true, "citations": true,
 		"allowed_callers": true, "cache_control": true, "strict": true,
+		"use_cache": true, "response_inclusion": true,
 	}
 	for name := range tool {
 		if !allowed[name] {
@@ -151,6 +156,18 @@ func validateAnthropicWebFetchTool(tool map[string]json.RawMessage, result *anth
 	if err := validateAnthropicWebToolStrict(tool["strict"], "web_fetch"); err != nil {
 		return err
 	}
+	if raw := tool["use_cache"]; len(raw) > 0 {
+		var value bool
+		if !cacheBypassVersion {
+			return errors.New("web_fetch.use_cache is not supported by this tool version")
+		}
+		if bytes.Equal(bytes.TrimSpace(raw), []byte("null")) || json.Unmarshal(raw, &value) != nil {
+			return errors.New("web_fetch.use_cache must be a boolean")
+		}
+	}
+	if err := validateAnthropicWebResponseInclusion(tool["response_inclusion"], "web_fetch", responseInclusionVersion); err != nil {
+		return err
+	}
 	dynamic, err := validateAnthropicWebToolCallers(tool["allowed_callers"], "web_fetch", dynamicVersion)
 	if err != nil {
 		return err
@@ -159,14 +176,20 @@ func validateAnthropicWebFetchTool(tool map[string]json.RawMessage, result *anth
 	return nil
 }
 
-func anthropicWebFetchTargetEligibility(target providers.Target, dynamic bool) (bool, string) {
+func anthropicWebFetchTargetEligibility(target providers.Target, request anthropicWebFetchRequest) (bool, string) {
 	if !providers.NativeTarget("anthropic", target.Adapter) || target.Adapter != "anthropic" || target.Preset != "anthropic" {
 		return false, "web_fetch_native_required"
 	}
 	if !slices.Contains(target.Capabilities, "chat") || !slices.Contains(target.UpstreamCapabilities, "chat") || !slices.Contains(target.Capabilities, "web_fetch") || !slices.Contains(target.UpstreamCapabilities, "web_fetch") {
 		return false, "unsupported_capability"
 	}
-	if dynamic && (!slices.Contains(target.Capabilities, "web_fetch_dynamic") || !slices.Contains(target.UpstreamCapabilities, "web_fetch_dynamic")) {
+	if request.dynamic && (!slices.Contains(target.Capabilities, "web_fetch_dynamic") || !slices.Contains(target.UpstreamCapabilities, "web_fetch_dynamic")) {
+		return false, "unsupported_capability"
+	}
+	if request.cacheBypass && (!slices.Contains(target.Capabilities, "web_fetch_cache_bypass") || !slices.Contains(target.UpstreamCapabilities, "web_fetch_cache_bypass")) {
+		return false, "unsupported_capability"
+	}
+	if request.responseInclusion && (!slices.Contains(target.Capabilities, "web_fetch_response_inclusion") || !slices.Contains(target.UpstreamCapabilities, "web_fetch_response_inclusion")) {
 		return false, "unsupported_capability"
 	}
 	if target.RoutingStrategy == "lowest_cost" || target.FreeOnly {

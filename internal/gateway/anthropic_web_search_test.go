@@ -30,6 +30,10 @@ func TestAnthropicWebSearchValidation(t *testing.T) {
 		`{"tools":[{"type":"web_search_20260209","name":"web_search","max_uses":1}]}`,
 		`{"tools":[{"type":"web_search_20260209","name":"web_search","max_uses":1,"allowed_callers":["direct"]}]}`,
 		`{"tools":[{"type":"web_search_20260209","name":"web_search","max_uses":1,"allowed_callers":["direct","code_execution_20260521"]}]}`,
+		`{"tools":[{"type":"web_search_20260318","name":"web_search","max_uses":1}]}`,
+		`{"tools":[{"type":"web_search_20260318","name":"web_search","max_uses":1,"response_inclusion":"full"}]}`,
+		`{"tools":[{"type":"web_search_20260318","name":"web_search","max_uses":1,"response_inclusion":"excluded"}]}`,
+		`{"tools":[{"type":"web_search_20260318","name":"web_search","max_uses":1,"allowed_callers":["direct"],"response_inclusion":"full"}]}`,
 	}
 	for _, raw := range valid {
 		var envelope map[string]json.RawMessage
@@ -42,12 +46,26 @@ func TestAnthropicWebSearchValidation(t *testing.T) {
 	for raw, wantDynamic := range map[string]bool{
 		`{"tools":[{"type":"web_search_20260209","name":"web_search","max_uses":1}]}`:                              true,
 		`{"tools":[{"type":"web_search_20260209","name":"web_search","max_uses":1,"allowed_callers":["direct"]}]}`: false,
+		`{"tools":[{"type":"web_search_20260318","name":"web_search","max_uses":1}]}`:                              true,
+		`{"tools":[{"type":"web_search_20260318","name":"web_search","max_uses":1,"allowed_callers":["direct"]}]}`: false,
 	} {
 		var envelope map[string]json.RawMessage
 		_ = json.Unmarshal([]byte(raw), &envelope)
 		request, err := validateAnthropicWebSearch(envelope)
 		if err != nil || request.dynamic != wantDynamic {
 			t.Fatalf("dynamic=%t, want %t: %v", request.dynamic, wantDynamic, err)
+		}
+	}
+	for raw, wantInclusion := range map[string]bool{
+		`{"tools":[{"type":"web_search_20250305","name":"web_search","max_uses":1}]}`: false,
+		`{"tools":[{"type":"web_search_20260209","name":"web_search","max_uses":1}]}`: false,
+		`{"tools":[{"type":"web_search_20260318","name":"web_search","max_uses":1}]}`: true,
+	} {
+		var envelope map[string]json.RawMessage
+		_ = json.Unmarshal([]byte(raw), &envelope)
+		request, err := validateAnthropicWebSearch(envelope)
+		if err != nil || request.responseInclusion != wantInclusion {
+			t.Fatalf("responseInclusion=%t, want %t: %v", request.responseInclusion, wantInclusion, err)
 		}
 	}
 	invalid := []string{
@@ -72,6 +90,10 @@ func TestAnthropicWebSearchValidation(t *testing.T) {
 		`{"tools":[{"type":"web_search_20260209","name":"web_search","max_uses":1,"allowed_callers":["direct","direct"]}]}`,
 		`{"tools":[{"type":"web_search_20260209","name":"web_search","max_uses":1,"strict":"true"}]}`,
 		`{"tools":[{"type":"web_search_20260209","name":"web_search","max_uses":1,"strict":null}]}`,
+		`{"tools":[{"type":"web_search_20260209","name":"web_search","max_uses":1,"response_inclusion":"excluded"}]}`,
+		`{"tools":[{"type":"web_search_20250305","name":"web_search","max_uses":1,"response_inclusion":"excluded"}]}`,
+		`{"tools":[{"type":"web_search_20260318","name":"web_search","max_uses":1,"response_inclusion":"other"}]}`,
+		`{"tools":[{"type":"web_search_20260318","name":"web_search","max_uses":1,"response_inclusion":null}]}`,
 		`{"stream":"true","tools":[{"type":"web_search_20250305","name":"web_search","max_uses":1}]}`,
 		`{"stream":1,"tools":[{"type":"web_search_20250305","name":"web_search","max_uses":1}]}`,
 		`{"stream":[],"tools":[{"type":"web_search_20250305","name":"web_search","max_uses":1}]}`,
@@ -178,16 +200,24 @@ func TestAnthropicDynamicServerToolMetadata(t *testing.T) {
 
 func TestAnthropicWebSearchTargetEligibility(t *testing.T) {
 	valid := providers.Target{PublicModel: providers.PublicModel{Adapter: "anthropic", Capabilities: []string{"chat", "web_search"}, RoutingStrategy: "fixed"}, UpstreamCapabilities: []string{"chat", "web_search"}, Preset: "anthropic"}
-	if eligible, reason := anthropicWebSearchTargetEligibility(valid, false); !eligible {
+	if eligible, reason := anthropicWebSearchTargetEligibility(valid, anthropicWebSearchRequest{}); !eligible {
 		t.Fatalf("valid target rejected: %s", reason)
 	}
-	if eligible, _ := anthropicWebSearchTargetEligibility(valid, true); eligible {
+	if eligible, _ := anthropicWebSearchTargetEligibility(valid, anthropicWebSearchRequest{dynamic: true}); eligible {
 		t.Fatal("dynamic search accepted without its model capability")
 	}
 	valid.Capabilities = append(valid.Capabilities, "web_search_dynamic")
 	valid.UpstreamCapabilities = append(valid.UpstreamCapabilities, "web_search_dynamic")
-	if eligible, reason := anthropicWebSearchTargetEligibility(valid, true); !eligible {
+	if eligible, reason := anthropicWebSearchTargetEligibility(valid, anthropicWebSearchRequest{dynamic: true}); !eligible {
 		t.Fatalf("dynamic target rejected: %s", reason)
+	}
+	if eligible, _ := anthropicWebSearchTargetEligibility(valid, anthropicWebSearchRequest{dynamic: true, responseInclusion: true}); eligible {
+		t.Fatal("response inclusion accepted without its model capability")
+	}
+	valid.Capabilities = append(valid.Capabilities, "web_search_response_inclusion")
+	valid.UpstreamCapabilities = append(valid.UpstreamCapabilities, "web_search_response_inclusion")
+	if eligible, reason := anthropicWebSearchTargetEligibility(valid, anthropicWebSearchRequest{dynamic: true, responseInclusion: true}); !eligible {
+		t.Fatalf("response-inclusion target rejected: %s", reason)
 	}
 	for name, mutate := range map[string]func(*providers.Target){
 		"custom preset":               func(target *providers.Target) { target.Preset = "custom" },
@@ -200,7 +230,7 @@ func TestAnthropicWebSearchTargetEligibility(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			target := valid
 			mutate(&target)
-			if eligible, _ := anthropicWebSearchTargetEligibility(target, false); eligible {
+			if eligible, _ := anthropicWebSearchTargetEligibility(target, anthropicWebSearchRequest{}); eligible {
 				t.Fatalf("ineligible target accepted: %#v", target)
 			}
 		})
@@ -238,7 +268,7 @@ func TestAnthropicWebSearchNativeAccountingAndUnknownUsage(t *testing.T) {
 	}
 	mux := http.NewServeMux()
 	New(store.SystemDB(), keyService, providerService, usageService).Register(mux)
-	body := `{"model":"claude-search","max_tokens":64,"stream":false,"messages":[{"role":"user","content":"News"}],"tools":[{"type":"web_search_20260209","name":"web_search","max_uses":2,"allowed_domains":["example.com/news/*"]},{"name":"local","input_schema":{"type":"object"}}]}`
+	body := `{"model":"claude-search","max_tokens":64,"stream":false,"messages":[{"role":"user","content":"News"}],"tools":[{"type":"web_search_20260318","name":"web_search","max_uses":2,"allowed_domains":["example.com/news/*"],"response_inclusion":"excluded"},{"name":"local","input_schema":{"type":"object"}}]}`
 	response := performAnthropicRequest(t, mux, secret, body)
 	if response.Code != http.StatusOK || calls.Load() != 1 || response.Body.String() != knownBody {
 		t.Fatalf("status=%d calls=%d body=%s", response.Code, calls.Load(), response.Body.String())
@@ -248,7 +278,7 @@ func TestAnthropicWebSearchNativeAccountingAndUnknownUsage(t *testing.T) {
 		t.Fatalf("forwarded body=%s", forwarded)
 	}
 	var upstreamModel string
-	if json.Unmarshal(forwardedEnvelope["model"], &upstreamModel) != nil || upstreamModel != "claude-upstream" || !bytes.Contains(forwarded, []byte(`"encrypted_content"`)) && !bytes.Contains(forwarded, []byte(`"allowed_domains"`)) {
+	if json.Unmarshal(forwardedEnvelope["model"], &upstreamModel) != nil || upstreamModel != "claude-upstream" || !bytes.Contains(forwarded, []byte(`"response_inclusion":"excluded"`)) {
 		t.Fatalf("forwarded body=%s", forwarded)
 	}
 	var state, usageStatus, toolStatus string
@@ -570,7 +600,7 @@ func publishAnthropicWebSearchModel(t *testing.T, ctx context.Context, database 
 	if err = service.PutCredential(ctx, owner, connection.ID, "provider-secret", ""); err != nil {
 		t.Fatal(err)
 	}
-	upstream, err := service.CreateUpstreamModel(ctx, owner, connection.ID, upstreamID, []string{"chat", "web_search", "web_search_dynamic"})
+	upstream, err := service.CreateUpstreamModel(ctx, owner, connection.ID, upstreamID, []string{"chat", "web_search", "web_search_dynamic", "web_search_response_inclusion"})
 	if err != nil {
 		t.Fatal(err)
 	}

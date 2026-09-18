@@ -20,9 +20,10 @@ const anthropicWebSearchDomainMaxSize = 1024
 const iso3166Alpha2Codes = "|AD|AE|AF|AG|AI|AL|AM|AO|AQ|AR|AS|AT|AU|AW|AX|AZ|BA|BB|BD|BE|BF|BG|BH|BI|BJ|BL|BM|BN|BO|BQ|BR|BS|BT|BV|BW|BY|BZ|CA|CC|CD|CF|CG|CH|CI|CK|CL|CM|CN|CO|CR|CU|CV|CW|CX|CY|CZ|DE|DJ|DK|DM|DO|DZ|EC|EE|EG|EH|ER|ES|ET|FI|FJ|FK|FM|FO|FR|GA|GB|GD|GE|GF|GG|GH|GI|GL|GM|GN|GP|GQ|GR|GS|GT|GU|GW|GY|HK|HM|HN|HR|HT|HU|ID|IE|IL|IM|IN|IO|IQ|IR|IS|IT|JE|JM|JO|JP|KE|KG|KH|KI|KM|KN|KP|KR|KW|KY|KZ|LA|LB|LC|LI|LK|LR|LS|LT|LU|LV|LY|MA|MC|MD|ME|MF|MG|MH|MK|ML|MM|MN|MO|MP|MQ|MR|MS|MT|MU|MV|MW|MX|MY|MZ|NA|NC|NE|NF|NG|NI|NL|NO|NP|NR|NU|NZ|OM|PA|PE|PF|PG|PH|PK|PL|PM|PN|PR|PS|PT|PW|PY|QA|RE|RO|RS|RU|RW|SA|SB|SC|SD|SE|SG|SH|SI|SJ|SK|SL|SM|SN|SO|SR|SS|ST|SV|SX|SY|SZ|TC|TD|TF|TG|TH|TJ|TK|TL|TM|TN|TO|TR|TT|TV|TW|TZ|UA|UG|UM|US|UY|UZ|VA|VC|VE|VG|VI|VN|VU|WF|WS|YE|YT|ZA|ZM|ZW|"
 
 type anthropicWebSearchRequest struct {
-	enabled bool
-	dynamic bool
-	maxUses int64
+	enabled           bool
+	dynamic           bool
+	responseInclusion bool
+	maxUses           int64
 }
 
 func validateAnthropicWebSearch(envelope map[string]json.RawMessage) (anthropicWebSearchRequest, error) {
@@ -51,12 +52,13 @@ func validateAnthropicWebSearch(envelope map[string]json.RawMessage) (anthropicW
 		switch kind {
 		case "custom":
 			continue
-		case "web_search_20250305", "web_search_20260209":
+		case "web_search_20250305", "web_search_20260209", "web_search_20260318":
 			if result.enabled {
 				return result, errors.New("at most one web_search tool is supported")
 			}
 			var err error
-			result.dynamic, err = validateAnthropicWebSearchTool(tool, &result.maxUses, kind == "web_search_20260209")
+			result.responseInclusion = kind == "web_search_20260318"
+			result.dynamic, err = validateAnthropicWebSearchTool(tool, &result.maxUses, kind != "web_search_20250305", result.responseInclusion)
 			if err != nil {
 				return result, err
 			}
@@ -76,11 +78,11 @@ func validateAnthropicWebSearch(envelope map[string]json.RawMessage) (anthropicW
 	return result, nil
 }
 
-func validateAnthropicWebSearchTool(tool map[string]json.RawMessage, maxUses *int64, dynamicVersion bool) (bool, error) {
+func validateAnthropicWebSearchTool(tool map[string]json.RawMessage, maxUses *int64, dynamicVersion, responseInclusionVersion bool) (bool, error) {
 	allowed := map[string]bool{
 		"type": true, "name": true, "max_uses": true, "allowed_domains": true,
 		"blocked_domains": true, "user_location": true, "allowed_callers": true,
-		"cache_control": true, "strict": true,
+		"cache_control": true, "strict": true, "response_inclusion": true,
 	}
 	for name := range tool {
 		if !allowed[name] {
@@ -122,7 +124,24 @@ func validateAnthropicWebSearchTool(tool map[string]json.RawMessage, maxUses *in
 	if err := validateAnthropicWebToolStrict(tool["strict"], "web_search"); err != nil {
 		return false, err
 	}
+	if err := validateAnthropicWebResponseInclusion(tool["response_inclusion"], "web_search", responseInclusionVersion); err != nil {
+		return false, err
+	}
 	return validateAnthropicWebToolCallers(tool["allowed_callers"], "web_search", dynamicVersion)
+}
+
+func validateAnthropicWebResponseInclusion(raw json.RawMessage, tool string, supported bool) error {
+	if len(raw) == 0 {
+		return nil
+	}
+	if !supported {
+		return fmt.Errorf("%s.response_inclusion is not supported by this tool version", tool)
+	}
+	var value string
+	if json.Unmarshal(raw, &value) != nil || value != "full" && value != "excluded" {
+		return fmt.Errorf("%s.response_inclusion must be full or excluded", tool)
+	}
+	return nil
 }
 
 func validateAnthropicWebToolStrict(raw json.RawMessage, tool string) error {
@@ -226,14 +245,17 @@ func validAnthropicWebSearchDomain(value string) bool {
 	return true
 }
 
-func anthropicWebSearchTargetEligibility(target providers.Target, dynamic bool) (bool, string) {
+func anthropicWebSearchTargetEligibility(target providers.Target, request anthropicWebSearchRequest) (bool, string) {
 	if !providers.NativeTarget("anthropic", target.Adapter) || target.Adapter != "anthropic" || target.Preset != "anthropic" {
 		return false, "web_search_native_required"
 	}
 	if !slices.Contains(target.Capabilities, "chat") || !slices.Contains(target.UpstreamCapabilities, "chat") || !slices.Contains(target.Capabilities, "web_search") || !slices.Contains(target.UpstreamCapabilities, "web_search") {
 		return false, "unsupported_capability"
 	}
-	if dynamic && (!slices.Contains(target.Capabilities, "web_search_dynamic") || !slices.Contains(target.UpstreamCapabilities, "web_search_dynamic")) {
+	if request.dynamic && (!slices.Contains(target.Capabilities, "web_search_dynamic") || !slices.Contains(target.UpstreamCapabilities, "web_search_dynamic")) {
+		return false, "unsupported_capability"
+	}
+	if request.responseInclusion && (!slices.Contains(target.Capabilities, "web_search_response_inclusion") || !slices.Contains(target.UpstreamCapabilities, "web_search_response_inclusion")) {
 		return false, "unsupported_capability"
 	}
 	if target.RoutingStrategy == "lowest_cost" || target.FreeOnly {

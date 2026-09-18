@@ -29,6 +29,11 @@ func TestAnthropicWebFetchValidation(t *testing.T) {
 		`{"tools":[{"type":"web_fetch_20250910","name":"web_fetch","max_uses":1,"max_content_tokens":1024,"allowed_callers":["code_execution_20250825"],"strict":false}]}`,
 		`{"tools":[{"type":"web_fetch_20260209","name":"web_fetch","max_uses":1,"max_content_tokens":1024}]}`,
 		`{"tools":[{"type":"web_fetch_20260209","name":"web_fetch","max_uses":1,"max_content_tokens":1024,"allowed_callers":["direct"]}]}`,
+		`{"tools":[{"type":"web_fetch_20260309","name":"web_fetch","max_uses":1,"max_content_tokens":1024}]}`,
+		`{"tools":[{"type":"web_fetch_20260309","name":"web_fetch","max_uses":1,"max_content_tokens":1024,"use_cache":false}]}`,
+		`{"tools":[{"type":"web_fetch_20260309","name":"web_fetch","max_uses":1,"max_content_tokens":1024,"use_cache":true}]}`,
+		`{"tools":[{"type":"web_fetch_20260318","name":"web_fetch","max_uses":1,"max_content_tokens":1024,"use_cache":true,"response_inclusion":"excluded"}]}`,
+		`{"tools":[{"type":"web_fetch_20260318","name":"web_fetch","max_uses":1,"max_content_tokens":1024,"allowed_callers":["direct"],"use_cache":false,"response_inclusion":"full"}]}`,
 	}
 	for _, raw := range valid {
 		var envelope map[string]json.RawMessage
@@ -41,12 +46,28 @@ func TestAnthropicWebFetchValidation(t *testing.T) {
 	for raw, wantDynamic := range map[string]bool{
 		`{"tools":[{"type":"web_fetch_20260209","name":"web_fetch","max_uses":1,"max_content_tokens":1024}]}`:                              true,
 		`{"tools":[{"type":"web_fetch_20260209","name":"web_fetch","max_uses":1,"max_content_tokens":1024,"allowed_callers":["direct"]}]}`: false,
+		`{"tools":[{"type":"web_fetch_20260309","name":"web_fetch","max_uses":1,"max_content_tokens":1024,"allowed_callers":["direct"]}]}`: false,
+		`{"tools":[{"type":"web_fetch_20260318","name":"web_fetch","max_uses":1,"max_content_tokens":1024}]}`:                              true,
+		`{"tools":[{"type":"web_fetch_20260318","name":"web_fetch","max_uses":1,"max_content_tokens":1024,"allowed_callers":["direct"]}]}`: false,
 	} {
 		var envelope map[string]json.RawMessage
 		_ = json.Unmarshal([]byte(raw), &envelope)
 		request, err := validateAnthropicWebFetch(envelope)
 		if err != nil || request.dynamic != wantDynamic {
 			t.Fatalf("dynamic=%t, want %t: %v", request.dynamic, wantDynamic, err)
+		}
+	}
+	for raw, want := range map[string]struct{ cacheBypass, responseInclusion bool }{
+		`{"tools":[{"type":"web_fetch_20260209","name":"web_fetch","max_uses":1,"max_content_tokens":1024}]}`:                                 {false, false},
+		`{"tools":[{"type":"web_fetch_20260309","name":"web_fetch","max_uses":1,"max_content_tokens":1024}]}`:                                 {true, false},
+		`{"tools":[{"type":"web_fetch_20260318","name":"web_fetch","max_uses":1,"max_content_tokens":1024}]}`:                                 {true, true},
+		`{"tools":[{"type":"web_fetch_20260318","name":"web_fetch","max_uses":1,"max_content_tokens":1024,"response_inclusion":"excluded"}]}`: {true, true},
+	} {
+		var envelope map[string]json.RawMessage
+		_ = json.Unmarshal([]byte(raw), &envelope)
+		request, err := validateAnthropicWebFetch(envelope)
+		if err != nil || request.cacheBypass != want.cacheBypass || request.responseInclusion != want.responseInclusion {
+			t.Fatalf("version flags = %#v, want %#v: %v", request, want, err)
 		}
 	}
 
@@ -71,6 +92,12 @@ func TestAnthropicWebFetchValidation(t *testing.T) {
 		`{"tools":[{"type":"web_fetch_20250910","name":"web_fetch","max_uses":1,"max_content_tokens":1024,"defer_loading":false}]}`,
 		`{"tools":[{"type":"web_fetch_20250910","name":"web_fetch","max_uses":1,"max_content_tokens":1024,"strict":"true"}]}`,
 		`{"tools":[{"type":"web_fetch_20250910","name":"web_fetch","max_uses":1,"max_content_tokens":1024,"strict":null}]}`,
+		`{"tools":[{"type":"web_fetch_20260209","name":"web_fetch","max_uses":1,"max_content_tokens":1024,"use_cache":false}]}`,
+		`{"tools":[{"type":"web_fetch_20260309","name":"web_fetch","max_uses":1,"max_content_tokens":1024,"use_cache":null}]}`,
+		`{"tools":[{"type":"web_fetch_20260318","name":"web_fetch","max_uses":1,"max_content_tokens":1024,"use_cache":"false"}]}`,
+		`{"tools":[{"type":"web_fetch_20260309","name":"web_fetch","max_uses":1,"max_content_tokens":1024,"response_inclusion":"excluded"}]}`,
+		`{"tools":[{"type":"web_fetch_20260318","name":"web_fetch","max_uses":1,"max_content_tokens":1024,"response_inclusion":"other"}]}`,
+		`{"tools":[{"type":"web_fetch_20260318","name":"web_fetch","max_uses":1,"max_content_tokens":1024,"response_inclusion":null}]}`,
 	}
 	for _, raw := range invalid {
 		var envelope map[string]json.RawMessage
@@ -137,16 +164,29 @@ func TestAnthropicWebFetchUsageAndStreamParsing(t *testing.T) {
 
 func TestAnthropicWebFetchTargetEligibility(t *testing.T) {
 	valid := providers.Target{PublicModel: providers.PublicModel{Adapter: "anthropic", Capabilities: []string{"chat", "web_fetch"}, RoutingStrategy: "fixed"}, UpstreamCapabilities: []string{"chat", "web_fetch"}, Preset: "anthropic"}
-	if eligible, reason := anthropicWebFetchTargetEligibility(valid, false); !eligible {
+	if eligible, reason := anthropicWebFetchTargetEligibility(valid, anthropicWebFetchRequest{}); !eligible {
 		t.Fatalf("valid target rejected: %s", reason)
 	}
-	if eligible, _ := anthropicWebFetchTargetEligibility(valid, true); eligible {
+	if eligible, _ := anthropicWebFetchTargetEligibility(valid, anthropicWebFetchRequest{dynamic: true}); eligible {
 		t.Fatal("dynamic fetch accepted without its model capability")
 	}
 	valid.Capabilities = append(valid.Capabilities, "web_fetch_dynamic")
 	valid.UpstreamCapabilities = append(valid.UpstreamCapabilities, "web_fetch_dynamic")
-	if eligible, reason := anthropicWebFetchTargetEligibility(valid, true); !eligible {
+	if eligible, reason := anthropicWebFetchTargetEligibility(valid, anthropicWebFetchRequest{dynamic: true}); !eligible {
 		t.Fatalf("dynamic target rejected: %s", reason)
+	}
+	if eligible, _ := anthropicWebFetchTargetEligibility(valid, anthropicWebFetchRequest{dynamic: true, cacheBypass: true}); eligible {
+		t.Fatal("cache bypass accepted without its model capability")
+	}
+	valid.Capabilities = append(valid.Capabilities, "web_fetch_cache_bypass")
+	valid.UpstreamCapabilities = append(valid.UpstreamCapabilities, "web_fetch_cache_bypass")
+	if eligible, _ := anthropicWebFetchTargetEligibility(valid, anthropicWebFetchRequest{dynamic: true, cacheBypass: true, responseInclusion: true}); eligible {
+		t.Fatal("response inclusion accepted without its model capability")
+	}
+	valid.Capabilities = append(valid.Capabilities, "web_fetch_response_inclusion")
+	valid.UpstreamCapabilities = append(valid.UpstreamCapabilities, "web_fetch_response_inclusion")
+	if eligible, reason := anthropicWebFetchTargetEligibility(valid, anthropicWebFetchRequest{dynamic: true, cacheBypass: true, responseInclusion: true}); !eligible {
+		t.Fatalf("response-inclusion target rejected: %s", reason)
 	}
 	for name, mutate := range map[string]func(*providers.Target){
 		"custom preset":               func(target *providers.Target) { target.Preset = "custom" },
@@ -159,7 +199,7 @@ func TestAnthropicWebFetchTargetEligibility(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			target := valid
 			mutate(&target)
-			if eligible, _ := anthropicWebFetchTargetEligibility(target, false); eligible {
+			if eligible, _ := anthropicWebFetchTargetEligibility(target, anthropicWebFetchRequest{}); eligible {
 				t.Fatalf("ineligible target accepted: %#v", target)
 			}
 		})
@@ -197,12 +237,12 @@ func TestAnthropicWebFetchNativeAccountingAndBoundaries(t *testing.T) {
 	}
 	mux := http.NewServeMux()
 	New(store.SystemDB(), keyService, providerService, usageService).Register(mux)
-	body := `{"model":"claude-fetch","max_tokens":64,"messages":[{"role":"user","content":"Fetch https://example.com"}],"tools":[{"type":"web_fetch_20260209","name":"web_fetch","max_uses":1,"max_content_tokens":1024,"allowed_domains":["example.com"],"citations":{"enabled":true}}]}`
+	body := `{"model":"claude-fetch","max_tokens":64,"messages":[{"role":"user","content":"Fetch https://example.com"}],"tools":[{"type":"web_fetch_20260318","name":"web_fetch","max_uses":1,"max_content_tokens":1024,"allowed_domains":["example.com"],"citations":{"enabled":true},"use_cache":false,"response_inclusion":"excluded"}]}`
 	response := performAnthropicRequest(t, mux, secret, body)
 	if response.Code != http.StatusOK || calls.Load() != 1 || !strings.Contains(response.Body.String(), `"model":"claude-fetch"`) || strings.Contains(response.Body.String(), `"model":"claude-upstream"`) || !strings.Contains(response.Body.String(), `"type":"web_fetch_tool_result"`) {
 		t.Fatalf("status=%d calls=%d body=%s", response.Code, calls.Load(), response.Body.String())
 	}
-	if !bytes.Contains(forwarded, []byte(`"model":"claude-upstream"`)) || !bytes.Contains(forwarded, []byte(`"type":"web_fetch_20260209"`)) {
+	if !bytes.Contains(forwarded, []byte(`"model":"claude-upstream"`)) || !bytes.Contains(forwarded, []byte(`"type":"web_fetch_20260318"`)) || !bytes.Contains(forwarded, []byte(`"use_cache":false`)) || !bytes.Contains(forwarded, []byte(`"response_inclusion":"excluded"`)) {
 		t.Fatalf("forwarded body=%s", forwarded)
 	}
 	var state, usageStatus, toolStatus string
@@ -363,7 +403,7 @@ func publishAnthropicWebFetchModel(t *testing.T, ctx context.Context, database *
 	if err = service.PutCredential(ctx, owner, connection.ID, "provider-secret", ""); err != nil {
 		t.Fatal(err)
 	}
-	upstream, err := service.CreateUpstreamModel(ctx, owner, connection.ID, upstreamID, []string{"chat", "web_fetch", "web_fetch_dynamic"})
+	upstream, err := service.CreateUpstreamModel(ctx, owner, connection.ID, upstreamID, []string{"chat", "web_fetch", "web_fetch_dynamic", "web_fetch_cache_bypass", "web_fetch_response_inclusion"})
 	if err != nil {
 		t.Fatal(err)
 	}

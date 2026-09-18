@@ -114,7 +114,7 @@ func PresetSupportsCapabilities(presetID string, capabilities []string) bool {
 			}
 			return false
 		}
-		if capability == "web_search_dynamic" || capability == "web_fetch_dynamic" {
+		if capability == "web_search_dynamic" || capability == "web_search_response_inclusion" || capability == "web_fetch_dynamic" || capability == "web_fetch_cache_bypass" || capability == "web_fetch_response_inclusion" {
 			if presetID == "anthropic" {
 				continue
 			}

@@ -345,12 +345,12 @@ func (handler *Handler) forwardAuthorized(response http.ResponseWriter, request 
 			}
 		}
 		if anthropicWebSearch.enabled {
-			if eligible, reason := anthropicWebSearchTargetEligibility(target, anthropicWebSearch.dynamic); !eligible {
+			if eligible, reason := anthropicWebSearchTargetEligibility(target, anthropicWebSearch); !eligible {
 				return false, reason
 			}
 		}
 		if anthropicWebFetch.enabled {
-			if eligible, reason := anthropicWebFetchTargetEligibility(target, anthropicWebFetch.dynamic); !eligible {
+			if eligible, reason := anthropicWebFetchTargetEligibility(target, anthropicWebFetch); !eligible {
 				return false, reason
 			}
 		}
