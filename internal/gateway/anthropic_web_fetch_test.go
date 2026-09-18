@@ -292,39 +292,6 @@ func TestAnthropicWebFetchNativeAccountingAndBoundaries(t *testing.T) {
 	}
 }
 
-func TestAnthropicHostedWebToolsRejectPromptCacheBeforeDispatch(t *testing.T) {
-	var calls atomic.Int64
-	upstream := httptest.NewServer(http.HandlerFunc(func(response http.ResponseWriter, _ *http.Request) {
-		calls.Add(1)
-		_, _ = io.WriteString(response, `{}`)
-	}))
-	defer upstream.Close()
-	ctx, store, owner, keyService, providerService, usageService := gatewayFixture(t)
-	defer store.Close()
-	connection, _, model := publishAnthropicWebFetchModel(t, ctx, store.SystemDB(), providerService, owner, upstream.URL+"/v1", "claude-upstream", "claude-fetch")
-	_, secret, err := keyService.Create(ctx, owner.ID, keys.Input{Label: "Anthropic fetch", Scopes: []string{"chat:generate", "messages:web_fetch", "messages:web_search"}, ModelPatterns: []string{model.ID}, ConnectionIDs: []string{connection.ID}})
-	if err != nil {
-		t.Fatal(err)
-	}
-	mux := http.NewServeMux()
-	New(store.SystemDB(), keyService, providerService, usageService).Register(mux)
-	tool := `{"type":"web_fetch_20250910","name":"web_fetch","max_uses":1,"max_content_tokens":1024}`
-	for name, body := range map[string]string{
-		"prompt cache":          `{"model":"claude-fetch","max_tokens":8,"cache_control":{"type":"ephemeral"},"messages":[{"role":"user","content":"Fetch"}],"tools":[` + tool + `]}`,
-		"combined prompt cache": `{"model":"claude-fetch","max_tokens":8,"cache_control":{"type":"ephemeral"},"messages":[{"role":"user","content":"Fetch"}],"tools":[` + tool + `,{"type":"web_search_20250305","name":"web_search","max_uses":1}]}`,
-	} {
-		t.Run(name, func(t *testing.T) {
-			response := performAnthropicRequest(t, mux, secret, body)
-			if response.Code != http.StatusBadRequest {
-				t.Fatalf("status=%d body=%s", response.Code, response.Body.String())
-			}
-		})
-	}
-	if calls.Load() != 0 {
-		t.Fatalf("invalid combinations dispatched %d calls", calls.Load())
-	}
-}
-
 func TestAnthropicWebFetchIsRejectedInMessageBatches(t *testing.T) {
 	var calls atomic.Int64
 	upstream := httptest.NewServer(http.HandlerFunc(func(response http.ResponseWriter, _ *http.Request) {
@@ -410,7 +377,7 @@ func publishAnthropicWebFetchModel(t *testing.T, ctx context.Context, database *
 	if err = service.PutCredential(ctx, owner, connection.ID, "provider-secret", ""); err != nil {
 		t.Fatal(err)
 	}
-	upstream, err := service.CreateUpstreamModel(ctx, owner, connection.ID, upstreamID, []string{"chat", "web_search", "web_search_dynamic", "web_search_response_inclusion", "web_fetch", "web_fetch_dynamic", "web_fetch_cache_bypass", "web_fetch_response_inclusion"})
+	upstream, err := service.CreateUpstreamModel(ctx, owner, connection.ID, upstreamID, []string{"chat", "prompt_cache", "web_search", "web_search_dynamic", "web_search_response_inclusion", "web_fetch", "web_fetch_dynamic", "web_fetch_cache_bypass", "web_fetch_response_inclusion"})
 	if err != nil {
 		t.Fatal(err)
 	}

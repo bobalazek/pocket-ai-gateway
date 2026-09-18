@@ -22,7 +22,7 @@ paths:
               type: object
               required: [model, messages, max_tokens]
               additionalProperties: true
-              description: Prompt caching is available only through a native model on the built-in Anthropic preset. A request may use top-level automatic cache control or explicit controls on tool definitions, system content blocks, and message content blocks. The combined request supports at most four breakpoints; 1h breakpoints must precede 5m breakpoints. Bounded hosted web search and fetch are also native-only. Search accepts web_search_20250305 or dynamic-filtering web_search_20260209; fetch accepts web_fetch_20250910 or dynamic-filtering web_fetch_20260209. Each permits max_uses from 1 through 4 in JSON or SSE. Prompt caching, search, and fetch cannot be combined with each other.
+              description: Prompt caching is available only through a native model on the built-in Anthropic preset. A request may use top-level automatic cache control or explicit controls on tool definitions, system content blocks, and message content blocks. The combined request supports at most four breakpoints; 1h breakpoints must precede 5m breakpoints. Bounded hosted web search and fetch are also native-only. Search accepts web_search_20250305, dynamic-filtering web_search_20260209, or web_search_20260318; fetch accepts web_fetch_20250910, dynamic-filtering web_fetch_20260209, web_fetch_20260309, or web_fetch_20260318. Each permits max_uses from 1 through 4 in JSON or SSE, and one search tool and one fetch tool may be combined. Prompt caching may be combined with a hosted web tool and honors a breakpoint on the tool definition, using one of the same four slots.
               properties:
                 model: { type: string, minLength: 1 }
                 max_tokens: { type: integer, minimum: 1 }
@@ -326,12 +326,16 @@ components:
         properties:
           allowed_domains: { type: array }
           blocked_domains: { type: array }
-      description: Gateway-bounded basic or dynamic-filtering Anthropic hosted search. Deferred loading and response-inclusion versions are unsupported.
+      description: Gateway-bounded basic or dynamic-filtering Anthropic hosted search. Deferred loading is unsupported.
       properties:
-        type: { type: string, enum: [web_search_20250305, web_search_20260209] }
+        type: { type: string, enum: [web_search_20250305, web_search_20260209, web_search_20260318] }
         name: { type: string, const: web_search }
         max_uses: { type: integer, minimum: 1, maximum: 4 }
-        cache_control: { type: "null", description: Only null is accepted; prompt caching cannot be combined with web search }
+        cache_control: { $ref: "#/components/schemas/CacheControl" }
+        response_inclusion:
+          oneOf:
+            - { type: "null" }
+            - { type: string, enum: [full, excluded], description: Requires web_search_20260318 }
         allowed_callers:
           type: array
           minItems: 1
@@ -380,9 +384,9 @@ components:
         properties:
           allowed_domains: { type: array }
           blocked_domains: { type: array }
-      description: Gateway-bounded basic or dynamic-filtering Anthropic hosted fetch. Cache-bypass, response-inclusion, and provider-owned extensions are unsupported.
+      description: Gateway-bounded basic or dynamic-filtering Anthropic hosted fetch.
       properties:
-        type: { type: string, enum: [web_fetch_20250910, web_fetch_20260209] }
+        type: { type: string, enum: [web_fetch_20250910, web_fetch_20260209, web_fetch_20260309, web_fetch_20260318] }
         name: { type: string, const: web_fetch }
         max_uses: { type: integer, minimum: 1, maximum: 4 }
         max_content_tokens:
@@ -390,7 +394,12 @@ components:
           minimum: 1
           maximum: 16384
           description: Approximate fetched text extraction limit; it does not bound binary PDF input.
-        cache_control: { type: "null", description: Only null is accepted; prompt caching cannot be combined with web fetch }
+        cache_control: { $ref: "#/components/schemas/CacheControl" }
+        use_cache: { type: boolean, description: Requires web_fetch_20260309 or later }
+        response_inclusion:
+          oneOf:
+            - { type: "null" }
+            - { type: string, enum: [full, excluded], description: Requires web_fetch_20260318 }
         allowed_callers:
           type: array
           minItems: 1
