@@ -129,6 +129,12 @@ The embedded dashboard provides:
 
 Ordinary prompt and response content is not captured in request logs. Conversation and stored Response content is retained only when the client explicitly uses those API features.
 
+### Try the dashboard
+
+From a source checkout, `./scripts/demo.sh` starts a disposable local demo with synthetic users, models, keys, and seven days of usage. It uses a local mock provider and deletes its temporary data when stopped. See the [demo guide and screenshots](docs/guides/demo.md) for sign-in and setup details.
+
+![Daily token usage in the dashboard, using synthetic demo data](docs/images/demo-usage.png)
+
 ## Runtime layout
 
 ```mermaid
