@@ -65,7 +65,7 @@ export function UsageOverview({ model }: { model: UsageModel }) {
         <h2>Tokens by day</h2>
         {model.chartData.length ? (
           <>
-            <ChartContainer label="Daily token usage"><AreaChart responsive data={model.chartData}><CartesianGrid vertical={false} /><XAxis dataKey="date" /><YAxis width={52} /><Tooltip /><Area dataKey="tokens" stroke="var(--accent)" fill="var(--accent-soft)" /></AreaChart></ChartContainer>
+            <ChartContainer label="Daily token usage"><AreaChart responsive width="100%" height="100%" data={model.chartData}><CartesianGrid vertical={false} /><XAxis dataKey="date" /><YAxis width={52} /><Tooltip /><Area dataKey="tokens" stroke="var(--accent)" fill="var(--accent-soft)" /></AreaChart></ChartContainer>
             <div className="table-wrap" tabIndex={0} role="region" aria-label="Scrollable daily usage table">
               <table>
                 <thead>
