@@ -183,7 +183,11 @@ export POCKET_AI_GATEWAY_UPDATE_PUBLIC_KEY='base64-public-key-from-the-release-m
   --apply
 
 sudo systemctl start pocket-ai-gateway
-curl --fail http://127.0.0.1:8080/readyz
+curl --fail --header 'Host: gateway.example.com' http://127.0.0.1:8080/readyz
 ```
 
 `--apply` refuses a running data directory, writes a paired pre-update snapshot beside the data directory, atomically exchanges the Linux executable, starts the new binary temporarily on loopback, requires `/readyz`, and stops it. Failure restores both the previous executable and snapshot. Success reports the retained snapshot and uniquely named `.previous-*` binary paths. Use `--manifest-url` and `--signature-url` only for a separately trusted release channel. `--allow-downgrade` still requires a valid signature and exists for deliberate rollback.
+
+For a manual loopback readiness request, match the `Host` header to your configured public origin as above. The updater supplies a separate loopback origin only to its temporary probe; it does not change the deployed origin.
+
+Maintainers can rehearse this flow locally with `./scripts/update-e2e.sh` after building the dashboard. The test uses real Linux executables, disposable signing keys/stores, and a container without external network access; it never updates an installed gateway.
