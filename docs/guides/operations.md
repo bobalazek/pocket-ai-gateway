@@ -33,6 +33,8 @@ The command snapshots each live SQLite database with `VACUUM INTO`, records a sh
 
 The owner can configure scheduled local or S3-compatible backups in **Settings**. S3 uses HTTPS except for loopback testing, AWS Signature Version 4, bounded retries, and environment variable names for credentials. Archives are encrypted before upload. The first scheduled attempt happens when the service starts; later checks run every 15 minutes and honor the configured interval. Local retention never deletes the newest configured number of completed `.pagbak` files.
 
+For S3 recovery, download the archive named in **Settings → Backups** from the configured bucket and prefix using your storage client's authenticated download. Compare its SHA-256 and byte size with the backup job, then use the offline restore commands below with the original backup encryption key. Configure object retention in the storage service; the gateway's retention count applies to local archives. `./scripts/compose-e2e.sh --s3` rehearses upload, download, and clean-volume restore against a disposable local S3 server; see [test requirements and limits](../project/testing.md).
+
 Docker Compose keeps the default backup directory in its own named volume. Copy important archives off the Docker host or use the S3-compatible destination; a second volume on the same host is not a disaster-recovery copy. Run `./scripts/compose-e2e.sh` after deployment changes to rehearse onboarding, backup, clean-volume restore, readiness, login, and restart persistence with disposable volumes.
 
 Export an archive from the Compose backup volume:
@@ -45,7 +47,6 @@ docker compose cp --archive gateway:/data_backups/<archive>.pagbak ./gateway-rec
 Restore it with the same pinned image and backup key into a clean host directory owned by the image's nonroot UID/GID (`65532`):
 
 ```sh
-rm -rf gateway-restored
 sudo install -d -m 0700 -o 65532 -g 65532 gateway-restored
 docker run --rm \
   --env POCKET_AI_GATEWAY_BACKUP_KEY \

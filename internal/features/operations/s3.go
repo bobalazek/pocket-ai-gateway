@@ -13,7 +13,6 @@ import (
 	"net/http"
 	"net/url"
 	"os"
-	"path"
 	"strings"
 	"time"
 )
@@ -33,8 +32,14 @@ func uploadS3(ctx context.Context, filename, archiveName string, settings Settin
 	if err != nil {
 		return err
 	}
-	objectPath := "/" + strings.TrimPrefix(path.Join(endpoint.Path, settings.S3Bucket, settings.S3Prefix, archiveName), "/")
-	endpoint.Path, endpoint.RawPath = objectPath, ""
+	// S3 keys are not filesystem paths: repeated slashes and dot segments matter.
+	objectPath := strings.TrimRight(endpoint.Path, "/") + "/" + settings.S3Bucket + "/"
+	if settings.S3Prefix != "" {
+		objectPath += settings.S3Prefix + "/"
+	}
+	endpoint.Path = objectPath + archiveName
+	// SigV4 permits only unreserved bytes and slashes, unlike URL.EscapedPath.
+	endpoint.RawPath = strings.ReplaceAll(strings.ReplaceAll(url.QueryEscape(endpoint.Path), "+", "%20"), "%2F", "/")
 	rawHash, _ := hex.DecodeString(payloadHash)
 	checksum := base64.StdEncoding.EncodeToString(rawHash)
 	signedHeaders := "host;x-amz-checksum-sha256;x-amz-content-sha256;x-amz-date"

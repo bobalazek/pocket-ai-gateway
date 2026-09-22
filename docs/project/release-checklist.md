@@ -6,6 +6,7 @@
 - [x] The multi-platform image builds for linux/amd64 and linux/arm64.
 - [x] The local production image persists `/data` across restart.
 - [x] `./scripts/compose-e2e.sh` passes against the production image.
+- [x] `./scripts/compose-e2e.sh --s3` verifies a real local S3 upload, independent download/checksum, rejected-credential failure reporting, and restore/login/restart from the downloaded archive. Cloud-account and off-host certification remain separate.
 - [x] The copied-binary smoke completes clean onboarding, key issue, and encrypted backup/restore without the source tree.
 - [x] Deterministic provider/routing tests cover provider setup and route preview; pinned official SDK suites cover the documented compatibility subset.
 - [x] An encrypted backup restores into a clean Docker data volume with the matching key; the restored instance passes `/readyz` and sign-in.
@@ -28,6 +29,6 @@ No workflow is triggered by this checklist. Verify remains manual-only; tag publ
 
 ## Optional certification and future implementation
 
-- Live calls for the named providers, cloud IAM flows, and a real S3 endpoint remain unverified until credentials, exact operations/models, and a spending ceiling are supplied. [Provider evidence](provider-certification.md) separates local conformance from live certification.
+- Live calls for the named providers, cloud IAM flows, and off-host S3 endpoints remain unverified until credentials, exact operations/models, and a spending ceiling are supplied. The disposable local S3 server is verified separately above. [Provider evidence](provider-certification.md) separates local conformance from live certification.
 - Remote libSQL/Turso is not implemented. It needs a driver and tested durability, fencing, and recovery before service certification; see [ADR-051](decisions/2026-09-16-close-v01-with-local-sqlite.md).
 - Full vendor API parity is not delivered. Remaining file/upload/cache resources, provider-owned batches, hosted tools/reasoning translation, semantic search, and additional realtime transports remain explicitly tracked in the [API parity inventory](api-parity-inventory.md). They are future implementation work, not missing credentials for existing features.

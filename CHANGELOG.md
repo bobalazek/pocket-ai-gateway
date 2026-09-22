@@ -7,3 +7,4 @@ All notable changes will be documented here. The project follows [Keep a Changel
 - Initial single-binary gateway with an embedded dashboard.
 - OpenAI, Anthropic, and Gemini client namespaces with native forwarding and tested cross-provider translation.
 - Users, scoped API keys, limits, usage accounting, pricing, provider routing, catalog refresh, audit, diagnostics, and encrypted backup recovery.
+- S3 backups preserve object prefixes and correctly sign reserved characters, verified with a disposable upload/download/restore test.
