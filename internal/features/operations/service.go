@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"runtime"
 	"sort"
 	"strconv"
 	"strings"
@@ -80,6 +81,7 @@ type Diagnostics struct {
 	Version             string `json:"version"`
 	SQLiteVersion       string `json:"sqlite_version"`
 	UptimeSeconds       int64  `json:"uptime_seconds"`
+	Goroutines          int    `json:"goroutines"`
 	SystemBytes         int64  `json:"system_database_bytes"`
 	DataBytes           int64  `json:"data_database_bytes"`
 	PendingOutboxEvents int64  `json:"pending_outbox_events"`
@@ -536,7 +538,7 @@ func (service *Service) Audit(ctx context.Context, query AuditQuery) ([]AuditEve
 }
 
 func (service *Service) Diagnostics(ctx context.Context) (Diagnostics, error) {
-	value := Diagnostics{Version: service.version, SQLiteVersion: service.store.SQLiteVersion(), UptimeSeconds: int64(time.Since(service.started).Seconds())}
+	value := Diagnostics{Version: service.version, SQLiteVersion: service.store.SQLiteVersion(), UptimeSeconds: int64(time.Since(service.started).Seconds()), Goroutines: runtime.NumGoroutine()}
 	for filename, destination := range map[string]*int64{"system.db": &value.SystemBytes, "data.db": &value.DataBytes} {
 		if info, err := os.Stat(filepath.Join(service.store.DataDir(), filename)); err == nil {
 			*destination = info.Size()
