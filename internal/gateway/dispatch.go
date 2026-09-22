@@ -327,6 +327,8 @@ func copyProtocolHeaders(destination, source http.Header, adapter string) {
 func safeClient(timeout time.Duration, allowPrivate bool) *http.Client {
 	dialer := &net.Dialer{Timeout: min(timeout, 10*time.Second)}
 	transport := http.DefaultTransport.(*http.Transport).Clone()
+	// Each client serves one dispatch; an idle pool cannot be reused.
+	transport.DisableKeepAlives = true
 	transport.Proxy = nil
 	transport.DialContext = func(ctx context.Context, network, address string) (net.Conn, error) {
 		host, port, err := net.SplitHostPort(address)

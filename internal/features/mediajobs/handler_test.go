@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"io"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"path/filepath"
@@ -20,6 +21,37 @@ import (
 	"github.com/bobalazek/pocket-ai-gateway/internal/features/usage"
 	"github.com/bobalazek/pocket-ai-gateway/internal/storage"
 )
+
+func TestMediaProviderRequestClosesConnection(t *testing.T) {
+	closed := make(chan struct{}, 1)
+	upstream := httptest.NewUnstartedServer(http.HandlerFunc(func(response http.ResponseWriter, request *http.Request) {
+		if request.Method != http.MethodGet || request.URL.Path != "/v1/predictions/pred_1" {
+			http.NotFound(response, request)
+			return
+		}
+		response.Header().Set("Content-Type", "application/json")
+		_, _ = io.WriteString(response, `{"id":"pred_1","status":"succeeded","output":null}`)
+	}))
+	upstream.Config.ConnState = func(_ net.Conn, state http.ConnState) {
+		if state == http.StateClosed {
+			select {
+			case closed <- struct{}{}:
+			default:
+			}
+		}
+	}
+	upstream.Start()
+	defer upstream.Close()
+	prediction, err := getReplicatePrediction(t.Context(), providers.Target{BaseURL: upstream.URL + "/v1", AllowPrivateNetwork: true, TimeoutMS: 2000}, "pred_1")
+	if err != nil || prediction.ID != "pred_1" || prediction.Status != "succeeded" {
+		t.Fatalf("prediction: %+v, %v", prediction, err)
+	}
+	select {
+	case <-closed:
+	case <-time.After(2 * time.Second):
+		t.Fatal("completed media request retained its upstream connection")
+	}
+}
 
 func TestReplicateMediaJobPersistsPollsAccountsAndProtectsContent(t *testing.T) {
 	var polls atomic.Int64
