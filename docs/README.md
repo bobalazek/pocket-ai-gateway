@@ -34,4 +34,4 @@ The layout follows the nearby personal SaaS template's docs/project conventions:
 
 The supplied AI-Gateway-PRD.md was treated as reference material. Its single-administrator scope and narrower limits were superseded by the user's request for users, broader quotas, and routing strategies. The original file in Downloads was left untouched. There is no second, competing PRD in this repository.
 
-Phases 1–9 implement the documented compatibility subset. Final publication gates remain in the release checklist. Additional vendor API families and remote libSQL/Turso implementation are deferred; live provider and S3 service certification require separate evidence.
+Phases 1–9 implement the documented compatibility subset. Final publication gates remain in the release checklist. Additional vendor API families and remote libSQL/Turso implementation are deferred; live provider and off-host S3 service certification require separate evidence.

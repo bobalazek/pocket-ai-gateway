@@ -4,3 +4,4 @@ Record observed project discoveries as dated files with context, evidence, and c
 
 - [2026-09-22 — Update probes need their own loopback origin](2026-09-22-update-readiness-origin.md)
 - [2026-09-22 — Match upstream connection lifetime to its client](2026-09-22-upstream-transport-lifetime.md)
+- [2026-09-22 — Preserve and encode S3 object keys for signing](2026-09-22-s3-object-key-signing.md)
