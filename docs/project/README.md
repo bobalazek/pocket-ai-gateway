@@ -2,7 +2,7 @@
 
 Pocket AI Gateway is the final product name. It is an MIT-licensed, self-hosted gateway with one Go server, a Next.js dashboard, users/application keys, provider routing, local operational history, and configurable limits.
 
-**Current state:** the reviewed single-process gateway, dashboard, identity, keys, limits, accounting, documented OpenAI/Anthropic/Gemini compatibility subset, routing, provider catalog, audit, backup/restore, and release tooling are runnable. Phases 1–7 are complete and Phase 8 is closed with optional live certifications, remote storage, and unsupported vendor API families explicitly deferred.
+**Current state:** the single-process gateway, dashboard, identity, keys, limits, accounting, documented OpenAI/Anthropic/Gemini compatibility subset, routing, provider catalog, audit, backup/restore, realtime transports, asynchronous media jobs, and release tooling are runnable. Phases 1–9 cover that subset. The [release checklist](release-checklist.md) tracks remaining publication gates; live certification, remote storage implementation, and unsupported vendor API families are distinct future work.
 
 - [PRD](prd.md): intended product and acceptance.
 - [Decisions](decisions/README.md): dated context → decision → consequences records.
