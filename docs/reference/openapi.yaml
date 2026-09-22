@@ -1095,7 +1095,7 @@ paths:
     get:
       operationId: getDiagnostics
       responses:
-        "200": { description: Safe local runtime diagnostics }
+        "200": { description: Safe owner/admin runtime diagnostics, content: { application/json: { schema: { type: object, required: [diagnostics], properties: { diagnostics: { $ref: "#/components/schemas/Diagnostics" } } } } } }
         "401": { $ref: "#/components/responses/Unauthorized" }
         "403": { $ref: "#/components/responses/Forbidden" }
         "503": { $ref: "#/components/responses/ServiceUnavailable" }
@@ -1265,6 +1265,19 @@ components:
             properties:
               result: { $ref: "#/components/schemas/RepriceResult" }
   schemas:
+    Diagnostics:
+      type: object
+      required: [version, sqlite_version, uptime_seconds, goroutines, system_database_bytes, data_database_bytes, pending_outbox_events, backup_key_configured, latest_backup_state]
+      properties:
+        version: { type: string }
+        sqlite_version: { type: string }
+        uptime_seconds: { type: integer, minimum: 0 }
+        goroutines: { type: integer, minimum: 1, description: Process goroutine count sampled while serving diagnostics; no stack traces are exposed. }
+        system_database_bytes: { type: integer, minimum: 0 }
+        data_database_bytes: { type: integer, minimum: 0 }
+        pending_outbox_events: { type: integer, minimum: 0 }
+        backup_key_configured: { type: boolean }
+        latest_backup_state: { type: string }
     OperationSettings:
       type: object
       additionalProperties: false

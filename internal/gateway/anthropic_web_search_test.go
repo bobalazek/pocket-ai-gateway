@@ -493,14 +493,26 @@ func TestAnthropicWebSearchStreamingFailuresDoNotFallback(t *testing.T) {
 
 func TestAnthropicWebSearchStreamingCancellationIsInterrupted(t *testing.T) {
 	started := make(chan struct{}, 1)
+	stopped := make(chan struct{})
+	cleanup := make(chan struct{})
+	defer close(cleanup)
 	ctx, database, handler, secret, firstCalls, secondCalls := anthropicWebSearchStreamFixture(t, func(response http.ResponseWriter, request *http.Request) {
+		defer close(stopped)
+		// Consume the input like a provider: Go starts disconnect detection at body EOF.
+		if _, err := io.Copy(io.Discard, request.Body); err != nil {
+			return
+		}
 		response.Header().Set("Content-Type", "text/event-stream")
 		_, _ = io.WriteString(response, "event: message_start\ndata: {\"type\":\"message_start\",\"message\":{\"usage\":{\"input_tokens\":7,\"output_tokens\":0}}}\n\n")
 		response.(http.Flusher).Flush()
 		started <- struct{}{}
-		<-request.Context().Done()
+		select {
+		case <-request.Context().Done():
+		case <-cleanup:
+		}
 	})
 	requestContext, cancel := context.WithCancel(context.Background())
+	defer cancel()
 	request := httptest.NewRequest(http.MethodPost, "/api/anthropic/v1/messages", strings.NewReader(`{"model":"claude-search","max_tokens":64,"stream":true,"messages":[{"role":"user","content":"News"}],"tools":[{"type":"web_search_20250305","name":"web_search","max_uses":1}]}`)).WithContext(requestContext)
 	request.Header.Set("x-api-key", secret)
 	request.Header.Set("anthropic-version", "2023-06-01")
@@ -520,6 +532,11 @@ func TestAnthropicWebSearchStreamingCancellationIsInterrupted(t *testing.T) {
 	case <-done:
 	case <-time.After(5 * time.Second):
 		t.Fatal("cancelled gateway request did not stop")
+	}
+	select {
+	case <-stopped:
+	case <-time.After(5 * time.Second):
+		t.Fatal("upstream did not observe cancellation")
 	}
 	if firstCalls.Load() != 1 || secondCalls.Load() != 0 {
 		t.Fatalf("first=%d second=%d", firstCalls.Load(), secondCalls.Load())

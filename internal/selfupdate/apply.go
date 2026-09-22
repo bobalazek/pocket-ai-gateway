@@ -292,7 +292,7 @@ func probeReady(ctx context.Context, binary, dataDir string) error {
 	}
 	probeCtx, cancel := context.WithTimeout(ctx, 20*time.Second)
 	defer cancel()
-	command := exec.Command(binary, "serve", "--listen", address, "--data-dir", dataDir)
+	command := exec.Command(binary, "serve", "--listen", address, "--public-url", "http://"+address, "--data-dir", dataDir)
 	var output limitedBuffer
 	command.Stdout, command.Stderr = &output, &output
 	if err := command.Start(); err != nil {

@@ -14,7 +14,7 @@ CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -trimpath -o "$scratch/pocket-ai-
 go run ./scripts/notices -binary "$scratch/pocket-ai-gateway-linux-amd64" -web web -output "$scratch/THIRD_PARTY_NOTICES.md"
 cmp THIRD_PARTY_NOTICES.md "$scratch/THIRD_PARTY_NOTICES.md"
 
-unformatted=$(gofmt -l cmd internal web/embed.go)
+unformatted=$(gofmt -l cmd internal scripts web/embed.go)
 if [[ -n "$unformatted" ]]; then
   echo "Go files need formatting:" >&2
   echo "$unformatted" >&2
@@ -33,6 +33,6 @@ pnpm --dir web typecheck
 pnpm --dir web test
 
 if [[ "${POCKET_AI_GATEWAY_QUICK_VERIFY:-}" != "1" ]]; then
-  go test -race ./internal/storage ./internal/server ./internal/app ./internal/selfupdate ./internal/features/auth ./internal/features/users ./internal/features/keys ./internal/features/usage ./internal/features/providers ./internal/features/operations ./internal/features/mediajobs ./internal/gateway ./internal/protocol
+  go test -race -timeout 15m ./internal/storage ./internal/server ./internal/app ./internal/selfupdate ./internal/features/auth ./internal/features/users ./internal/features/keys ./internal/features/usage ./internal/features/providers ./internal/features/operations ./internal/features/mediajobs ./internal/gateway ./internal/protocol
   ./scripts/smoke.sh "$root/dist/pocket-ai-gateway"
 fi

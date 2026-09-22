@@ -2,6 +2,7 @@ package operations
 
 import (
 	"context"
+	"encoding/json"
 	"net/http"
 	"net/http/httptest"
 	"path/filepath"
@@ -44,6 +45,21 @@ func TestOwnerOnlyOperationsAndRecentAuthentication(t *testing.T) {
 	mux.ServeHTTP(response, request)
 	if response.Code != http.StatusForbidden {
 		t.Fatalf("admin settings status = %d", response.Code)
+	}
+	request = httptest.NewRequest(http.MethodGet, "/api/v1/admin/diagnostics", nil)
+	response = httptest.NewRecorder()
+	mux.ServeHTTP(response, request)
+	if response.Code != http.StatusUnauthorized {
+		t.Fatalf("anonymous diagnostics status = %d", response.Code)
+	}
+	request.AddCookie(&http.Cookie{Name: auth.SessionCookie, Value: adminToken})
+	response = httptest.NewRecorder()
+	mux.ServeHTTP(response, request)
+	var diagnostic struct {
+		Value Diagnostics `json:"diagnostics"`
+	}
+	if err := json.Unmarshal(response.Body.Bytes(), &diagnostic); err != nil || response.Code != http.StatusOK || diagnostic.Value.Goroutines < 1 {
+		t.Fatalf("admin runtime diagnostics = %s, status = %d, error = %v", response.Body.String(), response.Code, err)
 	}
 
 	ownerVerifier := credentials.Verifier(ownerToken)

@@ -172,6 +172,8 @@ func safeClient(timeout time.Duration, allowPrivate bool) *http.Client {
 	dialer := &net.Dialer{Timeout: min(timeout, 10*time.Second)}
 	transport := http.DefaultTransport.(*http.Transport).Clone()
 	transport.Proxy = nil
+	// Each media request owns its transport, so no later request can reuse it.
+	transport.DisableKeepAlives = true
 	transport.DialContext = func(ctx context.Context, network, address string) (net.Conn, error) {
 		host, port, err := net.SplitHostPort(address)
 		if err != nil {
