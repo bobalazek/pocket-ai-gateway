@@ -12,8 +12,10 @@ func TestListRequestsFiltersExactIDAndReturnsPriceProvenance(t *testing.T) {
 	defer store.Close()
 	clock := time.Date(2026, 9, 15, 12, 0, 0, 0, time.UTC)
 	service.now = func() time.Time { return clock }
+	cacheReadRate, webSearchFee := "0", "0.01"
 	price, err := service.CreatePrice(ctx, owner, PriceInput{
 		ConnectionID: "conn_test", ModelID: "model_test", InputUSDPerMillion: "2", OutputUSDPerMillion: "4",
+		CacheReadUSDPerMillion: &cacheReadRate, WebSearchUSDPerCall: &webSearchFee,
 		Source: "provider price page", EffectiveFrom: clock.Add(-time.Hour).Format(time.RFC3339),
 	})
 	if err != nil {
@@ -39,7 +41,7 @@ func TestListRequestsFiltersExactIDAndReturnsPriceProvenance(t *testing.T) {
 		t.Fatalf("ordinary settlement reported a restatement: %#v err=%v", settled, err)
 	}
 	now := clock.UnixMilli()
-	if _, err := store.SystemDB().ExecContext(ctx, `INSERT INTO price_versions (id,connection_id,model_id,input_nanos_per_million,output_nanos_per_million,source,effective_from,created_by,created_at) VALUES ('prc_restatement','conn_test','model_test',3000000000,5000000000,'corrected provider price',?,?,?)`, now, owner.ID, now); err != nil {
+	if _, err := store.SystemDB().ExecContext(ctx, `INSERT INTO price_versions (id,connection_id,model_id,input_nanos_per_million,output_nanos_per_million,web_search_nanos_per_call,source,effective_from,created_by,created_at) VALUES ('prc_restatement','conn_test','model_test',3000000000,5000000000,0,'corrected provider price',?,?,?)`, now, owner.ID, now); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := store.SystemDB().ExecContext(ctx, `INSERT INTO cost_assessments (id,attempt_id,price_version_id,calculation_version,kind,amount_nanos,delta_nanos,created_at) VALUES ('ass_restatement',?,'prc_restatement',1,'restated',30000,4000,?)`, admission.AttemptID, now); err != nil {
@@ -59,6 +61,9 @@ func TestListRequestsFiltersExactIDAndReturnsPriceProvenance(t *testing.T) {
 	}
 	if attempt.RecordedPrice == nil || attempt.RecordedPrice.ID != price.ID || attempt.RecordedPrice.Source != "provider price page" || attempt.RestatedPrice == nil || attempt.RestatedPrice.ID != "prc_restatement" || attempt.RestatedPrice.Source != "corrected provider price" {
 		t.Fatalf("prices=%#v/%#v", attempt.RecordedPrice, attempt.RestatedPrice)
+	}
+	if attempt.RecordedPrice.CacheReadUSDPerMillion == nil || *attempt.RecordedPrice.CacheReadUSDPerMillion != "0" || attempt.RecordedPrice.WebSearchUSDPerCall == nil || *attempt.RecordedPrice.WebSearchUSDPerCall != "0.01" || attempt.RestatedPrice.CacheReadUSDPerMillion != nil || attempt.RestatedPrice.WebSearchUSDPerCall == nil || *attempt.RestatedPrice.WebSearchUSDPerCall != "0" {
+		t.Fatalf("price rates=%#v/%#v", attempt.RecordedPrice, attempt.RestatedPrice)
 	}
 	if _, err := service.AdjustCost(ctx, owner, admission.AttemptID, "0.000001", "manual correction", "request-detail-adjustment"); err != nil {
 		t.Fatal(err)

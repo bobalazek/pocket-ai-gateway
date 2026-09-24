@@ -55,4 +55,27 @@ describe("RequestAttemptDetails", () => {
     expect(unknown).not.toContain("0 tokens");
     expect(zero).toContain("0 tokens");
   });
+
+  it("shows cache and web-search price terms with null distinct from zero", () => {
+    const price = {
+      id: "price_1",
+      source: "operator",
+      input_usd_per_million: "1",
+      cache_read_usd_per_million: "0.2",
+      output_usd_per_million: "2",
+      web_search_usd_per_call: null,
+      effective_from: "2026-09-15T00:00:00Z",
+      effective_to: null,
+    };
+    const html = renderToStaticMarkup(<RequestAttemptDetails attempt={{
+      ...attempt,
+      recorded_price: price,
+      restated_price: { ...price, id: "price_2", cache_read_usd_per_million: null, web_search_usd_per_call: "0" },
+    }} clientDialect="openai" />);
+
+    expect(html).toContain("Cache read $0.2/M");
+    expect(html).toContain("Web search unpriced");
+    expect(html).toContain("Cache read unpriced");
+    expect(html).toContain("Web search $0/call");
+  });
 });

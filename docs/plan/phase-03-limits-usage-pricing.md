@@ -28,3 +28,8 @@ Dashboard charts use a small source-owned shadcn-style wrapper around Recharts v
 - Unit/integration: checked money arithmetic, bucket carry, period boundaries, concurrent admission, atomic denial, idempotent settlement/repricing/reconciliation, restart recovery, and outbox replay.
 - Contract/UI: OpenAPI validation, typed client tests, production dashboard build, embedded-asset smoke test, and desktop/mobile responsive review in the live preview.
 - Release gates: `scripts/verify.sh` plus a clean generated-code diff and race-enabled accounting/storage/server test run.
+
+## Incremental price-provenance evidence — 2026-09-24
+
+- Request details now return and display each recorded/restated price version's nullable cache-read rate and web-search call fee alongside input/output rates. Explicit zero stays distinct from an unknown rate, so the displayed price terms can explain search and cached-token charges.
+- The accounting package tests, request-detail component test, dashboard typecheck, management OpenAPI validation, and diff whitespace check passed locally. No provider call or GitHub workflow was used.

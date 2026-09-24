@@ -3,7 +3,8 @@ import type { RequestAttempt, RequestPriceProvenance } from "@/features/requests
 function PriceProvenance({ label, price }: { label: string; price: RequestPriceProvenance }) {
   return (
     <>
-      <small>{label}: {price.source} · ${price.input_usd_per_million} input / ${price.output_usd_per_million} output per million · {price.id}</small>
+      <small>{label}: {price.source} · {price.id}</small>
+      <small>Input ${price.input_usd_per_million}/M · Cache read {price.cache_read_usd_per_million === null ? "unpriced" : `$${price.cache_read_usd_per_million}/M`} · Output ${price.output_usd_per_million}/M · Web search {price.web_search_usd_per_call === null ? "unpriced" : `$${price.web_search_usd_per_call}/call`}</small>
       <small>Effective {new Date(price.effective_from).toLocaleString()} → {price.effective_to ? new Date(price.effective_to).toLocaleString() : "current"}</small>
     </>
   );
