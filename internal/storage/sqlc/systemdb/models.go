@@ -22,6 +22,19 @@ type AdmissionClock struct {
 	ProcessEpoch    string `json:"process_epoch"`
 }
 
+type AnthropicFile struct {
+	ID          string `json:"id"`
+	OwnerUserID string `json:"owner_user_id"`
+	KeyID       string `json:"key_id"`
+	Filename    string `json:"filename"`
+	MimeType    string `json:"mime_type"`
+	SizeBytes   int64  `json:"size_bytes"`
+	Ciphertext  []byte `json:"ciphertext"`
+	Nonce       []byte `json:"nonce"`
+	CreatedAt   int64  `json:"created_at"`
+	ExpiresAt   int64  `json:"expires_at"`
+}
+
 type ApiKey struct {
 	ID                string        `json:"id"`
 	OwnerUserID       string        `json:"owner_user_id"`
