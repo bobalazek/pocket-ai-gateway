@@ -18,6 +18,7 @@ cd pocket-ai-gateway
 Create a private, persistent data directory owned by the service account:
 
 ```sh
+sudo useradd --system --user-group --home-dir /var/lib/pocket-ai-gateway --shell /usr/sbin/nologin pocket-gateway
 sudo install -d -m 0700 -o pocket-gateway -g pocket-gateway \
   /var/lib/pocket-ai-gateway /var/lib/pocket-ai-gateway_backups
 sudo install -m 0755 dist/pocket-ai-gateway /usr/local/bin/pocket-ai-gateway
@@ -26,7 +27,7 @@ sudo install -m 0755 dist/pocket-ai-gateway /usr/local/bin/pocket-ai-gateway
 Run locally behind an HTTPS reverse proxy:
 
 ```sh
-/usr/local/bin/pocket-ai-gateway serve \
+sudo -u pocket-gateway /usr/local/bin/pocket-ai-gateway serve \
   --listen 127.0.0.1:8080 \
   --data-dir /var/lib/pocket-ai-gateway \
   --public-url https://gateway.example.com
@@ -128,22 +129,27 @@ Binding beyond loopback requires an HTTPS public URL. `--allow-insecure-http` ex
 
 ## Back up and restore
 
-Set the external archive key in the service environment, preserve a separate recovery copy, then stop the process and create an encrypted backup:
+Put the [backup key](operations.md#encrypted-backups) in `/etc/pocket-ai-gateway.env` as `POCKET_AI_GATEWAY_BACKUP_KEY=...`, restrict the file to root (mode `0600`), and preserve a separate recovery copy. Stop the service, then create an encrypted backup using that same environment file:
 
 ```sh
 sudo systemctl stop pocket-ai-gateway
-sudo -u pocket-gateway pocket-ai-gateway backup \
+sudo systemd-run --pipe --collect --uid=pocket-gateway \
+  --property=EnvironmentFile=/etc/pocket-ai-gateway.env \
+  /usr/local/bin/pocket-ai-gateway backup \
   --data-dir /var/lib/pocket-ai-gateway \
-  --output /secure/pocket-ai-gateway.pagbak
+  --output /var/lib/pocket-ai-gateway_backups/manual.pagbak
 sudo systemctl start pocket-ai-gateway
 ```
 
-The encrypted archive contains both databases and the credential master key. Restore authenticates the archive, validates hashes and database integrity, and only writes to an absent destination:
+The encrypted archive contains both databases and the credential master key. Restore uses the same key, authenticates the archive, validates hashes and database integrity, and only writes to an absent destination:
 
 ```sh
-pocket-ai-gateway restore-backup \
-  --archive /secure/pocket-ai-gateway.pagbak \
-  --data-dir /var/lib/pocket-ai-gateway-restored
+sudo install -d -m 0700 -o pocket-gateway -g pocket-gateway /var/lib/pocket-ai-gateway-recovery
+sudo systemd-run --pipe --collect --uid=pocket-gateway \
+  --property=EnvironmentFile=/etc/pocket-ai-gateway.env \
+  /usr/local/bin/pocket-ai-gateway restore-backup \
+  --archive /var/lib/pocket-ai-gateway_backups/manual.pagbak \
+  --data-dir /var/lib/pocket-ai-gateway-recovery/restored
 ```
 
 Scheduled local and S3-compatible backups are configured in the dashboard. See [operations and recovery](operations.md) for key handling and the complete recovery procedure.

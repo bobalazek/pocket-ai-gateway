@@ -131,6 +131,10 @@ Checked source revision `a4ab1a2` with Go 1.27.1 on macOS arm64 and the producti
 
 ## Working method and next action
 
+### Public documentation and demo review — 2026-09-24
+
+The README was reduced to a Docker quick start, example request, feature summary, SDK base URLs, source build, and documentation links. The disposable demo was rebuilt and signed into locally; its overview, usage chart, and model-routing views were captured as real PNGs. `pnpm --dir web typecheck`, all 78 frontend/SDK tests, `go test ./scripts/demo -count=1`, `docker compose config --quiet`, Markdown link checks, and `git diff --check` passed. Deployment instructions were corrected for service-account creation and for passing the backup key to offline backup/restore. No GitHub workflow or paid provider was used.
+
 Implement one bounded work item at a time in this repository. Update its status and evidence after checks pass. Review financial/security/data-loss boundaries before declaring the containing phase complete. Do not generate all future directories, tables, interfaces, or placeholder endpoints upfront.
 
 The v0.1 implementation phases are complete, with the documented Phase 8–9 compatibility subset implemented. Before publication, select the final candidate, verify its Linux artifacts and sustained resource behavior, and configure signing/reporting/publication access. The [release checklist](../project/release-checklist.md) tracks those gates; [human tasks](../project/human-tasks.md) track external prerequisites. Additional vendor API families and remote storage remain separate implementation work in the [API parity inventory](../project/api-parity-inventory.md) and decisions.

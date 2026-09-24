@@ -1,202 +1,82 @@
 # Pocket AI Gateway
 
-**The PocketBase approach to running an AI gateway: one Go executable, an embedded dashboard, and local SQLite storage.**
+A self-hosted gateway for OpenAI, Anthropic, and Gemini clients. One Go process serves the API and admin dashboard, stores configuration and usage in local SQLite, and routes requests through model names you control.
 
-Pocket AI Gateway is an open-source, self-hosted control plane for AI applications. Point existing OpenAI, Anthropic, or Gemini clients at protocol-specific gateway URLs, publish stable model names, and decide which provider serves each request.
+![Pocket AI Gateway dashboard showing synthetic requests and spend](docs/images/demo-overview.png)
 
-Provider credentials, users, application keys, limits, routing rules, usage, and audit history stay on infrastructure you control. The production dashboard and database migrations are compiled into the server, so the deployed runtime does not need Node.js, Redis, or a separate database service.
+*The embedded dashboard with disposable example data. [See more screens and run the demo](docs/guides/demo.md).*
 
-## What you get
+## Try it locally
 
-- **Native client contracts:** separate OpenAI, Anthropic, and Gemini API namespaces with compatible requests, responses, errors, and streams.
-- **Provider routing:** fixed, fallback, weighted, lowest-cost, and observed-latency strategies behind stable public model names.
-- **Media and realtime:** streamed speech and image edits, authenticated OpenAI Realtime/OpenAI Live/Gemini Live WebSocket proxies, and durable provider-neutral media jobs for Replicate, Together video, Gemini Veo, and custom adapters.
-- **Custom adapters:** administrator-managed JavaScript request and response transforms run inside the embedded Go process with time, stack, source, input, and output limits and no host filesystem, process, module, timer, or network access.
-- **Access control:** multiple administrators and members, scoped application keys, model and provider grants, expiration, rotation, and revocation.
-- **Usage controls:** normalized token/cache usage, versioned cache-aware pricing, recurring UTC price windows, and request, concurrency, payload, batch, quota, and spend policies at the instance, user, key, and connection levels.
-- **Local operations:** two SQLite databases, encrypted provider secrets, diagnostics, audit events, encrypted backups, restore validation, and no public telemetry.
-- **Verified upgrades:** manual or Docker image replacement, plus optional signed dry-run/apply self-update for standalone Linux amd64/arm64 releases.
-- **Built-in dashboard:** onboarding, status, users, providers, models, API keys, requests, usage, audit history, backups, settings, and personal account management.
-
-## Run it
-
-### Docker Compose
+With Docker Compose installed:
 
 ```sh
 git clone https://github.com/bobalazek/pocket-ai-gateway.git
 cd pocket-ai-gateway
 docker compose up --build -d
-docker compose logs gateway
 ```
 
-Open [http://localhost:8080/_/](http://localhost:8080/_/). Compose keeps `/data` and the default `/data_backups` directory in separate persistent named volumes.
+Open [http://localhost:8080/_/](http://localhost:8080/_/) and create the first owner account. In the dashboard:
 
-The image starts the gateway by default. Set `POCKET_AI_GATEWAY_PUBLIC_URL` to the external HTTPS origin when deploying behind a proxy.
-
-Run the container backup/restore journey locally with `./scripts/compose-e2e.sh`. It builds the production image, completes onboarding, creates an encrypted paired-store backup, restores it into a clean volume, and verifies the restored account after restart.
-
-### Build once, run one executable
-
-Building from source requires Go 1.27.1, Node.js 22 or newer, pnpm 10.30.3, and `curl`:
+1. Add a provider connection and its credential.
+2. Add an upstream model with Chat capability, then publish `assistant` as a public model with Chat capability.
+3. Create an API key with `chat:generate`, a model pattern matching `assistant`, and the provider connection ID. The secret is shown once.
 
 ```sh
-git clone https://github.com/bobalazek/pocket-ai-gateway.git
-cd pocket-ai-gateway
+export POCKET_AI_GATEWAY_KEY="paste-your-key"
+curl http://localhost:8080/api/openai/v1/chat/completions \
+  -H "Authorization: Bearer $POCKET_AI_GATEWAY_KEY" \
+  -H 'Content-Type: application/json' \
+  -d '{"model":"assistant","messages":[{"role":"user","content":"Hello"}]}'
+```
+
+Use the model ID you published in place of `assistant`. Compose binds to localhost and keeps data in named volumes. For a remote server, follow the [deployment guide](docs/guides/deployment.md) to add HTTPS, set the public URL in a Compose override, and configure encrypted backups.
+
+## What it does
+
+- **Separate client APIs.** OpenAI, Anthropic, and Gemini SDKs connect through their own URL namespaces. Supported operations have tested request, response, and streaming behavior.
+- **One model name, multiple targets.** Publish stable model IDs and route them with fixed, fallback, weighted, cost, or observed-latency strategies.
+- **Keys and limits.** Manage users and scoped API keys, then apply request, token, concurrency, quota, and spend policies by instance, user, key, or provider connection.
+- **Usage you can trace.** Inspect attempts, token and cache usage, search-call fees, price versions, cost restatements, and audit events in the dashboard.
+- **Local operations.** Provider secrets are encrypted. The server includes backup and restore tools, local or S3-compatible scheduled backups, and no public telemetry.
+- **More than text.** The tested subset includes image and audio operations, live WebSocket transports, durable media jobs, and trusted JavaScript transforms for custom adapters.
+
+Built-in presets include OpenAI, Anthropic, Gemini, OpenRouter, Z.AI, MiniMax, Ollama, Together, and Replicate. A preset does not imply that every model supports every operation. See the [compatibility matrix](docs/project/compatibility.md) and [provider evidence](docs/project/provider-certification.md) for exact coverage.
+
+## SDK base URLs
+
+| Client | Base URL |
+| --- | --- |
+| OpenAI | `http://localhost:8080/api/openai/v1` |
+| Anthropic | `http://localhost:8080/api/anthropic` |
+| Google Gen AI | `http://localhost:8080/api/gemini` with API version `v1beta` |
+
+Application requests use a scoped gateway API key. Dashboard sign-in uses a separate browser session.
+
+## Explore the dashboard
+
+From a source checkout, `./scripts/demo.sh` starts a disposable instance with three mock providers and seven days of synthetic requests. It needs no provider credential and cannot seed an existing data directory. The [demo guide](docs/guides/demo.md) has login instructions and more screenshots.
+
+## Run one executable
+
+To build from source, install Go 1.27.1, Node.js 22 or newer, and pnpm 10.30.3, then run:
+
+```sh
 ./scripts/build.sh
 ./dist/pocket-ai-gateway serve
 ```
 
-`dist/pocket-ai-gateway` contains the Go server, production dashboard, and migrations. Copy it to a machine with the same operating system and architecture; build tools and repository files are not required at runtime.
+The executable contains the dashboard and database migrations. It listens on `127.0.0.1:8080` and stores data in `./pocket_gateway_data` by default. Open `http://127.0.0.1:8080/_/` for first-time setup. Build tools are unnecessary on the runtime host when you copy a binary for the same operating system and architecture.
 
-The server listens on `127.0.0.1:8080` and stores state in `./pocket_gateway_data` by default. Run `pocket-ai-gateway help` for configuration flags and commands.
-
-## First-time setup
-
-When the data directory has no users, the dashboard opens the setup flow. Create the owner account directly in the browser; Pocket AI Gateway never creates a default email or password.
-
-Then use the dashboard to:
-
-1. Add a provider connection and credential.
-2. Register an upstream model and publish a stable model name.
-3. Choose a routing strategy and optional fallback targets.
-4. Create a scoped application key. Its secret is shown once.
-5. Test the model in **Playground** or update an application's base URL.
-
-```sh
-export POCKET_GATEWAY_KEY="paste-the-key-shown-once"
-
-curl http://127.0.0.1:8080/api/openai/v1/chat/completions \
-  -H "Authorization: Bearer $POCKET_GATEWAY_KEY" \
-  -H "Content-Type: application/json" \
-  -d '{
-    "model": "assistant",
-    "messages": [{"role": "user", "content": "Hello"}],
-    "max_tokens": 128
-  }'
-```
-
-## Bring your existing SDK
-
-Each API family has a stable namespace, so an SDK never has to guess which protocol it is speaking.
-
-| Client | Base URL | Authentication |
-| --- | --- | --- |
-| OpenAI SDK | `http://127.0.0.1:8080/api/openai/v1` | `Authorization: Bearer <key>` |
-| Anthropic SDK | `http://127.0.0.1:8080/api/anthropic` | `x-api-key: <key>` |
-| Google Gen AI SDK | `http://127.0.0.1:8080/api/gemini`, API version `v1beta` | `x-goog-api-key: <key>` |
-| Management API | `http://127.0.0.1:8080/api/v1` | Browser session |
-
-The integration suite runs the official OpenAI, Anthropic, and Google Gen AI TypeScript SDKs against the gateway. Cross-provider generation covers text, image input, JSON schema output, function tools and results, stop sequences, token usage, and compatible streaming.
-
-Gemini clients can also call synchronous stateless text Interactions at `/api/gemini/v1beta/interactions`. The gateway forces provider storage off, routes only to explicitly capable native Gemini models, preserves completed or incomplete Interaction responses, normalizes the public model name, and includes provider-reported thinking tokens in output-cost accounting.
-
-The Google Gen AI SDK's Files upload/list/get/delete flow stores encrypted, key-owned files locally. `file.uri` can be used in native Gemini generation and token counting; the gateway expands it before forwarding. Files are limited to 8 MiB and expire after 48 hours. See the [Gemini API contract](docs/features/gemini-compatible.md#gateway-owned-files) for the exact limits.
-
-OpenAI Responses includes non-retained JSON and streaming requests, local Response storage, durable background execution, polling, cancellation, input-item listing, deletion, native compaction on the OpenAI preset, native input-token counting, key-owned Conversations, and atomic synchronous, background, or buffered-stream conversation attachment. A successful attached stream stores its Conversation turn before replay; a failed terminal stream leaves the Conversation unchanged. Bounded native web search is available for non-streaming Responses on an OpenAI-adapter target using the built-in `openai` preset with explicit capability, scope, output, and call ceilings; token usage and search calls are tracked separately; an operator-configured per-call fee can make cost known when token/cache pricing and bounds are complete. Gateway-owned file search uses same-key local Vector Stores, a bounded private tool loop on one native OpenAI or OpenAI-compatible Responses target, official `file_search_call` output, and aggregate provider usage in stateless, stored, or background JSON. Legacy `POST /completions` supports native JSON and SSE on an explicitly capable OpenAI or OpenAI-compatible target. It requires `completions:generate`, validates the official request contract before dispatch, limits the request body, JSON response, and each SSE event to 16 MiB, reserves output across every prompt and generated candidate, and normalizes the public model alias without translating legacy prompt semantics. Embeddings, moderations, token counting, bounded image generation, GPT Image edits, DALL-E 2 variations, streamed text-to-speech, and multipart audio transcription and translation route only to targets that support those operations. DALL-E 2 edits remain unsupported because they use a different multipart contract.
-
-Anthropic Messages also supports bounded native web search on the built-in `anthropic` preset. JSON and SSE requests may include one `web_search_20250305` basic tool, `web_search_20260209` dynamic-filtering tool, or `web_search_20260318` dynamic-filtering tool with response inclusion, each with `max_uses` from 1 through 4, optional domain controls, and approximate user location. One search tool and one fetch tool may appear together in the same request, each with its own ceiling and scope. The dynamic versions default to Anthropic-managed code execution; `allowed_callers: ["direct"]` disables it. The public and upstream models need `chat` and `web_search`; code-execution invocation also needs `web_search_dynamic`, and the `response_inclusion` field additionally needs `web_search_response_inclusion`. The key needs `chat:generate` plus `messages:web_search`. Prompt caching may be combined, including a `cache_control` breakpoint on the tool definition, while cache counters and web-search usage are preserved separately. Native server-tool and result blocks, citations, encrypted result state, `pause_turn`, code-execution usage, and reported search calls are preserved. In SSE, result blocks arrive complete while tool input and cited text may arrive as deltas; the final `message_delta` carries cumulative usage. The gateway does not translate or fall back after dispatch; lowest-cost and free-only routes still reject these requests; strict spend policies require complete token, cache-read, and per-call prices, while combined fetch or prompt-cache requests remain unpriced.
-
-Bounded native Anthropic web fetch accepts one `web_fetch_20250910` basic tool, `web_fetch_20260209` dynamic-filtering tool, `web_fetch_20260309` dynamic-filtering tool with cache bypass, or `web_fetch_20260318` dynamic-filtering tool with cache bypass and response inclusion in an ordinary JSON or SSE Message. One fetch tool may appear alongside one search tool, requiring both scopes and both capability sets. Requests require 1–4 fetches and an approximate 1–16,384 fetched-text token limit, may restrict up to ten plain hostnames, and may enable citations. The `use_cache` boolean is accepted only on the cache-bypass versions, and `response_inclusion` only on `web_fetch_20260318`. The dynamic versions default to Anthropic-managed code execution and may be forced direct with `allowed_callers`. The model needs `chat` and `web_fetch`; code-execution invocation also needs `web_fetch_dynamic`, `use_cache` additionally needs `web_fetch_cache_bypass`, and `response_inclusion` additionally needs `web_fetch_response_inclusion`. The key needs `chat:generate` and `messages:web_fetch`. Provider result/error blocks, code-execution usage, and reported `web_fetch_requests` remain native, and actual fetched tokens use ordinary versioned model prices. Binary PDFs are not bounded by the text limit, so token/spend policies, lowest-cost routing, and free-only routing reject fetch requests before dispatch. The gateway never translates or retries the request after dispatch. Prompt caching may be combined, including a `cache_control` breakpoint on the tool definition; local Message Batches remain a separate contract.
-
-Gateway-owned Anthropic Message Batches accept one to four ordinary non-streaming Messages requests in a 16 MiB submission. The creating key owns the batch and needs `chat:generate` plus `messages:batches`; each item uses the same local authorization, routing, limits, and accounting path as an ordinary Message. Invalid nested `params` become asynchronous per-item errors. Until every item finishes, all requests remain in the `processing` count and terminal counters stay at zero. Clients can create, poll, list, cancel, delete, and stream out-of-order results as JSONL. `expires_at` is the 24-hour processing deadline; 29 days after creation the gateway deletes the entire batch and its results. This bounded local contract does not claim Anthropic's provider-owned 100,000-request limit or native 50% batch discount.
-
-Gateway-owned OpenAI Batches use the official SDK's create, retrieve, list, and cancel methods. Upload a Batch JSONL File with `files:manage`, then create the Batch with `batches:manage` plus the matching endpoint scope for `/v1/responses`, `/v1/chat/completions`, `/v1/completions`, `/v1/embeddings`, `/v1/moderations`, `/v1/images/generations`, or `/v1/images/edits`. The bounded local contract accepts one to four non-streaming requests for one public model, processes them through ordinary gateway routing, limits, accounting, and prices, and writes successful and failed JSONL lines to separate same-key output Files. Legacy Completions require `completions:generate` and reuse the direct request validator; Embeddings keep their vector contract; Moderations use native routing and expose no aggregate usage; image generation and edits use native image routing and preserve the standard response body. Batch image edits accept HTTPS or bounded PNG/JPEG/WebP data-URL references; provider `file_id` references remain unsupported. Aggregate usage is available only when terminal Batch usage is complete; otherwise it is null. Processing expires after 24 hours; Batch metadata remains available for 30 days, and generated Files remain for 30 days by default or a requested shorter interval. This local queue does not claim OpenAI's provider-owned 50% discount, separate rate pool, 50,000-request or 200 MB limits, or unlimited output tokens.
-
-Gateway-owned OpenAI Vector Stores support the official SDK's store lifecycle plus atomic create-with-files, file batches, attach, retrieve, update, list, and detach operations for same-key local Files. Resources require `vector_stores:manage`, support bounded metadata and optional expiry, report attached file counts and bytes, and share retained-storage ceilings. UTF-8/ASCII, BOM-marked UTF-16, HTML, DOCX, PPTX, XLSX, and bounded selectable PDF text can be retrieved and searched lexically, including through bounded Responses `file_search`. Static token chunking, PDF OCR/scanned text, legacy Office parsing, and embedding-backed semantic search remain pending.
-
-See the tested [compatibility matrix](docs/project/compatibility.md) and the [OpenAI](docs/features/openai-compatible.md), [Anthropic](docs/features/anthropic-compatible.md), and [Gemini](docs/features/gemini-compatible.md) guides for exact behavior and limits.
-
-## Providers and models
-
-Built-in provider presets cover OpenAI, Anthropic, Gemini, OpenRouter, Z.AI, MiniMax, Ollama, Mistral, Groq, DeepSeek, xAI, Together, Replicate, Fireworks, Cohere, Perplexity, Azure OpenAI, Amazon Bedrock, and Google Vertex AI. Custom OpenAI-compatible endpoints can add administrator-managed JavaScript transforms for JSON requests, responses, and asynchronous media jobs. The embedded VM shares the server heap, so only trusted operators may install scripts.
-
-A preset defines connection behavior and available operations. Actual capability still depends on the chosen upstream model. Live certification is tracked separately from deterministic protocol tests, so the project does not claim a provider works until the tested release records it.
-
-Provider secrets can be encrypted locally or read from environment and mounted-file references. Bearer references let Azure Entra and Google Cloud identity agents rotate short-lived tokens without restarting the gateway.
-
-## Dashboard and operations
-
-The embedded dashboard provides:
-
-| Area | Capabilities |
-| --- | --- |
-| Overview | Service health, traffic, latency, errors, token usage, and estimated cost |
-| Access | Users, roles, sessions, recovery, application keys, scopes, and grants |
-| Providers | Connections, encrypted credentials, health checks, upstream models, and public models |
-| Routing | Target order, weights, fallback, cost routing, latency routing, and free-only policies |
-| Limits | Request, token, spend, concurrency, quota, payload, output, and batch controls |
-| Activity | Requests, attempts, tool-call metadata, accounting status, and audit history |
-| Media jobs | Replicate, Together video, Gemini Veo, and custom asynchronous generation state and cancellation |
-| Maintenance | Configuration export/import, encrypted local or S3-compatible backups, restore, retention, and diagnostics |
-
-Ordinary prompt and response content is not captured in request logs. Conversation and stored Response content is retained only when the client explicitly uses those API features.
-
-### Try the dashboard
-
-From a source checkout, `./scripts/demo.sh` starts a disposable local demo with synthetic users, models, keys, and seven days of usage. It uses a local mock provider and deletes its temporary data when stopped. See the [demo guide and screenshots](docs/guides/demo.md) for sign-in and setup details.
-
-![Daily token usage in the dashboard, using synthetic demo data](docs/images/demo-usage.png)
-
-## Runtime layout
-
-```mermaid
-flowchart LR
-  Apps[Applications and SDKs] --> APIs[OpenAI / Anthropic / Gemini APIs]
-  Admin[Embedded dashboard] --> Control[Management API]
-  APIs --> Guard[Keys, grants, and limits]
-  Guard --> Router[Model routing]
-  Router --> Providers[Cloud and local providers]
-  Control --> Store[(system.db + data.db)]
-  Guard --> Store
-  Router --> Store
-```
-
-The default data directory contains:
-
-```text
-pocket_gateway_data/
-  system.db
-  data.db
-  master.key
-  instance.lock
-```
-
-Keep the entire directory private and persistent. `master.key` protects provider credentials and is required with the databases for recovery. A data directory may be opened by only one gateway process at a time.
-
-## Deploy and upgrade
-
-The [deployment guide](docs/guides/deployment.md) covers the standalone executable, Docker Compose, systemd, Caddy and TLS, persistent storage, multi-platform images, configuration, backup, restore, and upgrades. The [operations guide](docs/guides/operations.md) covers recovery keys, scheduled local and S3-compatible backups, retention, health checks, maintenance, and incident recovery.
-
-Run the complete source and release check with:
-
-```sh
-./scripts/verify.sh
-```
-
-Create checksummed platform archives with:
-
-```sh
-./scripts/package.sh v0.1.0
-```
-
-The release workflow builds Linux archives and container images for amd64 and arm64, plus checksums, an SBOM, and attestations. Docker is the primary deployment path.
+The [deployment guide](docs/guides/deployment.md) covers Docker, systemd, reverse proxies, backups, and upgrades. Backups require a separate `POCKET_AI_GATEWAY_BACKUP_KEY`; keep that key and a copy of each archive outside the server.
 
 ## Documentation
 
-- [Documentation index](docs/README.md)
-- [Deployment](docs/guides/deployment.md)
-- [Operations and recovery](docs/guides/operations.md)
-- [API reference](docs/reference/api.md)
-- [Provider adapters](docs/guides/adapters.md)
+- [API reference and supported operations](docs/reference/api.md)
+- [Deployment and recovery](docs/guides/deployment.md)
 - [Architecture](docs/architecture/README.md)
-- [Security policy](SECURITY.md)
-- [Contributing](CONTRIBUTING.md)
-- [Agent-readable help](llms.txt)
+- [Contributing](CONTRIBUTING.md) and [security policy](SECURITY.md)
 
 ## Project status
 
-Pocket AI Gateway is under active development. Before v1.0, releases may include breaking configuration or API changes. Consult the compatibility matrix for behavior covered by tests and the provider certification records for live upstream results.
-
-## License
-
-[MIT](LICENSE)
+Pocket AI Gateway is [MIT-licensed](LICENSE) and under active development. The implemented APIs cover documented, tested subsets of vendor contracts; live provider certification and release signing are pending. See the [release checklist](docs/project/release-checklist.md) for current status.
