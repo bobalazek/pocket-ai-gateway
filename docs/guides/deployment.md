@@ -35,6 +35,8 @@ sudo -u pocket-gateway /usr/local/bin/pocket-ai-gateway serve \
 
 `--public-url` pins browser Host and Origin checks and controls secure cookies. The gateway does not trust forwarded headers. Configure the proxy to preserve the original `Host` header.
 
+On a fresh data directory, the first valid setup request becomes the owner. Keep internet ingress restricted until you have completed owner setup; an unclaimed public instance can be claimed by someone else.
+
 Example Caddy configuration:
 
 ```caddyfile
