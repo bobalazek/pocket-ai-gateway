@@ -69,7 +69,7 @@ func main() {
 			capabilities = append(capabilities, "moderations", "count_tokens", "images", "audio_speech", "audio_transcription", "audio_translation")
 		}
 		if adapter == "gemini" {
-			capabilities = append(capabilities, "interactions")
+			capabilities = append(capabilities, "interactions", "count_tokens")
 		}
 		upstreamID := adapter + "-upstream"
 		if adapter == "openai" {
@@ -301,6 +301,24 @@ func upstreamHandler(response http.ResponseWriter, request *http.Request) {
 				return
 			}
 			io.WriteString(response, `{"id":"interaction_1","object":"interaction","status":"completed","model":"gemini-upstream","steps":[{"type":"model_output","content":[{"type":"text","text":"Hello"}]}],"usage":{"total_input_tokens":3,"total_output_tokens":2,"total_cached_tokens":1,"total_tokens":5}}`)
+			return
+		}
+		if strings.Contains(request.URL.Path, ":countTokens") {
+			if bytes.Contains(body, []byte(`"fileData"`)) || !bytes.Contains(body, []byte(`"inlineData"`)) {
+				response.WriteHeader(http.StatusBadRequest)
+				io.WriteString(response, `{"error":{"code":400,"message":"file was not expanded","status":"INVALID_ARGUMENT"}}`)
+				return
+			}
+			io.WriteString(response, `{"totalTokens":4}`)
+			return
+		}
+		if bytes.Contains(body, []byte(`"inlineData"`)) {
+			if bytes.Contains(body, []byte(`"fileData"`)) || !bytes.Contains(body, []byte(`"data":"c2RrIGZpbGU="`)) {
+				response.WriteHeader(http.StatusBadRequest)
+				io.WriteString(response, `{"error":{"code":400,"message":"file was not expanded","status":"INVALID_ARGUMENT"}}`)
+				return
+			}
+			io.WriteString(response, `{"responseId":"gemini_file","candidates":[{"index":0,"content":{"role":"model","parts":[{"text":"Uploaded file seen"}]},"finishReason":"STOP"}],"usageMetadata":{"promptTokenCount":4,"candidatesTokenCount":3,"totalTokenCount":7}}`)
 			return
 		}
 		io.WriteString(response, `{"responseId":"gemini_1","candidates":[{"index":0,"content":{"role":"model","parts":[{"text":"Hello"}]},"finishReason":"STOP"}],"usageMetadata":{"promptTokenCount":2,"candidatesTokenCount":1,"totalTokenCount":3}}`)

@@ -66,6 +66,7 @@ Each record states status/source, context, decision, and consequences. A recomme
 | ADR-058 | [Bounded PDF text parsing for Vector Stores](2026-09-24-vector-store-pdf-parsing.md) | Delegated parity expansion extending ADR-041, ADR-042, and ADR-049 |
 | ADR-059 | [Gateway-owned Anthropic Files](2026-09-24-gateway-owned-anthropic-files.md) | Delegated bounded native Files lifecycle and same-key Messages references |
 | ADR-060 | [Versioned hosted web-search call pricing](2026-09-24-versioned-web-search-call-pricing.md) | Delegated pricing expansion extending ADR-005 and hosted-search contracts |
+| ADR-061 | [Gateway-owned Gemini Files](2026-09-24-gateway-owned-gemini-files.md) | Delegated bounded SDK compatibility; native Gemini File references only |
 
 Historical: [initial proposal](2026-09-14-initial-proposal.md), superseded by the records above where they differ. Its A/P/D/M identifiers are historical references only; current documents use ADR IDs.
 

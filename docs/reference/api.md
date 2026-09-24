@@ -87,6 +87,9 @@ Compatible responses keep their native usage fields. After admission, every forw
 | GET /api/anthropic/v1/messages/batches/{id}/results | Stream creating-key-owned terminal results as out-of-order JSONL for 29 days from creation |
 | GET /api/anthropic/v1/models and /models/{id} beneath that root | Anthropic model list/detail/pagination |
 | POST /api/gemini/v1beta/models/{model}:generateContent | Gemini contents/parts, candidates, finish/safety metadata, usageMetadata |
+| POST /api/gemini/upload/v1beta/files and POST returned upload URL | SDK-compatible resumable start/upload/finalize for one encrypted, key-owned 1–8 MiB File; `files:manage`; one-hour upload session |
+| GET /api/gemini/v1beta/files and GET/DELETE /files/{file_id} beneath that root | Key-owned File list, metadata, and deletion; completed Files expire after 48 hours |
+| `fileData.fileUri` in Gemini generation/counting | Opaque local URI resolved to inline data before admission; four references and 8 MiB combined, 16 MiB expanded request; native Gemini target only |
 | POST /api/gemini/v1beta/models/{model}:streamGenerateContent?alt=sse | Native Gemini incremental response envelopes |
 | POST /api/gemini/v1beta/models/{model}:countTokens | Native-shaped token-count result for the selected target |
 | POST /api/gemini/v1beta/models/{model}:embedContent | Gemini embedding shape mapped to a compatible embedding target |

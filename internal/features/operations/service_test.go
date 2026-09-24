@@ -77,6 +77,60 @@ func TestLocalBackupSettingsAndDiagnostics(t *testing.T) {
 	}
 }
 
+func TestGeminiFileRetentionRunsManuallyAndOnSchedule(t *testing.T) {
+	ctx := context.Background()
+	store, err := storage.Open(ctx, filepath.Join(t.TempDir(), "data"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+	if _, err := store.SystemDB().ExecContext(ctx, `INSERT INTO users(id,email,display_name,password_hash,role,status,inference_unrestricted,created_at,updated_at) VALUES('usr_gemini','gemini@example.test','Gemini','hash','owner','active',1,1,1)`); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.SystemDB().ExecContext(ctx, `INSERT INTO api_keys(id,owner_user_id,label,state,scopes_json,created_at,updated_at) VALUES('key_gemini','usr_gemini','Gemini','active','[]',1,1)`); err != nil {
+		t.Fatal(err)
+	}
+	seed := func(suffix string, expired bool) {
+		t.Helper()
+		fileCreated := time.Now().UnixMilli()
+		uploadCreated := fileCreated
+		if expired {
+			fileCreated -= 48*60*60*1000 + 1000
+			uploadCreated -= 60*60*1000 + 1000
+		}
+		if _, err := store.SystemDB().ExecContext(ctx, `INSERT INTO gemini_files(id,owner_user_id,key_id,display_name,mime_type,bytes,ciphertext,nonce,created_at,expires_at) VALUES(?,'usr_gemini','key_gemini','file.txt','text/plain',1,?,?,?,?)`, "gfile-"+suffix, make([]byte, 17), make([]byte, 12), fileCreated, fileCreated+48*60*60*1000); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := store.SystemDB().ExecContext(ctx, `INSERT INTO gemini_uploads(id,owner_user_id,key_id,display_name,mime_type,expected_bytes,received_bytes,ciphertext,nonce,created_at,expires_at) VALUES(?,'usr_gemini','key_gemini','file.txt','text/plain',1,1,?,?,?,?)`, "gupl_"+suffix, make([]byte, 17), make([]byte, 12), uploadCreated, uploadCreated+60*60*1000); err != nil {
+			t.Fatal(err)
+		}
+	}
+	assertRows := func(wantFiles, wantUploads int) {
+		t.Helper()
+		for _, item := range []struct {
+			table string
+			want  int
+		}{{"gemini_files", wantFiles}, {"gemini_uploads", wantUploads}} {
+			var got int
+			if err := store.SystemDB().QueryRowContext(ctx, "SELECT COUNT(*) FROM "+item.table).Scan(&got); err != nil || got != item.want {
+				t.Fatalf("%s rows = %d, want %d, error = %v", item.table, got, item.want, err)
+			}
+		}
+	}
+	seed("manual", true)
+	seed("active", false)
+	counts, err := New(store, providers.New(store.SystemDB(), make([]byte, 32)), "test", func(string) string { return "" }).RunRetention(ctx, "usr_gemini")
+	if err != nil || counts["gemini_files"] != 1 || counts["gemini_uploads"] != 1 {
+		t.Fatalf("manual Gemini retention = %v, error = %v", counts, err)
+	}
+	assertRows(1, 1)
+	seed("scheduled", true)
+	if err := New(store, providers.New(store.SystemDB(), make([]byte, 32)), "test", func(string) string { return "" }).RunDue(ctx); err != nil {
+		t.Fatal(err)
+	}
+	assertRows(1, 1)
+}
+
 func TestConfigV3ScheduledCachePriceRoundTripAndOlderCompatibility(t *testing.T) {
 	ctx := context.Background()
 	store, err := storage.Open(ctx, filepath.Join(t.TempDir(), "data"))

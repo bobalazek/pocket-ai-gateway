@@ -193,6 +193,37 @@ type GatewayMetadatum struct {
 	UpdatedAt string `json:"updated_at"`
 }
 
+type GeminiFile struct {
+	ID          string `json:"id"`
+	OwnerUserID string `json:"owner_user_id"`
+	KeyID       string `json:"key_id"`
+	DisplayName string `json:"display_name"`
+	MimeType    string `json:"mime_type"`
+	Bytes       int64  `json:"bytes"`
+	Ciphertext  []byte `json:"ciphertext"`
+	Nonce       []byte `json:"nonce"`
+	CreatedAt   int64  `json:"created_at"`
+	ExpiresAt   int64  `json:"expires_at"`
+}
+
+type GeminiUpload struct {
+	ID            string         `json:"id"`
+	OwnerUserID   string         `json:"owner_user_id"`
+	KeyID         string         `json:"key_id"`
+	DisplayName   string         `json:"display_name"`
+	MimeType      string         `json:"mime_type"`
+	ExpectedBytes int64          `json:"expected_bytes"`
+	ReceivedBytes int64          `json:"received_bytes"`
+	RequestedID   sql.NullString `json:"requested_id"`
+	Status        string         `json:"status"`
+	FileID        sql.NullString `json:"file_id"`
+	CompletedAt   sql.NullInt64  `json:"completed_at"`
+	Ciphertext    []byte         `json:"ciphertext"`
+	Nonce         []byte         `json:"nonce"`
+	CreatedAt     int64          `json:"created_at"`
+	ExpiresAt     int64          `json:"expires_at"`
+}
+
 type LimitPolicy struct {
 	ID               string `json:"id"`
 	ScopeKind        string `json:"scope_kind"`

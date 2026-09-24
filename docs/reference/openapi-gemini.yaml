@@ -3,6 +3,53 @@ info: { title: Pocket AI Gateway Gemini-Compatible API, version: 0.6.0 }
 servers: [{ url: /api/gemini/v1beta }]
 security: [{ apiKey: [] }]
 paths:
+  /files:
+    post:
+      operationId: startGeminiFileUpload
+      servers: [{ url: /api/gemini/upload/v1beta }]
+      summary: Start an encrypted, key-owned resumable File upload
+      description: Requires files:manage. Declare 1–8 MiB using X-Goog-Upload-Header-Content-Length and a MIME type using X-Goog-Upload-Header-Content-Type. The upload session expires after one hour.
+      parameters:
+        - { name: X-Goog-Upload-Protocol, in: header, required: true, schema: { type: string, const: resumable } }
+        - { name: X-Goog-Upload-Command, in: header, required: true, schema: { type: string, const: start } }
+        - { name: X-Goog-Upload-Header-Content-Length, in: header, required: true, schema: { type: integer, minimum: 1, maximum: 8388608 } }
+        - { name: X-Goog-Upload-Header-Content-Type, in: header, required: true, schema: { type: string } }
+      requestBody: { required: true, content: { application/json: { schema: { type: object, properties: { file: { type: object } } } } } }
+      responses:
+        "200": { description: Empty JSON with X-Goog-Upload-URL pointing to the same gateway and X-Goog-Upload-Status active }
+        default: { description: Gemini-compatible error }
+    get:
+      operationId: listGeminiFiles
+      summary: List the key's unexpired Files
+      parameters:
+        - { name: pageSize, in: query, schema: { type: integer, minimum: 1, maximum: 100 } }
+        - { name: pageToken, in: query, schema: { type: string } }
+      responses:
+        "200": { description: Files array and optional nextPageToken }
+        default: { description: Gemini-compatible error }
+  /files/{file_id}:
+    post:
+      operationId: uploadGeminiFileChunk
+      servers: [{ url: /api/gemini/upload/v1beta }]
+      security: [{ apiKey: [] }, {}]
+      summary: Upload and optionally finalize a resumable session
+      description: Here file_id is the 144-bit upload capability from X-Goog-Upload-URL. The follow-up may omit the key header; if supplied, it must match the creating files:manage key. The URL expires after one hour and must be kept private. Identical chunk/finalize retries are idempotent. Finalization returns a File with a gateway-local URI.
+      parameters:
+        - { name: file_id, in: path, required: true, schema: { type: string } }
+        - { name: X-Goog-Upload-Command, in: header, required: true, schema: { type: string, enum: [upload, finalize, 'upload, finalize'] } }
+        - { name: X-Goog-Upload-Offset, in: header, required: true, schema: { type: integer, minimum: 0 } }
+      requestBody: { content: { application/octet-stream: { schema: { type: string, format: binary } } } }
+      responses:
+        "200": { description: Active upload or finalized File with X-Goog-Upload-Status }
+        default: { description: Gemini-compatible error }
+    get:
+      operationId: getGeminiFile
+      parameters: [{ name: file_id, in: path, required: true, schema: { type: string } }]
+      responses: { "200": { description: Key-owned, unexpired File metadata }, "404": { description: File not found for this key }, default: { description: Gemini-compatible error } }
+    delete:
+      operationId: deleteGeminiFile
+      parameters: [{ name: file_id, in: path, required: true, schema: { type: string } }]
+      responses: { "200": { description: Empty JSON object after key-owned deletion }, "404": { description: File not found for this key }, default: { description: Gemini-compatible error } }
   /live:
     get:
       operationId: connectGeminiLive
@@ -54,6 +101,7 @@ paths:
       parameters:
         - { name: model, in: path, required: true, schema: { type: string } }
         - { name: action, in: path, required: true, schema: { type: string, enum: [generateContent, streamGenerateContent, countTokens, embedContent, batchEmbedContents] } }
+      description: Gateway-owned fileData.fileUri is resolved to inline data only for generateContent, streamGenerateContent, and countTokens. At most four same-key references and 8 MiB combined source bytes; expanded JSON is limited to 16 MiB and requires a native Gemini target. Interactions and other model actions reject File URIs.
       requestBody: { required: true, content: { application/json: { schema: { type: object, additionalProperties: true } } } }
       responses: { "200": { description: Native JSON or text/event-stream response }, default: { description: Gemini-compatible error } }
 components:

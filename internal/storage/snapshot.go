@@ -185,7 +185,7 @@ func encryptedDataExists(ctx context.Context, database *sql.DB) (bool, error) {
 	for _, item := range []struct {
 		table string
 		where string
-	}{{"provider_credentials", "ciphertext IS NOT NULL"}, {"openai_files", "1"}, {"anthropic_files", "1"}, {"openai_batch_items", "request_ciphertext IS NOT NULL OR result_ciphertext IS NOT NULL"}, {"openai_upload_parts", "ciphertext IS NOT NULL"}} {
+	}{{"provider_credentials", "ciphertext IS NOT NULL"}, {"openai_files", "1"}, {"anthropic_files", "1"}, {"openai_batch_items", "request_ciphertext IS NOT NULL OR result_ciphertext IS NOT NULL"}, {"openai_upload_parts", "ciphertext IS NOT NULL"}, {"gemini_files", "1"}, {"gemini_uploads", "ciphertext IS NOT NULL"}} {
 		var exists int
 		if err := database.QueryRowContext(ctx, `SELECT EXISTS(SELECT 1 FROM sqlite_schema WHERE type='table' AND name=?)`, item.table).Scan(&exists); err != nil {
 			return false, err
