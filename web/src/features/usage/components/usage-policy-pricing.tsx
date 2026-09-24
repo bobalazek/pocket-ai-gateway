@@ -52,11 +52,13 @@ type PriceProps = {
 
 function PriceCard({ price }: { price: PriceVersion }) {
   const cacheReadPrice = price.cache_read_usd_per_million == null ? "cache reads unpriced" : `$${price.cache_read_usd_per_million} cache read`;
+  const webSearchPrice = price.web_search_usd_per_call == null ? "web search unpriced" : `$${price.web_search_usd_per_call} / web search call`;
   return (
     <Card className="resource-row">
       <div>
         <strong>{price.model_id}</strong>
         <small>{price.connection_id} · ${price.input_usd_per_million} input / {cacheReadPrice} / ${price.output_usd_per_million} output per million · {price.source}</small>
+        <small>{webSearchPrice}</small>
         <small>{formatWeeklyPriceWindow(price.weekly_start_minute_utc ?? null, price.weekly_end_minute_utc ?? null)}</small>
         <small>{new Date(price.effective_from).toLocaleString()} → {price.effective_to ? new Date(price.effective_to).toLocaleString() : "current"}</small>
       </div>
@@ -123,11 +125,18 @@ export function PriceSection({ prices, outbox, cursor, preview, busy, onLoadMore
               <small id="cache-read-price-help" className="help-text">Optional. Cached reads remain unpriced when this is blank.</small>
             </div>
           </div>
-          <Field id="output_price" label="Output USD / million" required disabled={!!preview} />
+          <div className="inline-fields">
+            <Field id="output_price" label="Output USD / million" required disabled={!!preview} />
+            <div className="field">
+              <Label htmlFor="web_search_price">Web search USD / call</Label>
+              <Input id="web_search_price" name="web_search_price" disabled={!!preview} aria-describedby="web-search-price-help" />
+              <small id="web-search-price-help" className="help-text">Optional. Leave blank if the provider’s per-call fee is unknown.</small>
+            </div>
+          </div>
           <Field id="source" label="Source" required disabled={!!preview} />
           <div className="inline-fields"><Field id="effective_from" label="Effective from" type="datetime-local" required disabled={!!preview} /><Field id="effective_to" label="Effective to" type="datetime-local" disabled={!!preview} /></div>
           <WeeklyWindowFields disabled={!!preview} />
-          {preview && <p className="form-success" role="status">Confirm {preview.connection_id} / {preview.model_id}: ${preview.input_usd_per_million} input, {preview.cache_read_usd_per_million === null ? "cache reads unpriced" : `$${preview.cache_read_usd_per_million} cache read`}, ${preview.output_usd_per_million} output · {formatWeeklyPriceWindow(preview.weekly_start_minute_utc, preview.weekly_end_minute_utc)} · {preview.source} · from {new Date(preview.effective_from).toLocaleString()} to {preview.effective_to ? new Date(preview.effective_to).toLocaleString() : "current"}?</p>}
+          {preview && <p className="form-success" role="status">Confirm {preview.connection_id} / {preview.model_id}: ${preview.input_usd_per_million} input, {preview.cache_read_usd_per_million === null ? "cache reads unpriced" : `$${preview.cache_read_usd_per_million} cache read`}, ${preview.output_usd_per_million} output per million, {preview.web_search_usd_per_call === null ? "web search unpriced" : `$${preview.web_search_usd_per_call} per web search call`} · {formatWeeklyPriceWindow(preview.weekly_start_minute_utc, preview.weekly_end_minute_utc)} · {preview.source} · from {new Date(preview.effective_from).toLocaleString()} to {preview.effective_to ? new Date(preview.effective_to).toLocaleString() : "current"}?</p>}
           <div className="row-actions"><Button disabled={busy}>{preview ? "Confirm price" : "Preview price"}</Button>{preview && <Button type="button" variant="outline" onClick={onCancel}>Cancel</Button>}</div>
         </form>
       </Card>

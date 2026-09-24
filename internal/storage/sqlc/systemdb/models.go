@@ -80,6 +80,7 @@ type Attempt struct {
 	WebSearchMaxCalls          sql.NullInt64  `json:"web_search_max_calls"`
 	WebSearchCallCount         sql.NullInt64  `json:"web_search_call_count"`
 	PriceQuotedAt              sql.NullInt64  `json:"price_quoted_at"`
+	WebFetchPresent            int64          `json:"web_fetch_present"`
 }
 
 type AuditEvent struct {
@@ -426,6 +427,7 @@ type PriceVersion struct {
 	CacheReadNanosPerMillion sql.NullInt64  `json:"cache_read_nanos_per_million"`
 	WeeklyStartMinuteUtc     sql.NullInt64  `json:"weekly_start_minute_utc"`
 	WeeklyEndMinuteUtc       sql.NullInt64  `json:"weekly_end_minute_utc"`
+	WebSearchNanosPerCall    sql.NullInt64  `json:"web_search_nanos_per_call"`
 }
 
 type PricingJob struct {

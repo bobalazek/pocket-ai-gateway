@@ -15,13 +15,14 @@ describe("usageClient", () => {
     expect(request.mock.calls[1]).toEqual(["/api/v1/admin/policies/pol_test", expect.objectContaining({ revision: 3 })]);
   });
 
-  it("sends cache-read pricing and the weekly UTC window", async () => {
+  it("sends cache-read and web-search pricing with the weekly UTC window", async () => {
     const request = vi.spyOn(gatewayTransport, "request").mockResolvedValue({});
     const input = {
       connection_id: "conn_1",
       model_id: "assistant",
       input_usd_per_million: "1",
       cache_read_usd_per_million: "0.1",
+      web_search_usd_per_call: "0.01",
       output_usd_per_million: "3",
       source: "provider pricing",
       effective_from: "2026-09-15T00:00:00Z",

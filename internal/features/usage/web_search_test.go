@@ -27,13 +27,8 @@ func TestWebSearchSettlementIsUnpricedBoundedAndProjectedOnce(t *testing.T) {
 	var admittedMax int64
 	var priceID sql.NullString
 	var estimated sql.NullInt64
-	if err := store.SystemDB().QueryRowContext(ctx, "SELECT web_search_max_calls,price_version_id,estimated_cost_nanos FROM attempts WHERE id=?", admission.AttemptID).Scan(&admittedMax, &priceID, &estimated); err != nil || admittedMax != 2 || priceID.Valid || estimated.Valid {
+	if err := store.SystemDB().QueryRowContext(ctx, "SELECT web_search_max_calls,price_version_id,estimated_cost_nanos FROM attempts WHERE id=?", admission.AttemptID).Scan(&admittedMax, &priceID, &estimated); err != nil || admittedMax != 2 || !priceID.Valid || priceID.String != price.ID || estimated.Valid {
 		t.Fatalf("admission max=%d price=%v estimate=%v err=%v", admittedMax, priceID, estimated, err)
-	}
-	// A restored or future row may have both the hosted marker and a price snapshot.
-	// Settlement must still avoid the ordinary two-rate calculation.
-	if _, err := store.SystemDB().ExecContext(ctx, "UPDATE attempts SET price_version_id=? WHERE id=?", price.ID, admission.AttemptID); err != nil {
-		t.Fatal(err)
 	}
 	input, output, calls := int64(60), int64(4), int64(1)
 	settlement := SettlementInput{IdempotencyKey: "web-search-settle", State: "succeeded", UsageStatus: "provider_reported", InputTokens: &input, OutputTokens: &output, WebSearchCallCount: &calls, FinalRequest: true}
@@ -78,10 +73,10 @@ func TestWebSearchSettlementIsUnpricedBoundedAndProjectedOnce(t *testing.T) {
 		t.Fatalf("requests=%#v err=%v", requests, err)
 	}
 	reprice := RepriceInput{ConnectionID: "conn_test", ModelID: "model_test", From: time.Now().Add(-time.Hour).UTC().Format(time.RFC3339), To: time.Now().Add(time.Hour).UTC().Format(time.RFC3339), IdempotencyKey: "web-search-reprice"}
-	if preview, err := service.PreviewReprice(ctx, owner, reprice); err != nil || preview.AffectedAttempts != 0 || preview.MissingPrices != 0 || preview.DeltaUSD != "0" {
+	if preview, err := service.PreviewReprice(ctx, owner, reprice); err != nil || preview.AffectedAttempts != 0 || preview.MissingPrices != 1 || preview.DeltaUSD != "0" {
 		t.Fatalf("preview=%#v err=%v", preview, err)
 	}
-	if applied, err := service.ApplyReprice(ctx, owner, reprice); err != nil || applied.AffectedAttempts != 0 || applied.MissingPrices != 0 || applied.DeltaUSD != "0" {
+	if applied, err := service.ApplyReprice(ctx, owner, reprice); err != nil || applied.AffectedAttempts != 0 || applied.MissingPrices != 1 || applied.DeltaUSD != "0" {
 		t.Fatalf("apply=%#v err=%v", applied, err)
 	}
 }
@@ -103,12 +98,8 @@ func TestStreamingAnthropicWebSearchUsesSharedAccountingContract(t *testing.T) {
 	}
 	var admittedMax int64
 	var priceID sql.NullString
-	if err := store.SystemDB().QueryRowContext(ctx, "SELECT web_search_max_calls,price_version_id FROM attempts WHERE id=?", admission.AttemptID).Scan(&admittedMax, &priceID); err != nil || admittedMax != 4 || priceID.Valid {
+	if err := store.SystemDB().QueryRowContext(ctx, "SELECT web_search_max_calls,price_version_id FROM attempts WHERE id=?", admission.AttemptID).Scan(&admittedMax, &priceID); err != nil || admittedMax != 4 || !priceID.Valid || priceID.String != price.ID {
 		t.Fatalf("admission max=%d price=%v err=%v", admittedMax, priceID, err)
-	}
-	// Even a restored row with a base token price must retain unknown hosted-search cost.
-	if _, err := store.SystemDB().ExecContext(ctx, "UPDATE attempts SET price_version_id=? WHERE id=?", price.ID, admission.AttemptID); err != nil {
-		t.Fatal(err)
 	}
 	if err := service.MarkDispatching(ctx, admission.AttemptID); err != nil {
 		t.Fatal(err)
@@ -147,7 +138,7 @@ func TestStreamingAnthropicWebSearchUsesSharedAccountingContract(t *testing.T) {
 		t.Fatalf("attempt=%#v", attempt)
 	}
 	reprice := RepriceInput{ConnectionID: "conn_test", ModelID: "model_test", From: time.Now().Add(-time.Hour).UTC().Format(time.RFC3339), To: time.Now().Add(time.Hour).UTC().Format(time.RFC3339), IdempotencyKey: "anthropic-web-search-reprice"}
-	if preview, err := service.PreviewReprice(ctx, owner, reprice); err != nil || preview.AffectedAttempts != 0 || preview.MissingPrices != 0 || preview.DeltaUSD != "0" {
+	if preview, err := service.PreviewReprice(ctx, owner, reprice); err != nil || preview.AffectedAttempts != 0 || preview.MissingPrices != 1 || preview.DeltaUSD != "0" {
 		t.Fatalf("preview=%#v err=%v", preview, err)
 	}
 }
@@ -228,6 +219,133 @@ func TestWebSearchAdmissionBounds(t *testing.T) {
 		if _, err := service.Admit(t.Context(), AdmissionInput{KeyID: keyID, ConnectionID: "conn_test", ModelID: "model_test", Operation: "responses", TargetOperation: "responses", Scope: "responses:generate", Dialect: "responses", TargetDialect: "openai", WebSearchMaxCalls: maxCalls}); err == nil {
 			t.Fatalf("max calls %d accepted", maxCalls)
 		}
+	}
+}
+
+func TestWebSearchFeeReservesMaximumAndSettlesReportedCalls(t *testing.T) {
+	ctx, service, owner, keyID, store := testWebSearchService(t)
+	defer store.Close()
+	spend := createPolicy(t, ctx, service, owner, PolicyInput{ScopeKind: "key", ScopeID: keyID, Metric: "spend", Algorithm: "quota", Period: "lifetime", LimitUSD: "0.05"})
+	cacheRate, callFee := "0.5", "0.01"
+	price, err := service.CreatePrice(ctx, owner, PriceInput{ConnectionID: "conn_test", ModelID: "model_test", InputUSDPerMillion: "1", OutputUSDPerMillion: "2", CacheReadUSDPerMillion: &cacheRate, WebSearchUSDPerCall: &callFee, Source: "operator verified", EffectiveFrom: time.Now().Add(-time.Hour).UTC().Format(time.RFC3339)})
+	if err != nil || price.WebSearchUSDPerCall == nil || *price.WebSearchUSDPerCall != callFee {
+		t.Fatalf("price=%#v err=%v", price, err)
+	}
+	input := AdmissionInput{KeyID: keyID, ConnectionID: "conn_test", ModelID: "model_test", Operation: "responses", Scope: "responses:generate", Dialect: "responses", TargetDialect: "openai", WebSearchMaxCalls: 2, EstimatedInputTokens: 100, EstimatedOutputTokens: 10, EnforceOutputBound: true, OutputBounded: true}
+	admission, err := service.Admit(ctx, input)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var estimated int64
+	if err := store.SystemDB().QueryRowContext(ctx, "SELECT estimated_cost_nanos FROM attempts WHERE id=?", admission.AttemptID).Scan(&estimated); err != nil || estimated != 20_120_000 {
+		t.Fatalf("reserved estimate=%d err=%v", estimated, err)
+	}
+	if consumed, reserved, err := service.debugCounters(ctx, spend.ID); err != nil || consumed != 0 || reserved != estimated {
+		t.Fatalf("reserved spend=%d/%d err=%v", consumed, reserved, err)
+	}
+	input.WebSearchMaxCalls = 4
+	if _, err := service.Admit(ctx, input); err == nil {
+		t.Fatal("second maximum-call reservation exceeded the spend cap")
+	}
+	var attempts int
+	if err := store.SystemDB().QueryRowContext(ctx, "SELECT COUNT(*) FROM attempts").Scan(&attempts); err != nil || attempts != 1 {
+		t.Fatalf("denial created attempts=%d err=%v", attempts, err)
+	}
+	actualInput, actualOutput, actualRead, actualCalls := int64(60), int64(4), int64(20), int64(1)
+	settlement := SettlementInput{IdempotencyKey: "priced-web-search", State: "succeeded", UsageStatus: "provider_reported", InputTokens: &actualInput, OutputTokens: &actualOutput, CacheReadInputTokens: &actualRead, WebSearchCallCount: &actualCalls, FinalRequest: true}
+	if err := service.Settle(ctx, admission.AttemptID, settlement); err != nil {
+		t.Fatal(err)
+	}
+	if err := service.Settle(ctx, admission.AttemptID, settlement); err != nil {
+		t.Fatalf("idempotent settlement: %v", err)
+	}
+	var recorded, version int64
+	if err := store.SystemDB().QueryRowContext(ctx, "SELECT attempts.as_recorded_cost_nanos,cost_assessments.calculation_version FROM attempts JOIN cost_assessments ON cost_assessments.attempt_id=attempts.id WHERE attempts.id=?", admission.AttemptID).Scan(&recorded, &version); err != nil || recorded != 10_058_000 || version != 4 {
+		t.Fatalf("recorded=%d version=%d err=%v", recorded, version, err)
+	}
+	if consumed, reserved, err := service.debugCounters(ctx, spend.ID); err != nil || consumed != recorded || reserved != 0 {
+		t.Fatalf("settled spend=%d/%d err=%v", consumed, reserved, err)
+	}
+	if _, err := ProjectOutbox(ctx, store, 100); err != nil {
+		t.Fatal(err)
+	}
+	summary, err := service.Summary(ctx, owner, UsageQuery{})
+	if err != nil || summary.KnownCostUSD != "0.010058" || summary.WebSearchCalls != 1 {
+		t.Fatalf("projected summary=%#v err=%v", summary, err)
+	}
+}
+
+func TestWebSearchFeeNeedsCacheRateForSpendGuarantee(t *testing.T) {
+	ctx, service, owner, keyID, store := testWebSearchService(t)
+	defer store.Close()
+	fee := "0.01"
+	if _, err := service.CreatePrice(ctx, owner, PriceInput{ConnectionID: "conn_test", ModelID: "model_test", InputUSDPerMillion: "1", OutputUSDPerMillion: "2", WebSearchUSDPerCall: &fee, Source: "operator verified", EffectiveFrom: time.Now().Add(-time.Hour).UTC().Format(time.RFC3339)}); err != nil {
+		t.Fatal(err)
+	}
+	createPolicy(t, ctx, service, owner, PolicyInput{ScopeKind: "key", ScopeID: keyID, Metric: "spend", Algorithm: "quota", Period: "lifetime", LimitUSD: "1"})
+	_, err := service.Admit(ctx, AdmissionInput{KeyID: keyID, ConnectionID: "conn_test", ModelID: "model_test", Operation: "responses", Scope: "responses:generate", Dialect: "responses", WebSearchMaxCalls: 1, EstimatedInputTokens: 100, EstimatedOutputTokens: 10, OutputBounded: true})
+	var denial *Denial
+	if !errors.As(err, &denial) || denial.Metric != "spend" {
+		t.Fatalf("missing cache rate denial=%v", err)
+	}
+	var attempts int
+	if err := store.SystemDB().QueryRowContext(ctx, "SELECT COUNT(*) FROM attempts").Scan(&attempts); err != nil || attempts != 0 {
+		t.Fatalf("failed admission created attempts=%d err=%v", attempts, err)
+	}
+}
+
+func TestWebSearchFeeArithmeticRejectsOverflow(t *testing.T) {
+	base := int64(1)
+	if _, err := addWebSearchCost(&base, sql.NullInt64{Int64: mathMaxInt64, Valid: true}, 2); err == nil {
+		t.Fatal("fee multiplication overflow was accepted")
+	}
+	base = mathMaxInt64
+	if _, err := addWebSearchCost(&base, sql.NullInt64{Int64: 1, Valid: true}, 1); err == nil {
+		t.Fatal("combined token and fee overflow was accepted")
+	}
+}
+
+func TestWebSearchRepriceChargesKnownCallsButSkipsCombinedFetch(t *testing.T) {
+	ctx, service, owner, keyID, store := testWebSearchService(t)
+	defer store.Close()
+	input := AdmissionInput{KeyID: keyID, ConnectionID: "conn_test", ModelID: "model_test", Operation: "messages", Scope: "responses:generate", Dialect: "anthropic", TargetDialect: "anthropic", WebSearchMaxCalls: 2, EstimatedInputTokens: 100, EstimatedOutputTokens: 10, OutputBounded: true}
+	search, err := service.Admit(ctx, input)
+	if err != nil {
+		t.Fatal(err)
+	}
+	input.WebFetchPresent, input.RequestToolCount = true, 2
+	combined, err := service.Admit(ctx, input)
+	if err != nil {
+		t.Fatal(err)
+	}
+	actualInput, actualOutput, actualCalls := int64(60), int64(4), int64(1)
+	for _, attempt := range []Admission{search, combined} {
+		if err := service.Settle(ctx, attempt.AttemptID, SettlementInput{IdempotencyKey: "settle:" + attempt.AttemptID, State: "succeeded", UsageStatus: "provider_reported", InputTokens: &actualInput, OutputTokens: &actualOutput, WebSearchCallCount: &actualCalls, FinalRequest: true}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	fee := "0.01"
+	if _, err := service.CreatePrice(ctx, owner, PriceInput{ConnectionID: "conn_test", ModelID: "model_test", InputUSDPerMillion: "1", OutputUSDPerMillion: "2", WebSearchUSDPerCall: &fee, Source: "historical verified price", EffectiveFrom: time.Now().Add(-time.Hour).UTC().Format(time.RFC3339)}); err != nil {
+		t.Fatal(err)
+	}
+	reprice := RepriceInput{ConnectionID: "conn_test", ModelID: "model_test", From: time.Now().Add(-time.Hour).UTC().Format(time.RFC3339), To: time.Now().Add(time.Hour).UTC().Format(time.RFC3339), IdempotencyKey: "priced-web-search-reprice"}
+	preview, err := service.PreviewReprice(ctx, owner, reprice)
+	if err != nil || preview.AffectedAttempts != 1 || preview.MissingPrices != 0 || preview.DeltaUSD != "0.010068" {
+		t.Fatalf("preview=%#v err=%v", preview, err)
+	}
+	for range 2 {
+		applied, err := service.ApplyReprice(ctx, owner, reprice)
+		if err != nil || applied.AffectedAttempts != 1 || applied.DeltaUSD != preview.DeltaUSD {
+			t.Fatalf("applied=%#v err=%v", applied, err)
+		}
+	}
+	var priced int64
+	var combinedCost sql.NullInt64
+	if err := store.SystemDB().QueryRowContext(ctx, "SELECT restated_cost_nanos FROM attempts WHERE id=?", search.AttemptID).Scan(&priced); err != nil || priced != 10_068_000 {
+		t.Fatalf("repriced search=%d err=%v", priced, err)
+	}
+	if err := store.SystemDB().QueryRowContext(ctx, "SELECT restated_cost_nanos FROM attempts WHERE id=?", combined.AttemptID).Scan(&combinedCost); err != nil || combinedCost.Valid {
+		t.Fatalf("combined cost=%v err=%v", combinedCost, err)
 	}
 }
 

@@ -19,6 +19,7 @@ type PriceVersion struct {
 	InputUSDPerMillion     string  `json:"input_usd_per_million"`
 	OutputUSDPerMillion    string  `json:"output_usd_per_million"`
 	CacheReadUSDPerMillion *string `json:"cache_read_usd_per_million"`
+	WebSearchUSDPerCall    *string `json:"web_search_usd_per_call"`
 	Source                 string  `json:"source"`
 	EffectiveFrom          string  `json:"effective_from"`
 	EffectiveTo            *string `json:"effective_to"`
@@ -28,6 +29,7 @@ type PriceVersion struct {
 	inputNanosPerMillion   int64
 	outputNanosPerMillion  int64
 	cacheReadNanos         sql.NullInt64
+	webSearchNanos         sql.NullInt64
 	createdAt              int64
 }
 
@@ -37,6 +39,7 @@ type PriceInput struct {
 	InputUSDPerMillion     string  `json:"input_usd_per_million"`
 	OutputUSDPerMillion    string  `json:"output_usd_per_million"`
 	CacheReadUSDPerMillion *string `json:"cache_read_usd_per_million"`
+	WebSearchUSDPerCall    *string `json:"web_search_usd_per_call"`
 	Source                 string  `json:"source"`
 	EffectiveFrom          string  `json:"effective_from"`
 	EffectiveTo            string  `json:"effective_to"`
@@ -60,6 +63,14 @@ func (service *Service) CreatePrice(ctx context.Context, actor auth.User, input 
 			return PriceVersion{}, fmt.Errorf("cache read price: %w", err)
 		}
 		cacheReadRate = sql.NullInt64{Int64: value, Valid: true}
+	}
+	var webSearchFee sql.NullInt64
+	if input.WebSearchUSDPerCall != nil {
+		value, err := ParseUSD(*input.WebSearchUSDPerCall)
+		if err != nil {
+			return PriceVersion{}, fmt.Errorf("web search price: %w", err)
+		}
+		webSearchFee = sql.NullInt64{Int64: value, Valid: true}
 	}
 	if !validWeeklyWindow(input.WeeklyStartMinuteUTC, input.WeeklyEndMinuteUTC) {
 		return PriceVersion{}, errors.New("weekly UTC window must be a half-open minute range within one week")
@@ -141,8 +152,8 @@ func (service *Service) CreatePrice(ctx context.Context, actor auth.User, input 
 	}
 	id = "prc_" + id
 	now := service.now().UnixMilli()
-	_, err = tx.ExecContext(ctx, `INSERT INTO price_versions (id, connection_id, model_id, input_nanos_per_million, output_nanos_per_million, cache_read_nanos_per_million, source, effective_from, effective_to, weekly_start_minute_utc, weekly_end_minute_utc, created_by, created_at)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`, id, input.ConnectionID, input.ModelID, inputRate, outputRate, cacheReadRate, input.Source, from.UnixMilli(), to, input.WeeklyStartMinuteUTC, input.WeeklyEndMinuteUTC, actor.ID, now)
+	_, err = tx.ExecContext(ctx, `INSERT INTO price_versions (id, connection_id, model_id, input_nanos_per_million, output_nanos_per_million, cache_read_nanos_per_million, web_search_nanos_per_call, source, effective_from, effective_to, weekly_start_minute_utc, weekly_end_minute_utc, created_by, created_at)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`, id, input.ConnectionID, input.ModelID, inputRate, outputRate, cacheReadRate, webSearchFee, input.Source, from.UnixMilli(), to, input.WeeklyStartMinuteUTC, input.WeeklyEndMinuteUTC, actor.ID, now)
 	if err != nil {
 		return PriceVersion{}, err
 	}
@@ -221,12 +232,16 @@ func scanPrice(row scanner) (PriceVersion, error) {
 	var item PriceVersion
 	var from, created int64
 	var to, weeklyStart, weeklyEnd sql.NullInt64
-	err := row.Scan(&item.ID, &item.ConnectionID, &item.ModelID, &item.inputNanosPerMillion, &item.outputNanosPerMillion, &item.cacheReadNanos, &item.Source, &from, &to, &weeklyStart, &weeklyEnd, &created)
+	err := row.Scan(&item.ID, &item.ConnectionID, &item.ModelID, &item.inputNanosPerMillion, &item.outputNanosPerMillion, &item.cacheReadNanos, &item.webSearchNanos, &item.Source, &from, &to, &weeklyStart, &weeklyEnd, &created)
 	item.createdAt = created
 	item.InputUSDPerMillion, item.OutputUSDPerMillion = FormatUSD(item.inputNanosPerMillion), FormatUSD(item.outputNanosPerMillion)
 	if item.cacheReadNanos.Valid {
 		value := FormatUSD(item.cacheReadNanos.Int64)
 		item.CacheReadUSDPerMillion = &value
+	}
+	if item.webSearchNanos.Valid {
+		value := FormatUSD(item.webSearchNanos.Int64)
+		item.WebSearchUSDPerCall = &value
 	}
 	item.EffectiveFrom, item.CreatedAt = timeString(from), timeString(created)
 	if to.Valid {
@@ -239,7 +254,7 @@ func scanPrice(row scanner) (PriceVersion, error) {
 	return item, err
 }
 
-const priceSelect = `SELECT id, connection_id, model_id, input_nanos_per_million, output_nanos_per_million, cache_read_nanos_per_million, source, effective_from, effective_to, weekly_start_minute_utc, weekly_end_minute_utc, created_at FROM price_versions`
+const priceSelect = `SELECT id, connection_id, model_id, input_nanos_per_million, output_nanos_per_million, cache_read_nanos_per_million, web_search_nanos_per_call, source, effective_from, effective_to, weekly_start_minute_utc, weekly_end_minute_utc, created_at FROM price_versions`
 
 func validWeeklyWindow(start, end *int64) bool {
 	return start == nil && end == nil || start != nil && end != nil && *start >= 0 && *start < *end && *end <= 7*24*60
@@ -333,6 +348,40 @@ func calculateCacheAwareCost(inputTokens, outputTokens, cacheReadTokens, inputRa
 		return nil, errors.New("calculated cost is too large")
 	}
 	return &total, nil
+}
+
+func addWebSearchCost(tokenCost *int64, fee sql.NullInt64, calls int64) (*int64, error) {
+	if tokenCost == nil {
+		return nil, nil
+	}
+	if calls == 0 {
+		return tokenCost, nil
+	}
+	if calls < 0 || calls > 4 {
+		return nil, errors.New("web search call count is out of range")
+	}
+	if !fee.Valid {
+		return nil, nil
+	}
+	if fee.Int64 < 0 || fee.Int64 > mathMaxInt64/calls {
+		return nil, errors.New("calculated cost is too large")
+	}
+	total, ok := checkedAdd(*tokenCost, fee.Int64*calls)
+	if !ok {
+		return nil, errors.New("calculated cost is too large")
+	}
+	return &total, nil
+}
+
+func priceCalculationVersion(cacheRead, webSearch bool) int {
+	version := 1
+	if cacheRead {
+		version++
+	}
+	if webSearch {
+		version += 2
+	}
+	return version
 }
 
 type RepriceInput struct {
@@ -507,19 +556,19 @@ func (service *Service) repriceItems(ctx context.Context, queryer interface {
 	QueryRowContext(context.Context, string, ...any) *sql.Row
 }, connectionID, modelID string, from, to int64) ([]repriceItem, int64, error) {
 	rows, err := queryer.QueryContext(ctx, `SELECT attempts.id, requests.owner_user_id, requests.key_id, attempts.model_id, attempts.connection_id,
-		attempts.input_tokens, attempts.output_tokens, COALESCE(attempts.cache_read_input_tokens, 0), attempts.cache_read_input_tokens IS NOT NULL, COALESCE(attempts.restated_cost_nanos, attempts.as_recorded_cost_nanos, 0), attempts.started_at, COALESCE(attempts.price_quoted_at, attempts.started_at),
+		attempts.input_tokens, attempts.output_tokens, COALESCE(attempts.cache_read_input_tokens, 0), attempts.cache_read_input_tokens IS NOT NULL, COALESCE(attempts.web_search_call_count, 0), attempts.web_search_max_calls IS NOT NULL, COALESCE(attempts.restated_cost_nanos, attempts.as_recorded_cost_nanos, 0), attempts.started_at, COALESCE(attempts.price_quoted_at, attempts.started_at),
 		COALESCE((SELECT SUM(cost_nanos) FROM usage_ledger WHERE usage_ledger.attempt_id = attempts.id AND entry_type = 'adjustment'), 0),
 		attempts.usage_status, attempts.restated_cost_nanos IS NULL AND attempts.as_recorded_cost_nanos IS NULL
 		FROM attempts JOIN requests ON requests.id = attempts.request_id
-		WHERE attempts.connection_id = ? AND attempts.model_id = ? AND attempts.started_at >= ? AND attempts.started_at < ? AND attempts.input_tokens IS NOT NULL AND attempts.output_tokens IS NOT NULL AND COALESCE(attempts.cache_creation_input_tokens, 0) = 0 AND COALESCE(attempts.cache_creation_5m_input_tokens, 0) = 0 AND COALESCE(attempts.cache_creation_1h_input_tokens, 0) = 0 AND attempts.web_search_max_calls IS NULL AND attempts.usage_status != 'unknown' ORDER BY attempts.started_at, attempts.id LIMIT 10001`, connectionID, modelID, from, to)
+		WHERE attempts.connection_id = ? AND attempts.model_id = ? AND attempts.started_at >= ? AND attempts.started_at < ? AND attempts.input_tokens IS NOT NULL AND attempts.output_tokens IS NOT NULL AND COALESCE(attempts.cache_creation_input_tokens, 0) = 0 AND COALESCE(attempts.cache_creation_5m_input_tokens, 0) = 0 AND COALESCE(attempts.cache_creation_1h_input_tokens, 0) = 0 AND (attempts.web_search_max_calls IS NULL OR attempts.web_search_call_count IS NOT NULL AND attempts.web_fetch_present = 0) AND attempts.usage_status != 'unknown' ORDER BY attempts.started_at, attempts.id LIMIT 10001`, connectionID, modelID, from, to)
 	if err != nil {
 		return nil, 0, err
 	}
 	type rawItem struct {
-		attemptID, ownerID, keyID, modelID, connectionID                             string
-		inputTokens, outputTokens, cacheRead, previous, started, quoted, adjustments int64
-		usageStatus                                                                  string
-		costUnknown, cacheAware                                                      bool
+		attemptID, ownerID, keyID, modelID, connectionID                                             string
+		inputTokens, outputTokens, cacheRead, webSearchCalls, previous, started, quoted, adjustments int64
+		usageStatus                                                                                  string
+		costUnknown, cacheAware, webSearch                                                           bool
 	}
 	var rawItems []rawItem
 	for rows.Next() {
@@ -528,7 +577,7 @@ func (service *Service) repriceItems(ctx context.Context, queryer interface {
 			return nil, 0, errors.New("repricing range exceeds 10000 attempts")
 		}
 		var item rawItem
-		if err := rows.Scan(&item.attemptID, &item.ownerID, &item.keyID, &item.modelID, &item.connectionID, &item.inputTokens, &item.outputTokens, &item.cacheRead, &item.cacheAware, &item.previous, &item.started, &item.quoted, &item.adjustments, &item.usageStatus, &item.costUnknown); err != nil {
+		if err := rows.Scan(&item.attemptID, &item.ownerID, &item.keyID, &item.modelID, &item.connectionID, &item.inputTokens, &item.outputTokens, &item.cacheRead, &item.cacheAware, &item.webSearchCalls, &item.webSearch, &item.previous, &item.started, &item.quoted, &item.adjustments, &item.usageStatus, &item.costUnknown); err != nil {
 			rows.Close()
 			return nil, 0, err
 		}
@@ -556,6 +605,12 @@ func (service *Service) repriceItems(ctx context.Context, queryer interface {
 		if err != nil {
 			return nil, 0, err
 		}
+		if item.webSearch {
+			amountValue, err = addWebSearchCost(amountValue, price.webSearchNanos, item.webSearchCalls)
+			if err != nil {
+				return nil, 0, err
+			}
+		}
 		if amountValue == nil {
 			missing++
 			continue
@@ -565,10 +620,7 @@ func (service *Service) repriceItems(ctx context.Context, queryer interface {
 		if !ok || target < 0 {
 			return nil, 0, errors.New("repriced cost is too large")
 		}
-		calculationVersion := 1
-		if item.cacheAware {
-			calculationVersion = 2
-		}
+		calculationVersion := priceCalculationVersion(item.cacheAware, item.webSearch)
 		items = append(items, repriceItem{attemptID: item.attemptID, priceID: price.ID, ownerID: item.ownerID, keyID: item.keyID, modelID: item.modelID, connectionID: item.connectionID, startedAt: item.started, amount: target, delta: target - item.previous, calculationVersion: calculationVersion, resolveUnknown: item.costUnknown && item.usageStatus != "unknown"})
 	}
 	return items, missing, nil

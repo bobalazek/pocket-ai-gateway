@@ -10,6 +10,7 @@ const price: PriceVersion = {
   model_id: "assistant",
   input_usd_per_million: "1.00",
   cache_read_usd_per_million: "0.10",
+  web_search_usd_per_call: "0.01",
   output_usd_per_million: "3.00",
   source: "provider pricing",
   effective_from: "2026-09-15T00:00:00Z",
@@ -26,6 +27,7 @@ describe("PriceSection", () => {
       model_id: price.model_id,
       input_usd_per_million: price.input_usd_per_million,
       cache_read_usd_per_million: price.cache_read_usd_per_million ?? null,
+      web_search_usd_per_call: price.web_search_usd_per_call,
       output_usd_per_million: price.output_usd_per_million,
       source: price.source,
       effective_from: price.effective_from,
@@ -43,15 +45,19 @@ describe("PriceSection", () => {
     expect(html).toContain("Weekly price window (UTC)");
     expect(html).toContain('aria-describedby="weekly-window-help"');
     expect(html).toContain("$0.10 cache read");
+    expect(html).toContain("$0.01 / web search call");
+    expect(html).toContain('for="web_search_price"');
+    expect(html).toContain("$0.01 per web search call");
     expect(html).toContain("Monday 09:00–Friday 17:00 UTC");
   });
 
   it("labels legacy prices without a cache-read rate as unpriced", () => {
     const html = renderToStaticMarkup(
-      <PriceSection prices={[{ ...price, cache_read_usd_per_million: null, weekly_start_minute_utc: null, weekly_end_minute_utc: null }]} outbox={null} cursor="" preview={null} busy={false} onLoadMore={() => undefined} onSubmit={() => undefined} onCancel={() => undefined} />,
+      <PriceSection prices={[{ ...price, cache_read_usd_per_million: null, web_search_usd_per_call: null, weekly_start_minute_utc: null, weekly_end_minute_utc: null }]} outbox={null} cursor="" preview={null} busy={false} onLoadMore={() => undefined} onSubmit={() => undefined} onCancel={() => undefined} />,
     );
 
     expect(html).toContain("cache reads unpriced");
+    expect(html).toContain("web search unpriced");
     expect(html).toContain("All week");
   });
 });

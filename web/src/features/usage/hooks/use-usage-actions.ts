@@ -50,7 +50,7 @@ export function useUsageActions(reload: () => Promise<void>) {
       const form = new FormData(element);
       try {
         const weeklyWindow = parseWeeklyPriceWindow(String(form.get("weekly_start_day") ?? ""), String(form.get("weekly_start_time") ?? ""), String(form.get("weekly_end_day") ?? ""), String(form.get("weekly_end_time") ?? ""));
-        setPricePreview({ connection_id: String(form.get("connection_id")), model_id: String(form.get("model_id")), input_usd_per_million: String(form.get("input_price")), cache_read_usd_per_million: String(form.get("cache_read_price") ?? "").trim() || null, output_usd_per_million: String(form.get("output_price")), source: String(form.get("source")), effective_from: datetime(form.get("effective_from")), effective_to: datetime(form.get("effective_to")), ...weeklyWindow });
+		setPricePreview({ connection_id: String(form.get("connection_id")), model_id: String(form.get("model_id")), input_usd_per_million: String(form.get("input_price")), cache_read_usd_per_million: String(form.get("cache_read_price") ?? "").trim() || null, web_search_usd_per_call: String(form.get("web_search_price") ?? "").trim() || null, output_usd_per_million: String(form.get("output_price")), source: String(form.get("source")), effective_from: datetime(form.get("effective_from")), effective_to: datetime(form.get("effective_to")), ...weeklyWindow });
         setError("");
       } catch (failure) {
         setError(failure instanceof Error ? failure.message : "Weekly price window is invalid");

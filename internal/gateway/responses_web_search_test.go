@@ -15,7 +15,48 @@ import (
 	"github.com/bobalazek/pocket-ai-gateway/internal/features/auth"
 	"github.com/bobalazek/pocket-ai-gateway/internal/features/keys"
 	"github.com/bobalazek/pocket-ai-gateway/internal/features/providers"
+	"github.com/bobalazek/pocket-ai-gateway/internal/features/usage"
 )
+
+func TestResponsesWebSearchPricedSpendCap(t *testing.T) {
+	var calls atomic.Int64
+	upstream := httptest.NewServer(http.HandlerFunc(func(response http.ResponseWriter, _ *http.Request) {
+		calls.Add(1)
+		response.Header().Set("Content-Type", "application/json")
+		_, _ = io.WriteString(response, `{"id":"resp_priced","object":"response","status":"completed","model":"upstream-one","output":[{"type":"web_search_call","id":"ws_1","status":"completed","action":{"type":"search","query":"news"}}],"usage":{"input_tokens":10,"output_tokens":5,"total_tokens":15}}`)
+	}))
+	defer upstream.Close()
+	ctx, store, owner, keyService, providerService, usageService := gatewayFixture(t)
+	defer store.Close()
+	connection, _, model := publishWebSearchModel(t, ctx, store.SystemDB(), providerService, owner, upstream.URL+"/v1", "upstream-one", "assistant")
+	key, secret, err := keyService.Create(ctx, owner.ID, keys.Input{Label: "Priced web search", Scopes: []string{"responses:generate", "responses:web_search"}, ModelPatterns: []string{model.ID}, ConnectionIDs: []string{connection.ID}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	fee := "0.01"
+	cacheRate := "0"
+	if _, err := usageService.CreatePrice(ctx, owner, usage.PriceInput{ConnectionID: connection.ID, ModelID: model.ID, InputUSDPerMillion: "0", OutputUSDPerMillion: "0", CacheReadUSDPerMillion: &cacheRate, WebSearchUSDPerCall: &fee, Source: "operator verified", EffectiveFrom: time.Now().Add(-time.Hour).UTC().Format(time.RFC3339)}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := usageService.CreatePolicy(ctx, owner, usage.PolicyInput{ScopeKind: "key", ScopeID: key.ID, Metric: "spend", Algorithm: "quota", Period: "lifetime", LimitUSD: "0.025"}); err != nil {
+		t.Fatal(err)
+	}
+	mux := http.NewServeMux()
+	New(store.SystemDB(), keyService, providerService, usageService).Register(mux)
+	body := `{"model":"assistant","store":false,"input":"news","max_tool_calls":2,"max_output_tokens":8,"tools":[{"type":"web_search"}]}`
+	first := performResponseRequest(t, mux, secret, http.MethodPost, "/api/openai/v1/responses", body)
+	if first.Code != http.StatusOK || calls.Load() != 1 {
+		t.Fatalf("priced response=%d calls=%d body=%s", first.Code, calls.Load(), first.Body.String())
+	}
+	var estimated, actual int64
+	if err := store.SystemDB().QueryRowContext(ctx, "SELECT estimated_cost_nanos,as_recorded_cost_nanos FROM attempts").Scan(&estimated, &actual); err != nil || estimated != 20_000_000 || actual != 10_000_000 {
+		t.Fatalf("estimated=%d actual=%d err=%v", estimated, actual, err)
+	}
+	second := performResponseRequest(t, mux, secret, http.MethodPost, "/api/openai/v1/responses", body)
+	if second.Code != http.StatusTooManyRequests || calls.Load() != 1 {
+		t.Fatalf("spend denial=%d calls=%d body=%s", second.Code, calls.Load(), second.Body.String())
+	}
+}
 
 func TestResponseWebSearchValidation(t *testing.T) {
 	valid := []string{

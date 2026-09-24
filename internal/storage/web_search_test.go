@@ -2,9 +2,42 @@ package storage
 
 import (
 	"context"
+	"database/sql"
 	"path/filepath"
 	"testing"
 )
+
+func TestWebSearchFeeMigrationConservativelyMarksLegacyToolMix(t *testing.T) {
+	database, err := sql.Open("sqlite", ":memory:")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer database.Close()
+	if _, err := database.Exec(`CREATE TABLE price_versions(id TEXT PRIMARY KEY);
+		CREATE TABLE attempts(id TEXT PRIMARY KEY, target_dialect TEXT, web_search_max_calls INTEGER, request_tool_count INTEGER);
+		INSERT INTO attempts VALUES('search_only','anthropic',2,1),('possible_fetch','anthropic',2,2),('openai_function','openai',2,2);`); err != nil {
+		t.Fatal(err)
+	}
+	migration, err := migrationFiles.ReadFile("migrations/system/0036_web_search_call_price.sql")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := database.Exec(string(migration)); err != nil {
+		t.Fatal(err)
+	}
+	for id, want := range map[string]bool{"search_only": false, "possible_fetch": true, "openai_function": false} {
+		var marked bool
+		if err := database.QueryRow("SELECT web_fetch_present FROM attempts WHERE id=?", id).Scan(&marked); err != nil || marked != want {
+			t.Fatalf("%s marked=%t want=%t err=%v", id, marked, want, err)
+		}
+	}
+	if _, err := database.Exec("INSERT INTO price_versions(id,web_search_nanos_per_call) VALUES('price',0)"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := database.Exec("UPDATE price_versions SET web_search_nanos_per_call=-1"); err == nil {
+		t.Fatal("negative search fee bypassed schema constraint")
+	}
+}
 
 func TestWebSearchUsageMigrationsEnforceBounds(t *testing.T) {
 	ctx := context.Background()

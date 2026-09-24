@@ -47,7 +47,8 @@ func TestAnthropicCombinedWebToolsNativeAccounting(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err = usageService.CreatePrice(ctx, owner, usage.PriceInput{ConnectionID: connection.ID, ModelID: model.ID, InputUSDPerMillion: "1", OutputUSDPerMillion: "1", Source: "test", EffectiveFrom: time.Now().Add(-time.Hour).UTC().Format(time.RFC3339)}); err != nil {
+	fee := "0.01"
+	if _, err = usageService.CreatePrice(ctx, owner, usage.PriceInput{ConnectionID: connection.ID, ModelID: model.ID, InputUSDPerMillion: "1", OutputUSDPerMillion: "1", WebSearchUSDPerCall: &fee, Source: "test", EffectiveFrom: time.Now().Add(-time.Hour).UTC().Format(time.RFC3339)}); err != nil {
 		t.Fatal(err)
 	}
 	mux := http.NewServeMux()
@@ -64,11 +65,12 @@ func TestAnthropicCombinedWebToolsNativeAccounting(t *testing.T) {
 	}
 	var state, usageStatus, toolStatus string
 	var input, output, maximum, searchCalls, responseTools, estimatedInput int64
+	var fetchPresent bool
 	var cost sql.NullInt64
-	if err := store.SystemDB().QueryRowContext(ctx, `SELECT state,usage_status,input_tokens,output_tokens,web_search_max_calls,web_search_call_count,response_tool_call_count,tool_call_status,as_recorded_cost_nanos,estimated_tokens FROM attempts`).Scan(&state, &usageStatus, &input, &output, &maximum, &searchCalls, &responseTools, &toolStatus, &cost, &estimatedInput); err != nil {
+	if err := store.SystemDB().QueryRowContext(ctx, `SELECT state,usage_status,input_tokens,output_tokens,web_search_max_calls,web_search_call_count,web_fetch_present,response_tool_call_count,tool_call_status,as_recorded_cost_nanos,estimated_tokens FROM attempts`).Scan(&state, &usageStatus, &input, &output, &maximum, &searchCalls, &fetchPresent, &responseTools, &toolStatus, &cost, &estimatedInput); err != nil {
 		t.Fatal(err)
 	}
-	if state != "succeeded" || usageStatus != "provider_reported" || input != 9 || output != 3 || maximum != 2 || searchCalls != 1 || responseTools != 3 || toolStatus != "completed" || cost.Valid || estimatedInput < 2*webSearchInputPerCall+3*1024 {
+	if state != "succeeded" || usageStatus != "provider_reported" || input != 9 || output != 3 || maximum != 2 || searchCalls != 1 || !fetchPresent || responseTools != 3 || toolStatus != "completed" || cost.Valid || estimatedInput < 2*webSearchInputPerCall+3*1024 {
 		t.Fatalf("accounting=%s/%s input=%d output=%d max=%d search=%d tools=%d/%s cost=%v estimate=%d", state, usageStatus, input, output, maximum, searchCalls, responseTools, toolStatus, cost, estimatedInput)
 	}
 	if _, err := store.SystemDB().ExecContext(ctx, `UPDATE api_keys SET scopes_json='["chat:generate","messages:web_search"]' WHERE id=?`, key.ID); err != nil {
@@ -77,6 +79,16 @@ func TestAnthropicCombinedWebToolsNativeAccounting(t *testing.T) {
 	denied := performAnthropicRequest(t, mux, secret, body)
 	if denied.Code != http.StatusForbidden || calls.Load() != 1 {
 		t.Fatalf("scope status=%d calls=%d body=%s", denied.Code, calls.Load(), denied.Body.String())
+	}
+	if _, err := store.SystemDB().ExecContext(ctx, `UPDATE api_keys SET scopes_json='["chat:generate","messages:web_search","messages:web_fetch"]' WHERE id=?`, key.ID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := usageService.CreatePolicy(ctx, owner, usage.PolicyInput{ScopeKind: "key", ScopeID: key.ID, Metric: "spend", Algorithm: "quota", Period: "lifetime", LimitUSD: "1"}); err != nil {
+		t.Fatal(err)
+	}
+	spendDenied := performAnthropicRequest(t, mux, secret, body)
+	if spendDenied.Code != http.StatusTooManyRequests || calls.Load() != 1 {
+		t.Fatalf("combined spend status=%d calls=%d body=%s", spendDenied.Code, calls.Load(), spendDenied.Body.String())
 	}
 }
 
