@@ -1,13 +1,13 @@
 "use client";
 
 import Link from "next/link";
-import { ActivityIcon, BoxesIcon, ChartNoAxesCombinedIcon, ChevronUpIcon, CircleHelpIcon, FileClockIcon, FilmIcon, FlaskConicalIcon, KeyRoundIcon, LayoutDashboardIcon, LogOutIcon, MenuIcon, ScrollTextIcon, ServerIcon, SettingsIcon, UserRoundIcon, UsersIcon, XIcon } from "lucide-react";
+import { ActivityIcon, BoxesIcon, ChartNoAxesCombinedIcon, ChevronUpIcon, CircleHelpIcon, FileClockIcon, FilmIcon, FlaskConicalIcon, KeyRoundIcon, LayoutDashboardIcon, LogOutIcon, MenuIcon, ScrollTextIcon, ServerIcon, SettingsIcon, UserRoundIcon, UsersIcon, WalletIcon, XIcon } from "lucide-react";
 import type { ReactNode } from "react";
 
 import { useGatewayUser } from "@/components/setup-gate";
 import { useAppShell } from "@/hooks/use-app-shell";
 
-export type AppSection = "Overview" | "Status" | "Users" | "Providers" | "Models" | "Media jobs" | "API keys" | "Playground" | "Requests" | "Usage" | "Audit" | "Settings" | "Account";
+export type AppSection = "Overview" | "Status" | "Users" | "Providers" | "Models" | "Media jobs" | "API keys" | "Playground" | "Requests" | "Analytics" | "Usage" | "Audit" | "Settings" | "Account";
 type NavItem = { label: AppSection; href: string; icon: typeof LayoutDashboardIcon; admin?: boolean; owner?: boolean };
 
 const primary: NavItem[] = [
@@ -18,7 +18,8 @@ const primary: NavItem[] = [
   { label: "Media jobs", href: "/media-jobs/", icon: FilmIcon, admin: true },
   { label: "API keys", href: "/keys/", icon: KeyRoundIcon },
   { label: "Requests", href: "/requests/", icon: FileClockIcon },
-  { label: "Usage", href: "/usage/", icon: ChartNoAxesCombinedIcon },
+  { label: "Analytics", href: "/analytics/", icon: ChartNoAxesCombinedIcon },
+  { label: "Usage", href: "/usage/", icon: WalletIcon },
   { label: "Audit", href: "/audit/", icon: ScrollTextIcon, admin: true },
   { label: "Settings", href: "/settings/", icon: SettingsIcon, owner: true },
 ];

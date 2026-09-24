@@ -7,6 +7,8 @@ export const localDatetime = (value?: string) => {
   if (!value) return ""; const date = new Date(value); if (Number.isNaN(date.getTime())) return ""; const offset = date.getTimezoneOffset() * 60_000;
   return new Date(date.getTime() - offset).toISOString().slice(0, 16);
 };
+export const formatChartUSD = (value: number) => `$${value.toFixed(9).replace(/0+$/, "").replace(/\.$/, "")}`;
+export const formatChartUSDAxis = (value: number) => value === 0 ? "$0" : Math.abs(value) < 0.01 ? `$${value.toExponential(1)}` : `$${value.toFixed(2)}`;
 export const failureText = (error: unknown, fallback: string) => error instanceof GatewayAPIError ? `${error.message}${error.metric ? ` (${error.metric})` : ""}${error.retryAfter ? ` Retry in ${error.retryAfter}s.` : ""}` : fallback;
 const isRFC3339 = (value: string) => /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:Z|[+-]\d{2}:\d{2})$/.test(value) && !Number.isNaN(new Date(value).getTime());
 export const readUsageFilters = (): UsageFilters => {

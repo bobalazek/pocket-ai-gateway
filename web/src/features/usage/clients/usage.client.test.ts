@@ -15,6 +15,12 @@ describe("usageClient", () => {
     expect(request.mock.calls[1]).toEqual(["/api/v1/admin/policies/pol_test", expect.objectContaining({ revision: 3 })]);
   });
 
+  it("requests a server-ranked API-key spend breakdown with the shared filters", async () => {
+    const request = vi.spyOn(gatewayTransport, "request").mockResolvedValue({});
+    await usageClient.breakdown("key", { from: "2026-09-01T00:00:00Z", key_id: "key_1" }, "known_cost", 20);
+    expect(request.mock.calls[0][0]).toBe("/api/v1/usage/breakdown?from=2026-09-01T00%3A00%3A00Z&key_id=key_1&dimension=key&sort=known_cost&offset=20");
+  });
+
   it("sends cache-read and web-search pricing with the weekly UTC window", async () => {
     const request = vi.spyOn(gatewayTransport, "request").mockResolvedValue({});
     const input = {

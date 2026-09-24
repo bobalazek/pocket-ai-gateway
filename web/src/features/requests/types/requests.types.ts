@@ -3,7 +3,12 @@ export type RequestFilters = {
   user_id?: string;
   key_id?: string;
   model_id?: string;
+  connection_id?: string;
   dialect?: string;
+  operation?: string;
+  state?: string;
+  from?: string;
+  to?: string;
   cursor?: string;
 };
 

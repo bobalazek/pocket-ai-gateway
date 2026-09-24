@@ -60,9 +60,9 @@ export function useRequests() {
     event.preventDefault();
     const form = new FormData(event.currentTarget);
     const value: RequestFilters = {};
-    for (const key of ["user_id", "key_id", "model_id", "dialect"] as const) {
+    for (const key of ["user_id", "key_id", "model_id", "connection_id", "dialect", "operation", "state", "from", "to"] as const) {
       const field = String(form.get(key) ?? "");
-      if (field) value[key] = field;
+      if (field) value[key] = key === "from" || key === "to" ? new Date(field).toISOString() : field;
     }
     navigate(value);
   }

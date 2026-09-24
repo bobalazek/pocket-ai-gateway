@@ -2,6 +2,7 @@ import { Area, AreaChart, Bar, BarChart, CartesianGrid, Legend, Tooltip, XAxis, 
 
 import { ChartContainer } from "@/components/ui/chart";
 import type { UsagePoint } from "@/features/usage/types/usage.types";
+import { formatChartUSD, formatChartUSDAxis } from "@/features/usage/utils/usage.utils";
 
 const dateLabel = (value: string) => value.slice(5);
 
@@ -37,8 +38,8 @@ export function CostTrendChart({ points }: { points: UsagePoint[] }) {
     <BarChart responsive width="100%" height="100%" data={data}>
       <CartesianGrid vertical={false} />
       <XAxis dataKey="date" tickFormatter={dateLabel} />
-      <YAxis width={48} tickFormatter={(value: number) => `$${value.toFixed(2)}`} />
-      <Tooltip formatter={(value) => `$${Number(value).toFixed(4)}`} />
+      <YAxis width={72} tickFormatter={formatChartUSDAxis} />
+      <Tooltip formatter={(value) => formatChartUSD(Number(value))} />
       <Bar dataKey="cost" name="Known spend" fill="var(--text)" radius={[4, 4, 0, 0]} isAnimationActive={false} />
     </BarChart>
   </ChartContainer>;

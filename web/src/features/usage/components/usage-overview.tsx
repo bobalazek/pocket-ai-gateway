@@ -1,6 +1,7 @@
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { CostTrendChart, TokenTrendChart } from "@/features/usage/components/usage-charts";
+import { UsageDailyTable } from "@/features/usage/components/usage-daily-table";
 import { Field, Metric } from "@/features/usage/components/usage-fields";
 import type { useUsage } from "@/features/usage/hooks/use-usage";
 import { localDatetime } from "@/features/usage/utils/usage.utils";
@@ -46,23 +47,7 @@ export function UsageOverview({ model }: { model: UsageModel }) {
 
     <Card className="panel section-block">
       <div className="section-heading"><div><h2>Daily breakdown</h2><p className="chart-note">Detailed counts behind the charts</p></div></div>
-      <div className="table-wrap" tabIndex={0} role="region" aria-label="Scrollable daily usage table">
-        <table>
-          <thead><tr>
-            <th>Date</th><th>Requests</th><th>Input</th><th>Output</th>
-            {hasCacheUsage && <><th>Cache writes</th><th>Cache reads</th><th>5m writes</th><th>1h writes</th></>}
-            {hasWebSearchUsage && <th>Web search</th>}
-            <th>Cost</th><th>Unknown</th>
-          </tr></thead>
-          <tbody>{points.map((point) => <tr key={point.date}>
-            <td>{point.date}</td><td>{point.requests}</td><td>{point.input_tokens}</td><td>{point.output_tokens}</td>
-            {hasCacheUsage && <><td>{point.cache_creation_input_tokens}</td><td>{point.cache_read_input_tokens}</td><td>{point.cache_creation_5m_input_tokens}</td><td>{point.cache_creation_1h_input_tokens}</td></>}
-            {hasWebSearchUsage && <td>{point.web_search_calls}</td>}
-            <td>${point.known_cost_usd}</td><td>{point.unknown_attempts}</td>
-          </tr>)}</tbody>
-        </table>
-        {!points.length && <p className="empty-copy">No daily usage in this period.</p>}
-      </div>
+      <UsageDailyTable usage={model.usage} points={points} />
     </Card>
 
     <section className="analytics-detail section-block" aria-labelledby="cost-provenance-title">
