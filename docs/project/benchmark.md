@@ -125,3 +125,21 @@ The fix reduces retained resources; this comparison does not claim improved resp
 | 5 | 162.45–163.20 | 4,810–4,870 | 50.21–51.08 | 203–218 |
 
 Each full minute contains 300 samples; a short sixth window covers completion of the final streams. The corrected process settled around 50–52 MiB during sustained streaming and returned to 13 goroutines after cooldown. It meets the measured NFR-02/03/05 thresholds and demonstrates NFR-04 concurrency, responsiveness, and stable resources for this five-minute workload. Repeat the measurement on the exact tagged artifact and deployment hardware before making broader production-capacity or longer-duration claims. The harness's one-second rehearsal also passed race detection after adding the sampler/window logic.
+
+## Merged release candidate — September 24, 2026
+
+The untagged Linux arm64 binary packaged from clean `master` revision `0eda21731d6849cfa00088c04443b58d47b39874` has SHA-256 `c2b18f5eb19f16536b27f96bb40d93b01eacffd3b2ef26be9cf554fbe43e5383`. The benchmark harness measured that packaged binary directly with `-duration 60s -stream-duration 5m -cooldown 2m` in a network-isolated Linux arm64 Docker container on an Apple M1 Max host (Go 1.27.1, 10 guest CPUs, 8.32 GB guest RAM, tmpfs test storage). The binary reports `vcs.modified=false`. This is candidate evidence, not a tagged release or a live-provider test.
+
+| Measurement | Result |
+| --- | ---: |
+| Slowest of five starts | 40.32 ms |
+| Initial idle RSS | 21.33 MiB |
+| JSON requests / errors at 50 starts per second | 3,000 / 0 |
+| Achieved JSON rate; added gateway/transport p95 | 50.0004 requests/s; 8.27 ms |
+| Complete streams / errors over five minutes | 7,703 / 0 |
+| Peak concurrent upstream streams; management p95 during streams | 50; 7.33 ms |
+| Sampled peak RSS; peak goroutines | 53.08 MiB; 232 |
+| Post-cooldown RSS; goroutines | 48.95 MiB; 15 |
+| Pending usage projection drain | 304.32 ms |
+
+All 10,703 inference requests and attempts settled with zero unknown attempts. The $3.054088 recorded cost uses synthetic pricing; no provider was charged. The five full stream minutes peaked at 50.15, 51.72, 50.61, 50.95, and 52.91 MiB respectively. This run meets the measured startup, idle-memory, 50-stream, and p95 JSON-overhead targets on this host and workload. The local Docker disk was full, so the disposable benchmark used tmpfs for its data rather than the usual container overlay; deployment storage and a future tagged artifact require separate verification.
