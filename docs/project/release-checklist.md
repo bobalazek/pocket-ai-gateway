@@ -12,15 +12,21 @@
 - [x] An encrypted backup restores into a clean Docker data volume with the matching key; the restored instance passes `/readyz` and sign-in.
 - [x] Automated suites separately cover pre-migration snapshots, encrypted restore, and failed self-update rollback.
 - [x] `./scripts/update-e2e.sh` checks real Linux CLI dry-run/apply, the production readiness probe with a public domain configured, and rollback after both stores and the master key change. Verified on Linux arm64 with disposable v1.0.0/v1.1.0 binaries and a deliberately broken signed v1.2.0 fixture; repeat on each final release architecture.
-- [x] A [disposable demo](../guides/demo.md) populates users, models, keys, priced usage, and seven days of history; 18 full-page desktop/mobile screenshots cover analytics, requests, configuration, and administration. It cannot seed an existing data directory.
+- [x] A [disposable demo](../guides/demo.md) populates users, models, keys, priced usage, and seven days of history; 26 screenshots cover analytics, requests, configuration, and administration. It cannot seed an existing data directory.
 - [x] A [repeatable Linux resource check](benchmark.md#linux-beforeafter--september-22-2026) records the artifact/environment, 50 JSON requests/second, five minutes with 50 streams, per-minute memory/goroutine ranges, management responsiveness, and post-load cleanup. The fixed run settled all 10,714 requests without errors; peak RSS was 51.82 MiB and goroutines returned to 13 after cooldown. Claims remain bounded to this workload and host.
 - [x] `llms.txt`, the [operator skill](../../skills/pocket-ai-gateway-ops/SKILL.md), deployment/backup/recovery guides, and the [API parity inventory](api-parity-inventory.md) describe the supported subset and its limits.
 - [x] No unresolved security, data-loss, quota, credential, or false-compatibility finding remains in the source candidate review.
 
+## Before making the source repository public
+
+- [x] At `5fd2a1c`, scan all 185 reachable commits, 2,394 blobs, 51 historical Actions runs (106 log files), and tracked demo images. No credentials were found and Actions retains no artifacts. Rescan changes after that commit before publication.
+- [ ] Confirm that the personal author email present in commit metadata may be public. Changing GitHub visibility exposes commit history and historical Actions logs.
+- [ ] Change visibility, then enable GitHub private vulnerability reporting immediately; `SECURITY.md` names that confidential route.
+
 ## Before publishing a tag
 
 - [ ] Select the final committed candidate and rerun the local verification, Compose recovery, and Linux update gates on its release artifacts. The current working-tree verification does not attest a future tag.
-- [ ] Record the final artifact checksums, environment, and performance results in [compatibility](compatibility.md) and [benchmark](benchmark.md); address any unmet performance target before claiming it.
+- [ ] Record the candidate's source revision, environment, and performance results in [benchmark](benchmark.md); address any unmet performance target before claiming it. Publish exact tagged-artifact hashes in the release's `SHA256SUMS` and signed manifest, then link that immutable evidence from [compatibility](compatibility.md) after publication.
 - [ ] Enable the confidential vulnerability-reporting route named in `SECURITY.md`.
 - [ ] Configure the external Ed25519 signing secret and distribute its public key; verify the final `release-manifest.json` and detached signature. Local test keys are not release trust keys.
 - [ ] Confirm repository publication/attestation permissions, then publish `SHA256SUMS`, the signed update manifest, SPDX SBOM, GitHub artifact attestation, release notes, and container provenance.

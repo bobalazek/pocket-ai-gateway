@@ -35,6 +35,8 @@ sudo -u pocket-gateway /usr/local/bin/pocket-ai-gateway serve \
 
 `--public-url` pins browser Host and Origin checks and controls secure cookies. The gateway does not trust forwarded headers. Configure the proxy to preserve the original `Host` header.
 
+On a fresh data directory, the first valid setup request becomes the owner. Keep internet ingress restricted until you have completed owner setup; an unclaimed public instance can be claimed by someone else.
+
 Example Caddy configuration:
 
 ```caddyfile
@@ -173,6 +175,14 @@ Release maintainers generate a 32-byte Ed25519 seed outside the repository, stor
 ```sh
 export POCKET_AI_GATEWAY_RELEASE_SIGNING_KEY="$(openssl rand -base64 32)"
 go run ./scripts/release-manifest --print-public-key
+```
+
+Store the seed in a maintainer-controlled password manager and set the GitHub Actions secret from standard input (`printf '%s' "$POCKET_AI_GATEWAY_RELEASE_SIGNING_KEY" | gh secret set POCKET_AI_GATEWAY_RELEASE_SIGNING_KEY`). Never commit or publish the seed. The release job refuses to publish when the secret is missing, verifies the detached signature and both Linux binaries after signing, and checks the final `SHA256SUMS`. Anyone with the independently distributed public key can verify downloaded release files locally:
+
+```sh
+go run ./scripts/release-manifest --verify --version vX.Y.Z \
+  --directory dist/release --public-key 'base64-public-key-from-the-release-maintainer'
+(cd dist/release && sha256sum --check SHA256SUMS)
 ```
 
 On the server, stop the service and configure that base64 public key. The first command is a dry-run: it downloads and verifies the signed manifest and exact Linux artifact, stages it beside the executable, and runs its embedded version check without changing the installation.
