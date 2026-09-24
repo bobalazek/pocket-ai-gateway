@@ -4,11 +4,10 @@ import { useEffect, useRef, useState } from "react";
 
 import { GatewayAPIError, pocketAIGatewayAdmin } from "@/lib/pocket-ai-gateway-admin.client";
 
-export function useAppShell(role?: string) {
+export function useAppShell() {
   const [mobileOpen, setMobileOpen] = useState(false);
   const [accountOpen, setAccountOpen] = useState(false);
   const [accountError, setAccountError] = useState("");
-  const [version, setVersion] = useState("");
   const mobileButton = useRef<HTMLButtonElement>(null);
   const drawer = useRef<HTMLDivElement>(null);
 
@@ -35,20 +34,11 @@ export function useAppShell(role?: string) {
     return () => document.removeEventListener("keydown", close);
   }, [accountOpen]);
 
-  useEffect(() => {
-    if (role !== "owner") return;
-    let current = true;
-    void pocketAIGatewayAdmin.settings.diagnostics()
-      .then(({ diagnostics }) => { if (current) setVersion(diagnostics.version); })
-      .catch(() => undefined);
-    return () => { current = false; };
-  }, [role]);
-
   async function logout() {
     setAccountError("");
     try { await pocketAIGatewayAdmin.account.logout(); window.location.replace("/_/login/"); }
     catch (error) { setAccountError(error instanceof GatewayAPIError ? error.message : "Sign out failed"); }
   }
 
-  return { mobileOpen, setMobileOpen, accountOpen, setAccountOpen, accountError, version, mobileButton, drawer, logout };
+  return { mobileOpen, setMobileOpen, accountOpen, setAccountOpen, accountError, mobileButton, drawer, logout };
 }

@@ -20,7 +20,7 @@ export function RequestDetail({ item, loading, error, onClose }: { item?: Gatewa
               <small>{item.dialect} · {item.operation} · {new Date(item.started_at).toLocaleString()}</small>
               <code>{item.id}</code>
             </div>
-            <span className="status-badge">{item.state}</span>
+            <span className="request-state" data-state={item.state}>{item.state}</span>
           </div>
           <dl className="facts section-block">
             <div><dt>User</dt><dd>{item.owner_user_id}</dd></div>

@@ -94,11 +94,19 @@ type RuntimeCheck struct {
 	State string `json:"state"`
 }
 
+type RuntimeAlert struct {
+	ID          string `json:"id"`
+	Severity    string `json:"severity"`
+	Title       string `json:"title"`
+	Description string `json:"description"`
+}
+
 type RuntimeStatus struct {
 	Ready     bool                `json:"ready"`
 	CheckedAt string              `json:"checked_at"`
 	Checks    []RuntimeCheck      `json:"checks"`
 	Outbox    *usage.OutboxStatus `json:"outbox"`
+	Alerts    []RuntimeAlert      `json:"alerts"`
 }
 
 type Service struct {

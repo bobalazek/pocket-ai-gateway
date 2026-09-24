@@ -73,6 +73,18 @@ export function UnknownTrendChart({ points }: { points: UsagePoint[] }) {
   </ChartContainer>;
 }
 
+export function FailureTrendChart({ points }: { points: UsagePoint[] }) {
+  return <ChartContainer label="Daily failed gateway requests">
+    <BarChart responsive width="100%" height="100%" data={points}>
+      <CartesianGrid vertical={false} />
+      <XAxis dataKey="date" tickFormatter={(value: string) => value.slice(5)} />
+      <YAxis width={38} allowDecimals={false} />
+      <Tooltip />
+      <Bar dataKey="failed_requests" name="Failed requests" fill="var(--danger)" radius={[4, 4, 0, 0]} isAnimationActive={false} />
+    </BarChart>
+  </ChartContainer>;
+}
+
 export function WebSearchTrendChart({ points }: { points: UsagePoint[] }) {
   return <ChartContainer label="Daily hosted web-search calls">
     <BarChart responsive width="100%" height="100%" data={points}>

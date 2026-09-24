@@ -7,7 +7,7 @@ import { AppShell } from "@/components/app-shell";
 import { buttonVariants } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { AnalyticsBreakdownSection } from "@/features/analytics/components/analytics-breakdowns";
-import { CacheTrendChart, UnknownTrendChart, WebSearchTrendChart } from "@/features/analytics/components/analytics-charts";
+import { CacheTrendChart, FailureTrendChart, UnknownTrendChart, WebSearchTrendChart } from "@/features/analytics/components/analytics-charts";
 import { AnalyticsFilters } from "@/features/analytics/components/analytics-filters";
 import { useAnalytics } from "@/features/analytics/hooks/use-analytics";
 import { dailyPoints } from "@/features/analytics/utils/daily-points";
@@ -23,10 +23,8 @@ function TrendCard({ title, note, children }: { title: string; note: string; chi
 export default function AnalyticsPage() {
   const model = useAnalytics();
   const points = dailyPoints(model.usage);
-  const outcomes = model.rankings["state:requests"]?.data ?? [];
-  const succeeded = outcomes.find((row) => row.id === "succeeded")?.requests ?? 0;
-  const failed = outcomes.find((row) => row.id === "failed")?.requests ?? 0;
-  const failureRate = succeeded + failed ? `${((failed / (succeeded + failed)) * 100).toFixed(1)}%` : "—";
+  const completed = model.usage.successful_requests + model.usage.failed_requests;
+  const failureRate = completed ? `${model.usage.error_rate_percent.toFixed(1)}%` : "—";
   const hasCache = model.usage.cache_creation_input_tokens + model.usage.cache_read_input_tokens > 0;
   const hasSearch = model.usage.web_search_calls > 0;
   const keyRows = model.rankings["key:requests"]?.data ?? [];
@@ -48,13 +46,14 @@ export default function AnalyticsPage() {
         <div className="analytics-section-heading"><div><h2>Traffic overview</h2><p>{model.usage.from.slice(0, 10)}–{model.usage.to.slice(0, 10)} · UTC daily buckets</p></div><Link href={analyticsRequestHref(model.filters, model.usage)}>View requests</Link></div>
         <div className="metric-grid analytics-kpis">
           <Metric label="Requests" value={model.usage.requests.toLocaleString()} />
+          <Metric label="Failed requests" value={model.usage.failed_requests.toLocaleString()} />
           <Metric label="Input + output tokens" value={(model.usage.input_tokens + model.usage.output_tokens).toLocaleString()} />
           <Metric label="Known spend" value={`$${model.usage.known_cost_usd}`} />
           <Metric label="Failure rate" value={failureRate} />
-          <Metric label="Needs cost or usage review" value={model.usage.unknown_attempts.toLocaleString()} />
         </div>
         <div className="analytics-chart-grid">
           <TrendCard title="Request volume" note="Distinct gateway requests by day"><RequestTrendChart points={points} /></TrendCard>
+          <TrendCard title="Failed requests" note="Final failed gateway requests by day"><FailureTrendChart points={points} /><p className="chart-summary">{model.usage.failed_requests.toLocaleString()} failed of {completed.toLocaleString()} completed requests in this period.</p></TrendCard>
           <TrendCard title="Token volume" note="Provider-reported or reconciled input and output"><TokenTrendChart points={points} /></TrendCard>
           <TrendCard title="Known spend" note="Priced attempts by day · USD"><CostTrendChart points={points} /></TrendCard>
           {hasCache && <TrendCard title="Prompt caching" note="Read and creation tokens; not a cache-hit rate"><CacheTrendChart points={points} /></TrendCard>}

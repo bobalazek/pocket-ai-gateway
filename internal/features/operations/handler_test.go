@@ -73,7 +73,7 @@ func TestOwnerOnlyOperationsAndRecentAuthentication(t *testing.T) {
 	var runtimeStatus struct {
 		Value RuntimeStatus `json:"status"`
 	}
-	if err := json.Unmarshal(response.Body.Bytes(), &runtimeStatus); err != nil || response.Code != http.StatusOK || !runtimeStatus.Value.Ready || len(runtimeStatus.Value.Checks) != 3 {
+	if err := json.Unmarshal(response.Body.Bytes(), &runtimeStatus); err != nil || response.Code != http.StatusOK || !runtimeStatus.Value.Ready || len(runtimeStatus.Value.Checks) != 3 || runtimeStatus.Value.Alerts == nil {
 		t.Fatalf("admin runtime status = %s, status = %d, error = %v", response.Body.String(), response.Code, err)
 	}
 	memberToken := "synthetic-member-session-token"

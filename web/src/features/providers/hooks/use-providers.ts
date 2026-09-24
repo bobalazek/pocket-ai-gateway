@@ -3,12 +3,13 @@
 import { useEffect, useState, type FormEvent } from "react";
 
 import { useGatewayUser } from "@/components/setup-gate";
-import type { ProviderAdapter, ProviderAdapterScript, ProviderConnection, ProviderPreset } from "@/features/providers/types/providers.types";
+import type { ProviderAdapter, ProviderAdapterScript, ProviderConnection, ProviderPreset, UpstreamModel } from "@/features/providers/types/providers.types";
 import { GatewayAPIError, pocketAIGatewayAdmin } from "@/lib/pocket-ai-gateway-admin.client";
 
 export function useProviders() {
   const user = useGatewayUser();
   const [items, setItems] = useState<ProviderConnection[]>([]);
+  const [models, setModels] = useState<Record<string, UpstreamModel[] | null>>({});
   const [presets, setPresets] = useState<ProviderPreset[]>([]);
   const [adapters, setAdapters] = useState<ProviderAdapter[]>([]);
   const [scripts, setScripts] = useState<Record<string, ProviderAdapterScript | null>>({});
@@ -30,7 +31,16 @@ export function useProviders() {
       setPresets(availablePresets.data);
       setAdapters(availablePresets.adapters);
       setAdapter((current) => current || defaultAdapter(availablePresets.adapters));
-      setError("");
+      const lists = await Promise.all(connections.data.map(async (connection) => {
+        try {
+          const result = await pocketAIGatewayAdmin.providers.upstreamModels(connection.id);
+          return [connection.id, result.data] as const;
+        } catch {
+          return [connection.id, null] as const;
+        }
+      }));
+      setModels(Object.fromEntries(lists));
+      setError(lists.some(([, list]) => list === null) ? "Some upstream model lists could not be loaded" : "");
     } catch (failure) {
       fail(failure, "Providers are unavailable");
     }
@@ -74,6 +84,14 @@ export function useProviders() {
     try {
       await pocketAIGatewayAdmin.providers.createUpstreamModel(id, { upstream_id: String(form.get("upstream_id")), capabilities: form.getAll("capabilities").map(String) });
       element.reset();
+      try {
+        const result = await pocketAIGatewayAdmin.providers.upstreamModels(id);
+        setModels((current) => ({ ...current, [id]: result.data }));
+        setError("");
+      } catch {
+        setModels((current) => ({ ...current, [id]: null }));
+        setError("Model added, but its list could not be refreshed");
+      }
     } catch (failure) { fail(failure, "Upstream model could not be added"); } finally { setBusy(false); }
   }
 
@@ -133,5 +151,5 @@ export function useProviders() {
     setAdapter(presets.find((item) => item.id === preset)?.adapter ?? defaultAdapter());
   }
 
-  return { user, items, presets, adapters, scripts, selectedPreset, adapter, setAdapter, selected, error, busy, create, credential, addModel, toggle, choosePreset, loadScript, saveScript, removeScript };
+  return { user, items, models, presets, adapters, scripts, selectedPreset, adapter, setAdapter, selected, error, busy, create, credential, addModel, toggle, choosePreset, loadScript, saveScript, removeScript };
 }

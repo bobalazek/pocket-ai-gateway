@@ -15,6 +15,10 @@
   --accent-soft: #dce9ff;
   --chart-ink-soft: #d9dee8;
   --success: #15803d;
+  --danger: #b42318;
+  --danger-soft: #fff1f0;
+  --warning: #9a5700;
+  --warning-soft: #fff8e8;
   --focus: #2563eb;
   --sidebar: #11151d;
   --sidebar-text: #fafafa;
@@ -65,8 +69,8 @@ a:focus-visible { outline: 3px solid var(--focus); outline-offset: 3px; }
   display: flex;
   flex-direction: column;
   height: 100vh;
-  overflow-y: auto;
-  padding: 24px 16px;
+  overflow: hidden;
+  padding: 24px 16px 0;
   color: var(--sidebar-text);
   background: var(--sidebar);
 }
@@ -76,6 +80,7 @@ a:focus-visible { outline: 3px solid var(--focus); outline-offset: 3px; }
 .brand strong, .brand small { display: block; }
 .brand strong { font-size: 14px; letter-spacing: -0.01em; }
 .brand small { color: var(--sidebar-muted); font-size: 12px; }
+.desktop-navigation { flex: 1; min-height: 0; overflow-y: auto; }
 
 .nav-item { display: flex; min-height: 42px; align-items: center; gap: 12px; padding: 9px 12px; border-radius: 8px; color: var(--sidebar-muted); font-size: 13px; font-weight: 600; text-decoration: none; }
 .nav-item:hover:not(.disabled), .nav-item.active { color: #fff; background: #253047; }
@@ -84,16 +89,16 @@ a:focus-visible { outline: 3px solid var(--focus); outline-offset: 3px; }
 .nav-tools { margin-top: 16px; border-top: 1px solid #343b49; padding-top: 12px; }
 .nav-tools p { margin: 0 12px 8px; color: var(--sidebar-muted); font-size: 11px; font-weight: 700; letter-spacing: .08em; text-transform: uppercase; }
 .nav-tools .nav-item { min-height: 44px; padding-block: 9px; font-size: 13px; }
-.sidebar-footer { margin-top: auto; }
+.sidebar-footer { flex-shrink: 0; margin-inline: -16px; }
 .account-menu { position: relative; }
-.account-summary { display: flex; width: 100%; align-items: center; gap: 12px; padding: 16px 12px; border: 0; border-top: 1px solid #27272a; border-radius: 8px; color: var(--sidebar-muted); background: transparent; text-align: left; cursor: pointer; }
+.account-summary { display: flex; width: 100%; align-items: center; gap: 12px; padding: 16px 24px; border: 0; border-top: 1px solid #27272a; color: var(--sidebar-muted); background: transparent; text-align: left; cursor: pointer; }
 .account-summary:hover, .account-summary.active { background: #242429; }
 .account-summary strong, .account-summary small { display: block; }
 .account-summary > span:nth-child(2) { min-width: 0; flex: 1; }
 .account-summary strong { overflow: hidden; color: var(--sidebar-text); font-size: 13px; text-overflow: ellipsis; white-space: nowrap; }
 .account-summary small { overflow-wrap: anywhere; font-size: 11px; }
 .account-avatar { display: grid; width: 32px; height: 32px; place-items: center; border: 1px solid #3f3f46; border-radius: 50%; color: var(--sidebar-text); font-size: 12px; font-weight: 750; }
-.account-popover { position: absolute; z-index: 20; bottom: calc(100% + 8px); left: 0; display: grid; width: 100%; overflow: hidden; border: 1px solid #3f3f46; border-radius: 10px; background: #18181b; box-shadow: 0 16px 32px rgba(0, 0, 0, .35); }
+.account-popover { position: absolute; z-index: 20; bottom: calc(100% + 8px); left: 16px; display: grid; width: calc(100% - 32px); overflow: hidden; border: 1px solid #3f3f46; border-radius: 10px; background: #18181b; box-shadow: 0 16px 32px rgba(0, 0, 0, .35); }
 .account-identity { display: grid; padding: 14px; border-bottom: 1px solid #3f3f46; }
 .account-identity small { overflow-wrap: anywhere; color: var(--sidebar-muted); }
 .account-identity span { width: fit-content; margin-top: 8px; padding: 2px 7px; border: 1px solid #3f3f46; border-radius: 999px; color: var(--sidebar-muted); font-size: 11px; text-transform: capitalize; }
@@ -217,7 +222,7 @@ textarea.select { resize: vertical; }
 .overview-status a { margin-left: auto; color: var(--accent); font-weight: 700; }
 .overview-section { margin-bottom: 8px; }
 .section-period { color: var(--muted); font-size: 13px; }
-.overview-metrics { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+.overview-metrics { grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); }
 .overview-metric { display: grid; align-content: space-between; min-height: 122px; }
 .overview-metric strong { margin: 6px 0; }
 .overview-metric span { color: var(--muted); font-size: 12px; }
@@ -306,6 +311,17 @@ th { color: var(--muted); font-weight: 650; }
 .status-list strong[data-state="ready"] { color: var(--success); }
 .status-list strong[data-state="checking"] { color: var(--muted); }
 .status-list strong[data-state="unavailable"] { color: #b42318; }
+.status-alerts { margin-top: 24px; padding-top: 20px; border-top: 1px solid var(--border); }
+.status-alerts .section-heading { align-items: baseline; margin-bottom: 12px; }
+.status-alerts h3 { margin: 0; font-size: 16px; }
+.status-alerts .section-heading span { color: var(--muted); font-size: 12px; }
+.status-alerts ul { display: grid; gap: 10px; margin: 0 0 12px; padding: 0; list-style: none; }
+.status-alerts li { padding: 12px 14px; border: 1px solid #ead4a2; border-radius: 8px; background: var(--warning-soft); }
+.status-alerts li[data-severity="critical"] { border-color: #efc7c3; background: var(--danger-soft); }
+.status-alerts li strong { display: block; font-size: 13px; }
+.status-alerts li p { margin: 4px 0 0; font-size: 13px; }
+.status-alerts > a { color: var(--accent); font-size: 13px; font-weight: 700; }
+.status-alerts > .fine-print { margin: 4px 0 12px; }
 .fine-print { max-width: 65ch; margin: 28px 0; color: var(--muted); }
 .not-found { min-height: 100vh; display: flex; flex-direction: column; align-items: flex-start; justify-content: center; }
 .not-found .error-code { margin: 0 0 8px; color: var(--accent); font: 750 14px/1 ui-monospace, SFMono-Regular, Menlo, monospace; }
@@ -323,7 +339,7 @@ th { color: var(--muted); font-weight: 650; }
   .mobile-menu-heading button { display: grid; width: 44px; height: 44px; place-items: center; border: 1px solid #3f3f46; border-radius: 8px; color: inherit; background: transparent; }
   .mobile-menu-panel .account-menu { margin-top: 20px; }
   .mobile-menu-panel .account-popover { position: static; width: 100%; margin-bottom: 8px; }
-  .mobile-menu-panel .account-summary { min-height: 60px; }
+  .mobile-menu-panel .account-summary { min-height: 60px; padding-inline: 12px; border-radius: 8px; }
   .content { padding: 30px 20px 64px; }
   .page-header, .next-step { align-items: stretch; flex-direction: column; }
   .page-header { margin-bottom: 24px; }

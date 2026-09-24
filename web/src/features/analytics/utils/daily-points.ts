@@ -12,7 +12,8 @@ export function dailyPoints(summary: UsageSummary): UsagePoint[] {
   for (let day = start; day < to && points.length <= 366; day += dayMilliseconds) {
     const date = new Date(day).toISOString().slice(0, 10);
     points.push(recorded.get(date) ?? {
-      date, requests: 0, input_tokens: 0, output_tokens: 0, cache_creation_input_tokens: 0,
+      date, requests: 0, successful_requests: 0, failed_requests: 0, failed_attempts: 0, error_rate_percent: 0,
+      input_tokens: 0, output_tokens: 0, cache_creation_input_tokens: 0,
       cache_read_input_tokens: 0, cache_creation_5m_input_tokens: 0, cache_creation_1h_input_tokens: 0,
       web_search_calls: 0, known_cost_usd: "0", unknown_attempts: 0,
     });

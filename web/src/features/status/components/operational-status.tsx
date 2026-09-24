@@ -1,5 +1,7 @@
 "use client";
 
+import Link from "next/link";
+
 import { useGatewayUser } from "@/components/setup-gate";
 import { Button } from "@/components/ui/button";
 import { useOperationalStatus } from "@/features/status/hooks/use-operational-status";
@@ -19,6 +21,11 @@ export function OperationalStatus() {
     {error && <p role="alert">Could not refresh component checks. Try again.</p>}
     {status && <><div className="status-list" aria-label="Component checks">{status.checks.map((check) => <div key={check.id}><span>{names[check.id]}</span><strong data-state={check.state}>{check.state === "ready" ? "Ready" : check.id === "usage_projection" && status.outbox?.full ? "At capacity" : "Unavailable"}</strong></div>)}</div>
       {status.outbox && <p className="fine-print">{status.outbox.pending_events.toLocaleString()} pending events · {status.outbox.reserved_events.toLocaleString()} active reservations{status.outbox.oldest_event_at ? ` · oldest event ${new Date(status.outbox.oldest_event_at).toLocaleString()}` : ""}</p>}
+      <div className="status-alerts" aria-label="Local alerts">
+        <div className="section-heading"><h3>Local alerts</h3><span>{status.alerts.length} active</span></div>
+        {status.alerts.length ? <ul>{status.alerts.map((alert) => <li key={alert.id} data-severity={alert.severity}><strong>{alert.title}</strong><p>{alert.description}</p></li>)}</ul> : <p className="fine-print">No active alerts from recent requests, backup, or storage checks.</p>}
+        <Link href="/requests/?state=failed">Review failed requests</Link>
+      </div>
       <p className="fine-print">Checked {new Date(status.checked_at).toLocaleString()} · <code>GET /api/v1/admin/status</code></p></>}
   </section>;
 }

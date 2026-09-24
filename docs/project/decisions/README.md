@@ -68,6 +68,7 @@ Each record states status/source, context, decision, and consequences. A recomme
 | ADR-060 | [Versioned hosted web-search call pricing](2026-09-24-versioned-web-search-call-pricing.md) | Delegated pricing expansion extending ADR-005 and hosted-search contracts |
 | ADR-061 | [Gateway-owned Gemini Files](2026-09-24-gateway-owned-gemini-files.md) | Delegated bounded SDK compatibility; native Gemini File references only |
 | ADR-062 | [Scoped gateway analytics](2026-09-24-scoped-analytics.md) | Delegated chart and attribution contract |
+| ADR-063 | [Local reliability signals](2026-09-24-local-reliability-signals.md) | Delegated error-rate and admin-alert contract |
 
 Historical: [initial proposal](2026-09-14-initial-proposal.md), superseded by the records above where they differ. Its A/P/D/M identifiers are historical references only; current documents use ADR IDs.
 

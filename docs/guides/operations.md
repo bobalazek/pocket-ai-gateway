@@ -11,6 +11,8 @@ Pocket AI Gateway keeps runtime state in one private data directory. `system.db`
 
 Terminate through the process manager before forcing a kill. A single process owns each data directory through `instance.lock`; never share a local SQLite directory between replicas or place it on NFS.
 
+The authenticated Status page and `GET /api/v1/admin/status` also show local alerts when a database or usage projection is unavailable, the latest backup failed, or at least 20 completed requests in the past hour have a failure rate of 5% or more. A request recovered by fallback counts as a successful request but may still have a failed attempt. Usage summaries report both counts; error rate is failed requests divided by successful plus failed requests. Alerts are recomputed when Status is read; the gateway does not send email, webhooks, or public telemetry. Operators who need paging can poll the authenticated status endpoint from their own monitoring system.
+
 ## Encrypted backups
 
 Set one external archive key before enabling backups. Generate it once, store it in a secret manager, and keep a separately protected recovery copy:

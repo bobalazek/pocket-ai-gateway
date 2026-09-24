@@ -49,6 +49,14 @@ func TestBreakdownDeduplicatesRequestsAndScopesKeys(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
+	summary, err := service.Summary(ctx, owner, UsageQuery{UserID: owner.ID})
+	if err != nil || summary.Requests != 3 || summary.SuccessfulRequests != 1 || summary.FailedRequests != 1 || summary.Attempts != 3 || summary.FailedAttempts != 2 || summary.ErrorRatePercent != 50 || len(summary.Points) != 1 || summary.Points[0].Requests != 3 || summary.Points[0].SuccessfulRequests != 1 || summary.Points[0].FailedRequests != 1 || summary.Points[0].FailedAttempts != 2 || summary.Points[0].ErrorRatePercent != 50 {
+		t.Fatalf("summary failure metrics: %#v, %v", summary, err)
+	}
+	empty, err := service.Summary(ctx, owner, UsageQuery{From: now.Add(time.Hour).Format(time.RFC3339), To: now.Add(2 * time.Hour).Format(time.RFC3339)})
+	if err != nil || empty.ErrorRatePercent != 0 || empty.FailedAttempts != 0 || len(empty.Points) != 0 {
+		t.Fatalf("empty failure metrics: %#v, %v", empty, err)
+	}
 
 	result, err := service.Breakdown(ctx, owner, UsageQuery{UserID: owner.ID}, "key", "", 20, 0)
 	if err != nil {
@@ -58,7 +66,7 @@ func TestBreakdownDeduplicatesRequestsAndScopesKeys(t *testing.T) {
 		t.Fatalf("owner key breakdown: %#v", result.Data)
 	}
 	row := result.Data[0]
-	if row.ID != keyID || !strings.Contains(row.Label, "Test ·") || row.Requests != 3 || row.SuccessfulRequests != 1 || row.FailedRequests != 1 || row.Attempts != 3 || row.InputTokens != 14 || row.OutputTokens != 5 || row.KnownCostUSD != "0.3" || row.UnknownAttempts != 1 || row.FinishedRequests != 2 || row.AvgGatewayDurationMS == nil || *row.AvgGatewayDurationMS != 2000 || row.P95GatewayDurationMS == nil || *row.P95GatewayDurationMS != 3000 {
+	if row.ID != keyID || !strings.Contains(row.Label, "Test ·") || row.Requests != 3 || row.SuccessfulRequests != 1 || row.FailedRequests != 1 || row.ErrorRatePercent != 50 || row.Attempts != 3 || row.InputTokens != 14 || row.OutputTokens != 5 || row.KnownCostUSD != "0.3" || row.UnknownAttempts != 1 || row.FinishedRequests != 2 || row.AvgGatewayDurationMS == nil || *row.AvgGatewayDurationMS != 2000 || row.P95GatewayDurationMS == nil || *row.P95GatewayDurationMS != 3000 {
 		t.Fatalf("incorrect key totals: %#v", row)
 	}
 	connection, err := service.Breakdown(ctx, owner, UsageQuery{UserID: owner.ID}, "connection", "", 20, 0)

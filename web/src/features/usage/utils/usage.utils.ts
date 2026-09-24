@@ -1,7 +1,7 @@
 import type { UsageFilters, UsageSummary } from "@/features/usage/types/usage.types";
 import { GatewayAPIError } from "@/lib/pocket-ai-gateway-admin.client";
 
-export const emptyUsage: UsageSummary = { from: "", to: "", requests: 0, attempts: 0, input_tokens: 0, output_tokens: 0, cache_creation_input_tokens: 0, cache_read_input_tokens: 0, cache_creation_5m_input_tokens: 0, cache_creation_1h_input_tokens: 0, web_search_calls: 0, known_cost_usd: "0", estimated_cost_usd: "0", as_recorded_cost_usd: "0", restatement_delta_usd: "0", unknown_attempts: 0, points: [] };
+export const emptyUsage: UsageSummary = { from: "", to: "", requests: 0, successful_requests: 0, failed_requests: 0, failed_attempts: 0, error_rate_percent: 0, attempts: 0, input_tokens: 0, output_tokens: 0, cache_creation_input_tokens: 0, cache_read_input_tokens: 0, cache_creation_5m_input_tokens: 0, cache_creation_1h_input_tokens: 0, web_search_calls: 0, known_cost_usd: "0", estimated_cost_usd: "0", as_recorded_cost_usd: "0", restatement_delta_usd: "0", unknown_attempts: 0, points: [] };
 export const datetime = (value: FormDataEntryValue | null) => value ? new Date(String(value)).toISOString() : "";
 export const localDatetime = (value?: string) => {
   if (!value) return ""; const date = new Date(value); if (Number.isNaN(date.getTime())) return ""; const offset = date.getTimezoneOffset() * 60_000;
