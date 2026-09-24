@@ -82,17 +82,30 @@ func (service *Service) ListRequests(ctx context.Context, actor auth.User, query
 	}
 	defer tx.Rollback()
 	where, args := "retained_at IS NULL", []any{}
+	if query.From != "" || query.To != "" {
+		from, to, err := usageRange(service.now(), query.From, query.To)
+		if err != nil {
+			return nil, "", err
+		}
+		where += " AND started_at >= ? AND started_at < ?"
+		args = append(args, from, to)
+	}
 	if userID != "" {
 		where += " AND owner_user_id=?"
 		args = append(args, userID)
 	}
 	for _, filter := range []struct{ column, value string }{
 		{"id", query.RequestID}, {"key_id", query.KeyID}, {"model_id", query.ModelID}, {"dialect", query.Dialect},
+		{"operation", query.Operation}, {"state", query.State},
 	} {
 		if filter.value != "" {
 			where += " AND " + filter.column + "=?"
 			args = append(args, filter.value)
 		}
+	}
+	if query.ConnectionID != "" {
+		where += " AND EXISTS (SELECT 1 FROM attempts WHERE attempts.request_id = requests.id AND attempts.connection_id = ?)"
+		args = append(args, query.ConnectionID)
 	}
 	before, beforeID, err := decodeCursor(query.Cursor)
 	if err != nil {

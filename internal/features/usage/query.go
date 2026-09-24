@@ -66,6 +66,8 @@ type UsageQuery struct {
 	ModelID      string
 	ConnectionID string
 	Dialect      string
+	Operation    string
+	State        string
 	Cursor       string
 	RequestID    string
 }
