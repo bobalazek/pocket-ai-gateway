@@ -113,6 +113,53 @@ func TestRequestsHTTPFiltersByExactGatewayRequestID(t *testing.T) {
 	if response.Code != http.StatusOK || !strings.Contains(response.Body.String(), `"id":"req_visible"`) || strings.Contains(response.Body.String(), `"id":"req_other"`) {
 		t.Fatalf("requests = %d: %s", response.Code, response.Body.String())
 	}
+	wrongState := httptest.NewRecorder()
+	mux.ServeHTTP(wrongState, authenticatedRequest(http.MethodGet, "http://gateway.test/api/v1/requests?state=failed", "", claimed.Result().Cookies(), false))
+	if wrongState.Code != http.StatusOK || !strings.Contains(wrongState.Body.String(), `"data":[]`) {
+		t.Fatalf("state filter = %d: %s", wrongState.Code, wrongState.Body.String())
+	}
+	badRange := httptest.NewRecorder()
+	mux.ServeHTTP(badRange, authenticatedRequest(http.MethodGet, "http://gateway.test/api/v1/requests?from=invalid", "", claimed.Result().Cookies(), false))
+	if badRange.Code != http.StatusBadRequest {
+		t.Fatalf("bad range = %d: %s", badRange.Code, badRange.Body.String())
+	}
+}
+
+func TestBreakdownHTTPRequiresSessionAndValidDimension(t *testing.T) {
+	ctx := context.Background()
+	store, err := storage.Open(ctx, filepath.Join(t.TempDir(), "data"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+	mux := http.NewServeMux()
+	authHandler := auth.NewHandler(auth.New(store.SystemDB()))
+	authHandler.Register(mux)
+	NewHandler(New(store.SystemDB()), authHandler).Register(mux)
+
+	unauthorized := httptest.NewRecorder()
+	mux.ServeHTTP(unauthorized, httptest.NewRequest(http.MethodGet, "/api/v1/usage/breakdown?dimension=key", nil))
+	if unauthorized.Code != http.StatusUnauthorized {
+		t.Fatalf("anonymous status = %d", unauthorized.Code)
+	}
+	claim := httptest.NewRequest(http.MethodPost, "http://gateway.test/api/v1/auth/setup/claim", strings.NewReader(`{"email":"owner@example.test","display_name":"Owner","password":"correct-horse-battery"}`))
+	claim.Header.Set("Content-Type", "application/json")
+	claim.Header.Set("Origin", "http://gateway.test")
+	claimed := httptest.NewRecorder()
+	mux.ServeHTTP(claimed, claim)
+	if claimed.Code != http.StatusCreated {
+		t.Fatalf("claim = %d: %s", claimed.Code, claimed.Body.String())
+	}
+	valid := httptest.NewRecorder()
+	mux.ServeHTTP(valid, authenticatedRequest(http.MethodGet, "http://gateway.test/api/v1/usage/breakdown?dimension=key", "", claimed.Result().Cookies(), false))
+	if valid.Code != http.StatusOK || !strings.Contains(valid.Body.String(), `"data":[]`) {
+		t.Fatalf("valid breakdown = %d: %s", valid.Code, valid.Body.String())
+	}
+	invalid := httptest.NewRecorder()
+	mux.ServeHTTP(invalid, authenticatedRequest(http.MethodGet, "http://gateway.test/api/v1/usage/breakdown?dimension=all&limit=1000", "", claimed.Result().Cookies(), false))
+	if invalid.Code != http.StatusBadRequest {
+		t.Fatalf("invalid breakdown = %d: %s", invalid.Code, invalid.Body.String())
+	}
 }
 
 func authenticatedRequest(method, target, body string, cookies []*http.Cookie, csrf bool) *http.Request {

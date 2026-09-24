@@ -25,6 +25,7 @@ func (handler *Handler) Register(mux *http.ServeMux) {
 	mux.HandleFunc("PATCH /api/v1/admin/policies/{id}", handler.updatePolicy)
 	mux.HandleFunc("GET /api/v1/keys/{id}/effective-limits", handler.effectiveLimits)
 	mux.HandleFunc("GET /api/v1/usage", handler.summary)
+	mux.HandleFunc("GET /api/v1/usage/breakdown", handler.breakdown)
 	mux.HandleFunc("GET /api/v1/usage/unresolved", handler.unresolved)
 	mux.HandleFunc("GET /api/v1/requests", handler.requests)
 	mux.HandleFunc("GET /api/v1/admin/usage/outbox", handler.outbox)
@@ -44,7 +45,9 @@ func (handler *Handler) requests(response http.ResponseWriter, request *http.Req
 	query := request.URL.Query()
 	items, next, err := handler.service.ListRequests(request.Context(), current.User, UsageQuery{
 		UserID: query.Get("user_id"), KeyID: query.Get("key_id"), ModelID: query.Get("model_id"),
-		Dialect: query.Get("dialect"), Cursor: query.Get("cursor"), RequestID: query.Get("request_id"),
+		ConnectionID: query.Get("connection_id"), From: query.Get("from"), To: query.Get("to"),
+		Dialect: query.Get("dialect"), Operation: query.Get("operation"), State: query.Get("state"),
+		Cursor: query.Get("cursor"), RequestID: query.Get("request_id"),
 	})
 	if err != nil {
 		handler.writeError(response, err)
@@ -171,6 +174,37 @@ func (handler *Handler) summary(response http.ResponseWriter, request *http.Requ
 		return
 	}
 	auth.WriteJSON(response, http.StatusOK, map[string]any{"usage": summary})
+}
+
+func (handler *Handler) breakdown(response http.ResponseWriter, request *http.Request) {
+	current, _, ok := handler.auth.Authorize(response, request)
+	if !ok {
+		return
+	}
+	params := request.URL.Query()
+	limit, offset := 20, 0
+	var err error
+	if value := params.Get("limit"); value != "" {
+		limit, err = strconv.Atoi(value)
+	}
+	if err == nil {
+		if value := params.Get("offset"); value != "" {
+			offset, err = strconv.Atoi(value)
+		}
+	}
+	if err != nil {
+		handler.writeError(response, errors.New("invalid breakdown limit or offset"))
+		return
+	}
+	result, err := handler.service.Breakdown(request.Context(), current.User, UsageQuery{
+		UserID: params.Get("user_id"), From: params.Get("from"), To: params.Get("to"),
+		KeyID: params.Get("key_id"), ModelID: params.Get("model_id"), ConnectionID: params.Get("connection_id"),
+	}, params.Get("dimension"), params.Get("sort"), limit, offset)
+	if err != nil {
+		handler.writeError(response, err)
+		return
+	}
+	auth.WriteJSON(response, http.StatusOK, result)
 }
 
 func (handler *Handler) unresolved(response http.ResponseWriter, request *http.Request) {

@@ -9,6 +9,7 @@ import { resolve, join } from "node:path";
 
 const pages = [
   { name: "overview", path: "/_/", heading: "Overview", ready: "document.querySelectorAll('.activity-list li').length > 0 && document.querySelector('.overview-metrics strong')?.textContent !== '…'" },
+  { name: "analytics", path: "/_/analytics/", heading: "Analytics", ready: "document.querySelectorAll('.analytics-section').length === 8 && document.querySelectorAll('#keys .analytics-rank-chart svg').length >= 2 && document.querySelectorAll('#users .analytics-rank-chart svg').length >= 2 && document.querySelectorAll('#models .analytics-rank-chart svg').length >= 2 && document.querySelectorAll('#providers .analytics-rank-chart svg').length >= 2 && document.querySelectorAll('#operations .analytics-rank-chart svg').length >= 3" },
   { name: "usage", path: "/_/usage/", heading: "Usage and limits", ready: "document.querySelectorAll('.usage-chart-grid svg').length >= 2" },
   { name: "requests", path: "/_/requests/", heading: "Requests", ready: "document.querySelectorAll('.request-table tbody tr').length > 0" },
   { name: "providers", path: "/_/providers/", heading: "Providers", ready: "document.querySelectorAll('main .resource-list > .panel').length > 0" },
@@ -22,7 +23,7 @@ const pages = [
   { name: "account", path: "/_/account/", heading: "Your profile and sessions.", ready: "document.querySelectorAll('main .resource-list .resource-row').length > 0" },
   { name: "media-jobs", path: "/_/media-jobs/", heading: "Media jobs", ready: "document.querySelector('main .resource-list')?.textContent.includes('No media jobs') || document.querySelectorAll('main .resource-list > .panel').length > 0" },
 ];
-const mobileNames = new Set(["overview", "usage", "requests", "status"]);
+const mobileNames = new Set(["overview", "analytics", "usage", "requests", "status"]);
 
 function options(args) {
   if (args.includes("--help")) {
@@ -116,7 +117,7 @@ async function capture({ baseURL, outputDir }) {
           ready: Boolean(${ready}),
         }))()`);
         if (state.alert || state.broken) throw new Error(`${path}: ${state.alert || "client-side error boundary"}`);
-        return state.path === path && state.heading === heading && state.ready;
+        return (state.path === path || (!path.includes("?") && state.path.startsWith(`${path}?`))) && state.heading === heading && state.ready;
       }, 15000, `${heading} to load at ${path}`);
       await evaluate("document.fonts.ready.then(() => true)");
       // Let layout observers finish after data settles. Charts disable entrance animation.
@@ -140,6 +141,17 @@ async function capture({ baseURL, outputDir }) {
       manifest.push({ file: filename, page, viewport_width: width, full_page_height: height, bytes: png.length });
       console.log(`${filename} (${width} × ${height})`);
     };
+    const screenshotSection = async (name, selector) => {
+      const bounds = await evaluate(`(() => { const rect = document.querySelector(${JSON.stringify(selector)})?.getBoundingClientRect(); return rect && { x: Math.floor(rect.left + scrollX), y: Math.floor(rect.top + scrollY), width: Math.ceil(rect.width), height: Math.ceil(rect.height) }; })()`);
+      if (!bounds || bounds.width < 200 || bounds.height < 100 || bounds.height > 5000) throw new Error(`Invalid analytics section: ${selector}`);
+      const result = await send("Page.captureScreenshot", { format: "png", captureBeyondViewport: true, fromSurface: true, clip: { ...bounds, scale: 1 } });
+      const png = Buffer.from(result.data, "base64");
+      if (png.subarray(0, 8).toString("hex") !== "89504e470d0a1a0a" || png.readUInt32BE(16) !== bounds.width || png.readUInt32BE(20) !== bounds.height) throw new Error(`Incomplete analytics section: ${name}`);
+      const filename = `demo-analytics-${name}.png`;
+      await writeFile(join(outputDir, filename), png);
+      manifest.push({ file: filename, page: "analytics", section: name, capture_width: bounds.width, capture_height: bounds.height, bytes: png.length });
+      console.log(`${filename} (${bounds.width} × ${bounds.height})`);
+    };
 
     await send("Page.enable");
     await send("Runtime.enable");
@@ -156,6 +168,38 @@ async function capture({ baseURL, outputDir }) {
         await sleep(200);
       }
       await screenshot(`demo-page-${page.name}.png`, 1440, page.name);
+      if (page.name === "analytics") {
+        for (const [name, selector] of [["traffic", "#traffic"], ["api-keys", "#keys"], ["users", "#users"], ["models", "#models"], ["providers", "#providers"], ["operations", "#operations"]]) await screenshotSection(name, selector);
+        const drillDown = await evaluate(`(async () => {
+          const details = document.querySelector('#keys .analytics-table-disclosure');
+          details.open = true;
+          details.querySelector('tbody tr button').click();
+          await new Promise((done) => setTimeout(done, 100));
+          for (let tries = 0; tries < 150; tries++) {
+            const key = new URLSearchParams(location.search).get('key_id');
+            const link = document.querySelector('#keys .analytics-table-disclosure tbody tr a[href*="/requests/"]');
+            if (key && link && !document.querySelector('.analytics-loading')) {
+              const before = new URLSearchParams(location.search).get('to');
+              await new Promise((done) => setTimeout(done, 50));
+              document.querySelector('.analytics-periods button:last-child').click();
+              for (let refresh = 0; refresh < 150; refresh++) {
+                const after = new URLSearchParams(location.search).get('to');
+                const updated = document.querySelector('#keys .analytics-table-disclosure tbody tr a[href*="/requests/"]');
+                const linkedTo = updated ? new URL(updated.href).searchParams.get('to') : null;
+                if (Date.parse(after) > Date.parse(before) && Date.parse(linkedTo) === Date.parse(after) && !document.querySelector('.analytics-loading')) return { key, href: updated.getAttribute('href'), after };
+                await new Promise((done) => setTimeout(done, 100));
+              }
+              return null;
+            }
+            await new Promise((done) => setTimeout(done, 100));
+          }
+          return null;
+        })()`);
+        if (!drillDown) throw new Error("Analytics key drill-down did not finish");
+        const linked = new URL(drillDown.href, baseURL);
+        if (linked.searchParams.get("key_id") !== drillDown.key || !linked.searchParams.has("from") || Date.parse(linked.searchParams.get("to")) !== Date.parse(drillDown.after)) throw new Error("Analytics request link lost its key or refreshed time filter");
+        await navigate(linked.pathname + linked.search, "Requests", "document.querySelectorAll('.request-table tbody tr').length > 0");
+      }
       if (page.name === "requests") {
         const href = await evaluate("document.querySelector('main a[href*=request_id]')?.getAttribute('href')");
         if (!href) throw new Error("Populated requests page has no request detail link");

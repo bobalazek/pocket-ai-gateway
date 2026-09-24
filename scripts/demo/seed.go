@@ -159,7 +159,7 @@ func (d *demo) seedRequests(ctx context.Context, secrets []string) error {
 			body := fmt.Sprintf(`{"model":%q,"messages":[{"role":"user","content":"Synthetic demo request %d"}],"max_tokens":4096}`, models[index%3], index)
 			request := httptest.NewRequest(http.MethodPost, "/api/openai/v1/chat/completions", strings.NewReader(body)).WithContext(ctx)
 			request.Host = strings.TrimPrefix(d.origin, "http://")
-			request.Header.Set("Authorization", "Bearer "+secrets[index%len(secrets)])
+			request.Header.Set("Authorization", "Bearer "+secrets[(index/2+day)%len(secrets)])
 			request.Header.Set("Content-Type", "application/json")
 			response := httptest.NewRecorder()
 			d.handler.ServeHTTP(response, request)

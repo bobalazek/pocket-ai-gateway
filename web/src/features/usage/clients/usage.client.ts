@@ -1,15 +1,16 @@
-import type { EffectiveLimit, LimitPolicy, OutboxStatus, PriceInput, PriceVersion, UnresolvedAttempt, UsageFilters, UsageSummary } from "@/features/usage/types/usage.types";
+import type { EffectiveLimit, LimitPolicy, OutboxStatus, PriceInput, PriceVersion, UnresolvedAttempt, UsageBreakdown, UsageBreakdownDimension, UsageBreakdownSort, UsageFilters, UsageSummary } from "@/features/usage/types/usage.types";
 import { gatewayTransport } from "@/lib/api-client";
 
-function queryFor(filters: UsageFilters, cursor = "") {
+function queryFor(filters: UsageFilters, cursor = "", extra: Record<string, string> = {}) {
   const query = new URLSearchParams();
-  for (const [key, value] of Object.entries(filters)) if (value) query.set(key, value);
+  for (const [key, value] of Object.entries({ ...filters, ...extra })) if (value) query.set(key, value);
   if (cursor) query.set("cursor", cursor);
   return query.size ? `?${query}` : "";
 }
 
 export const usageClient = {
-  summary: (filters: UsageFilters = {}) => gatewayTransport.request<{ usage: UsageSummary }>(`/api/v1/usage${queryFor(filters)}`),
+  summary: (filters: UsageFilters = {}, signal?: AbortSignal) => gatewayTransport.request<{ usage: UsageSummary }>(`/api/v1/usage${queryFor(filters)}`, { signal }),
+  breakdown: (dimension: UsageBreakdownDimension, filters: UsageFilters = {}, sort: UsageBreakdownSort = "requests", offset = 0, signal?: AbortSignal) => gatewayTransport.request<UsageBreakdown>(`/api/v1/usage/breakdown${queryFor(filters, "", { dimension, sort, ...(offset ? { offset: String(offset) } : {}) })}`, { signal }),
   unresolved: (filters: UsageFilters = {}, cursor = "") => gatewayTransport.request<{ data: UnresolvedAttempt[]; next_cursor: string; has_more: boolean }>(`/api/v1/usage/unresolved${queryFor(filters, cursor)}`),
   policies: (cursor = "") => gatewayTransport.request<{ data: LimitPolicy[]; next_cursor: string; has_more: boolean }>(`/api/v1/admin/policies${cursor ? `?cursor=${encodeURIComponent(cursor)}` : ""}`),
   effectiveLimits: (keyID: string, connectionID = "") => gatewayTransport.request<{ data: EffectiveLimit[] }>(`/api/v1/keys/${encodeURIComponent(keyID)}/effective-limits${connectionID ? `?connection_id=${encodeURIComponent(connectionID)}` : ""}`),

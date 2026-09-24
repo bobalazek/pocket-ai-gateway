@@ -37,7 +37,7 @@ Use the model ID you published in place of `assistant`. Compose binds to localho
 - **Separate client APIs.** OpenAI, Anthropic, and Gemini SDKs connect through their own URL namespaces. Supported operations have tested request, response, and streaming behavior.
 - **One model name, multiple targets.** Publish stable model IDs and route them with fixed, fallback, weighted, cost, or observed-latency strategies.
 - **Keys and limits.** Manage users and scoped API keys, then apply request, token, concurrency, quota, and spend policies by instance, user, key, or provider connection.
-- **Usage you can trace.** Inspect attempts, token and cache usage, search-call fees, price versions, cost restatements, and audit events in the dashboard.
+- **Usage you can trace.** Compare traffic and known spend by API key, model, and provider; inspect attempts, cache usage, price versions, cost restatements, and audit events.
 - **Local operations.** Provider secrets are encrypted. The server includes backup and restore tools, local or S3-compatible scheduled backups, and no public telemetry.
 - **More than text.** The tested subset includes image and audio operations, live WebSocket transports, durable media jobs, and trusted JavaScript transforms for custom adapters.
 
@@ -57,11 +57,11 @@ Application requests use a scoped gateway API key. Dashboard sign-in uses a sepa
 
 From a source checkout, `./scripts/demo.sh` starts a disposable instance with three mock providers and seven days of synthetic requests. It needs no provider credential and cannot seed an existing data directory. The [demo guide](docs/guides/demo.md) has login instructions and more screenshots.
 
-| Providers | Status | Account |
+| Analytics | Providers | Status |
 | --- | --- | --- |
-| [![Full providers page with three mock connections](docs/images/demo-page-providers.png)](docs/images/demo-page-providers.png) | [![Full status page with operational checks](docs/images/demo-page-status.png)](docs/images/demo-page-status.png) | [![Full account page with profile and sessions](docs/images/demo-page-account.png)](docs/images/demo-page-account.png) |
+| [![Analytics traffic charts with synthetic request and cost data](docs/images/demo-analytics-traffic.png)](docs/images/demo-page-analytics.png) | [![Full providers page with three mock connections](docs/images/demo-page-providers.png)](docs/images/demo-page-providers.png) | [![Full status page with operational checks](docs/images/demo-page-status.png)](docs/images/demo-page-status.png) |
 
-[Open the full-page usage charts](docs/images/demo-page-usage.png), [request history](docs/images/demo-page-requests.png), [model routing](docs/images/demo-page-models.png), or [all 18 desktop and mobile captures](docs/guides/demo.md#screenshots).
+[Open the per-key charts](docs/images/demo-analytics-api-keys.png), [provider charts](docs/images/demo-analytics-providers.png), [usage controls](docs/images/demo-page-usage.png), [request history](docs/images/demo-page-requests.png), or the [full gallery](docs/guides/demo.md#screenshots).
 
 ## Run one executable
 
