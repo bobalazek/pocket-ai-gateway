@@ -3,6 +3,7 @@ package gateway
 import (
 	"archive/zip"
 	"bytes"
+	"context"
 	"encoding/binary"
 	"encoding/json"
 	"net/http"
@@ -12,6 +13,7 @@ import (
 	"unicode/utf8"
 
 	"github.com/bobalazek/pocket-ai-gateway/internal/features/keys"
+	"github.com/giraffesyo/pdf/pdftest"
 )
 
 func TestOpenAIVectorStoreFileLifecycle(t *testing.T) {
@@ -161,21 +163,79 @@ func TestVectorStoreRejectsUnsupportedBinaryFormats(t *testing.T) {
 		{"legacy.xls", []byte("plain text")},
 		{"disguised.txt", []byte{0xd0, 0xcf, 0x11, 0xe0, 0xa1, 0xb1, 0x1a, 0xe1}},
 	} {
-		if _, err := vectorStoreContentChunks(test.filename, test.content); err == nil {
+		if _, err := vectorStoreContentChunks(context.Background(), test.filename, test.content); err == nil {
 			t.Fatalf("%s was accepted", test.filename)
 		}
 	}
-	chunks, err := vectorStoreContentChunks("notes.unknown", []byte("ordinary UTF-8 text"))
+	chunks, err := vectorStoreContentChunks(context.Background(), "notes.unknown", []byte("ordinary UTF-8 text"))
 	if err != nil || len(chunks) != 1 || chunks[0].Text != "ordinary UTF-8 text" {
 		t.Fatalf("generic text chunks=%#v error=%v", chunks, err)
 	}
-	chunks, err = vectorStoreContentChunks("pdf-notes.txt", []byte("PDF files begin with %PDF-1.7"))
+	chunks, err = vectorStoreContentChunks(context.Background(), "pdf-notes.txt", []byte("PDF files begin with %PDF-1.7"))
 	if err != nil || len(chunks) != 1 || chunks[0].Text != "PDF files begin with %PDF-1.7" {
 		t.Fatalf("PDF documentation chunks=%#v error=%v", chunks, err)
 	}
 }
 
-func TestOpenAIVectorStoreRejectsPDFContentAndSearch(t *testing.T) {
+func TestVectorStorePDFContentExtraction(t *testing.T) {
+	want := "Opening\n\nDetails"
+	for _, filename := range []string{"paper.pdf", "disguised.txt"} {
+		chunks, err := vectorStoreContentChunks(context.Background(), filename, vectorStoreTestPDF())
+		if err != nil || len(chunks) != 1 || chunks[0].Text != want {
+			t.Fatalf("%s chunks=%#v error=%v", filename, chunks, err)
+		}
+	}
+	for name, content := range map[string][]byte{
+		"malformed": []byte("%PDF-1.7\nnot a PDF"),
+		"no text":   pdftest.Build(1, pdftest.Catalog(2), pdftest.Pages(3), pdftest.Page(2, 4, "<< >>"), pdftest.Stream("", "")),
+		"oversized": bytes.Repeat([]byte("x"), maxFileBytes+1),
+	} {
+		if _, err := vectorStoreContentChunks(context.Background(), name+".pdf", content); err == nil {
+			t.Fatalf("%s PDF was accepted", name)
+		}
+	}
+	compressed := pdftest.Build(1, pdftest.Catalog(2), pdftest.Pages(3), pdftest.Page(2, 4, "<< >>"), pdftest.Flate("", strings.Repeat(" ", maxVectorStoreParsedContentBytes+1)))
+	if _, err := vectorStoreContentChunks(context.Background(), "compressed.pdf", compressed); err == nil || !strings.Contains(strings.ToLower(err.Error()), "limit") {
+		t.Fatalf("decompression-heavy PDF limit error=%v", err)
+	}
+	const pages = maxVectorStorePDFPages + 1
+	ids := make([]int, pages)
+	objects := []string{pdftest.Catalog(2), ""}
+	for i := range ids {
+		ids[i] = i + 3
+		objects = append(objects, pdftest.Page(2, pages+3, "<< >>"))
+	}
+	objects[1] = pdftest.Pages(ids...)
+	objects = append(objects, pdftest.Stream("", ""))
+	if _, err := vectorStoreContentChunks(context.Background(), "many-pages.pdf", pdftest.Build(1, objects...)); err == nil || !strings.Contains(err.Error(), "256 pages") {
+		t.Fatalf("page-limit error=%v", err)
+	}
+}
+
+func vectorStoreTestPDF() []byte {
+	resources := "<< /Font << /F1 7 0 R >> >>"
+	return pdftest.Build(1,
+		pdftest.Catalog(2),
+		pdftest.Pages(3, 4),
+		pdftest.Page(2, 5, resources),
+		pdftest.Page(2, 6, resources),
+		pdftest.Stream("", "BT /F1 12 Tf 72 700 Td (Opening) Tj ET"),
+		pdftest.Stream("", "BT /F1 12 Tf 72 700 Td (Details) Tj ET"),
+		pdftest.Helvetica(),
+	)
+}
+
+func vectorStoreTestPDFFacts() []byte {
+	return pdftest.Build(1,
+		pdftest.Catalog(2),
+		pdftest.Pages(3),
+		pdftest.Page(2, 4, "<< /Font << /F1 5 0 R >> >>"),
+		pdftest.Stream("", "BT /F1 12 Tf 72 700 Td (Pocket AI facts for gateway facts) Tj ET"),
+		pdftest.Helvetica(),
+	)
+}
+
+func TestOpenAIVectorStoreRejectsMalformedPDFContentAndSearch(t *testing.T) {
 	ctx, store, owner, keyService, providerService, usageService := gatewayFixture(t)
 	defer store.Close()
 	_, secret, err := keyService.Create(ctx, owner.ID, keys.Input{Label: "PDF guard", Scopes: []string{"files:manage", "vector_stores:manage"}})
@@ -207,45 +267,45 @@ func TestOpenAIVectorStoreRejectsPDFContentAndSearch(t *testing.T) {
 
 func TestVectorStoreDOCXContentExtraction(t *testing.T) {
 	document := vectorStoreTestDOCX(t)
-	chunks, err := vectorStoreContentChunks("NOTES.DOCX", document)
+	chunks, err := vectorStoreContentChunks(context.Background(), "NOTES.DOCX", document)
 	if err != nil || len(chunks) != 1 || chunks[0].Text != "First\tcell\nSecond\n" {
 		t.Fatalf("chunks=%#v error=%v", chunks, err)
 	}
-	if _, err := vectorStoreContentChunks("invalid.docx", []byte("not a zip")); err == nil {
+	if _, err := vectorStoreContentChunks(context.Background(), "invalid.docx", []byte("not a zip")); err == nil {
 		t.Fatal("invalid DOCX was accepted")
 	}
 }
 
 func TestVectorStorePPTXContentExtraction(t *testing.T) {
 	presentation := vectorStoreTestPPTX(t)
-	chunks, err := vectorStoreContentChunks("DECK.PPTX", presentation)
+	chunks, err := vectorStoreContentChunks(context.Background(), "DECK.PPTX", presentation)
 	if err != nil || len(chunks) != 1 || chunks[0].Text != "Opening\nDetails\tline\n" {
 		t.Fatalf("chunks=%#v error=%v", chunks, err)
 	}
-	if _, err := vectorStoreContentChunks("invalid.pptx", []byte("not a zip")); err == nil {
+	if _, err := vectorStoreContentChunks(context.Background(), "invalid.pptx", []byte("not a zip")); err == nil {
 		t.Fatal("invalid PPTX was accepted")
 	}
-	if _, err := vectorStoreContentChunks("traversal.pptx", vectorStoreTestPPTXTarget(t, "../outside.xml")); err == nil {
+	if _, err := vectorStoreContentChunks(context.Background(), "traversal.pptx", vectorStoreTestPPTXTarget(t, "../outside.xml")); err == nil {
 		t.Fatal("PPTX package traversal was accepted")
 	}
 }
 
 func TestVectorStoreXLSXContentExtraction(t *testing.T) {
 	workbook := vectorStoreTestXLSX(t)
-	chunks, err := vectorStoreContentChunks("SHEET.XLSX", workbook)
+	chunks, err := vectorStoreContentChunks(context.Background(), "SHEET.XLSX", workbook)
 	if err != nil || len(chunks) != 1 || chunks[0].Text != "Opening\t42\nDetails\tGateway\nDone\n" {
 		t.Fatalf("chunks=%#v error=%v", chunks, err)
 	}
-	if _, err := vectorStoreContentChunks("invalid.xlsx", []byte("not a zip")); err == nil {
+	if _, err := vectorStoreContentChunks(context.Background(), "invalid.xlsx", []byte("not a zip")); err == nil {
 		t.Fatal("invalid XLSX was accepted")
 	}
-	if _, err := vectorStoreContentChunks("traversal.xlsx", vectorStoreTestXLSXTarget(t, "../outside.xml")); err == nil {
+	if _, err := vectorStoreContentChunks(context.Background(), "traversal.xlsx", vectorStoreTestXLSXTarget(t, "../outside.xml")); err == nil {
 		t.Fatal("XLSX package traversal was accepted")
 	}
-	if _, err := vectorStoreContentChunks("duplicate.xlsx", vectorStoreTestXLSXPackage(t, "worksheets/sheet1.xml", "rId1")); err == nil {
+	if _, err := vectorStoreContentChunks(context.Background(), "duplicate.xlsx", vectorStoreTestXLSXPackage(t, "worksheets/sheet1.xml", "rId1")); err == nil {
 		t.Fatal("duplicate XLSX relationship IDs were accepted")
 	}
-	if _, err := vectorStoreContentChunks("oversized.xlsx", vectorStoreTestXLSXOversizedMetadata(t)); err == nil {
+	if _, err := vectorStoreContentChunks(context.Background(), "oversized.xlsx", vectorStoreTestXLSXOversizedMetadata(t)); err == nil {
 		t.Fatal("aggregate XLSX metadata over 16 MiB was accepted")
 	}
 }
@@ -256,6 +316,7 @@ func TestOpenAIVectorStoreParsedContentAndSearch(t *testing.T) {
 		content                     func(*testing.T) []byte
 	}{
 		{name: "UTF-16", filename: "notes.txt", want: "Café gateway\n", query: "gateway", content: func(t *testing.T) []byte { return vectorStoreTestUTF16("Café gateway\n", binary.LittleEndian) }},
+		{name: "PDF", filename: "paper.pdf", want: "Opening\n\nDetails", query: "details", content: func(*testing.T) []byte { return vectorStoreTestPDF() }},
 		{name: "DOCX", filename: "notes.docx", want: "First\tcell\nSecond\n", query: "second", content: vectorStoreTestDOCX},
 		{name: "PPTX", filename: "slides.pptx", want: "Opening\nDetails\tline\n", query: "details", content: vectorStoreTestPPTX},
 		{name: "XLSX", filename: "sheet.xlsx", want: "Opening\t42\nDetails\tGateway\nDone\n", query: "gateway", content: vectorStoreTestXLSX},

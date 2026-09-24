@@ -4,6 +4,7 @@ go 1.27.1
 
 require (
 	github.com/dop251/goja v0.0.0-20260915173639-b3fa02110dbd
+	github.com/giraffesyo/pdf v0.7.0
 	github.com/gofrs/flock v0.13.0
 	golang.org/x/crypto v0.57.0
 	golang.org/x/image v0.46.0
