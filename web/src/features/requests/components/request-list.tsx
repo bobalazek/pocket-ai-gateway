@@ -32,7 +32,7 @@ function RequestCard({ item, filters, onOpenDetail }: { item: GatewayRequest; fi
   return (
     <Card className="panel">
       <div className="resource-row-main">
-        <div>
+        <div className="grid gap-1">
           <strong>{item.model_id}</strong>
           <small>{item.dialect} · {item.operation} · {item.state} · {new Date(item.started_at).toLocaleString()}</small>
           <code>{item.id}</code>

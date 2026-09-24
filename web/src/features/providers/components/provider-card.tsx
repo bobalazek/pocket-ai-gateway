@@ -23,7 +23,7 @@ export function ProviderCard({ item, busy, onToggle, onCredential, onAddModel, s
   return (
     <Card className="panel">
       <div className="resource-row-main">
-        <div><strong>{item.name}</strong><small>{item.preset} · {item.adapter_label} · {item.base_url} · credential {item.credential_state} · {item.enabled ? "enabled" : "disabled"}</small><code>{item.id}</code></div>
+        <div className="grid gap-1"><strong>{item.name}</strong><small>{item.preset} · {item.adapter_label} · {item.base_url} · credential {item.credential_state} · {item.enabled ? "enabled" : "disabled"}</small><code>{item.id}</code></div>
         <Button variant="outline" disabled={busy} onClick={() => onToggle(item)}>{item.enabled ? "Disable" : "Enable"}</Button>
       </div>
       {item.credential_required && (

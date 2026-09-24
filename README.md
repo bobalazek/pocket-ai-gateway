@@ -57,6 +57,10 @@ Application requests use a scoped gateway API key. Dashboard sign-in uses a sepa
 
 From a source checkout, `./scripts/demo.sh` starts a disposable instance with three mock providers and seven days of synthetic requests. It needs no provider credential and cannot seed an existing data directory. The [demo guide](docs/guides/demo.md) has login instructions and more screenshots.
 
+| Usage and cost | Request history |
+| --- | --- |
+| [![Synthetic request, token, and cost summary](docs/images/demo-usage-summary.png)](docs/guides/demo.md#analytics) | [![Synthetic gateway request history](docs/images/demo-requests.png)](docs/guides/demo.md#analytics) |
+
 ## Run one executable
 
 To build from source, install Go 1.27.1, Node.js 22 or newer, and pnpm 10.30.3, then run:

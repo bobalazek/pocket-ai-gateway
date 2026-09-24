@@ -94,7 +94,7 @@ func (service *Service) Admit(ctx context.Context, input AdmissionInput) (Admiss
 	if input.TargetDialect == "" {
 		input.TargetDialect = input.Dialect
 	}
-	if input.RejectedCandidatesJSON == "" {
+	if input.RejectedCandidatesJSON == "" || input.RejectedCandidatesJSON == "null" {
 		input.RejectedCandidatesJSON = "[]"
 	}
 	if input.KeyID == "" || input.ConnectionID == "" || input.ModelID == "" || input.Operation == "" || input.TargetOperation == "" || input.Scope == "" || input.Dialect == "" || input.TargetDialect == "" || len(input.KeyID) > 200 || len(input.ConnectionID) > 200 || len(input.ModelID) > 200 || len(input.Operation) > 100 || len(input.TargetOperation) > 300 || len(input.Scope) > 100 || len(input.Dialect) > 50 || len(input.TargetDialect) > 50 || len(input.SelectionReason) > 500 || len(input.RejectedCandidatesJSON) > 16_384 || len(input.RequiredPriceVersionID) > 200 || input.QuotedPriceVersionID != nil && (input.PriceQuoteAt <= 0 || len(*input.QuotedPriceVersionID) > 200) || input.PriceQuoteAt < 0 || input.RequireFreePrice && input.RequiredPriceVersionID == "" || !json.Valid([]byte(input.RejectedCandidatesJSON)) || input.BodyBytes < 0 || input.BatchItems < 0 || input.RequestToolCount < 0 || input.WebSearchMaxCalls < 0 || input.WebSearchMaxCalls > 4 || input.EstimatedInputTokens < 0 || input.EstimatedOutputTokens < 0 {

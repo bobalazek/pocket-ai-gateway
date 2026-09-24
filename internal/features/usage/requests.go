@@ -165,6 +165,9 @@ func (service *Service) ListRequests(ctx context.Context, actor auth.User, query
 				return nil, "", err
 			}
 			_ = json.Unmarshal([]byte(rejected), &attempt.RejectedCandidates)
+			if attempt.RejectedCandidates == nil {
+				attempt.RejectedCandidates = []map[string]string{}
+			}
 			attempt.InputTokens = optionalInt64(inputTokens)
 			attempt.OutputTokens = optionalInt64(outputTokens)
 			attempt.CacheCreationInputTokens = optionalInt64(cacheCreation)
