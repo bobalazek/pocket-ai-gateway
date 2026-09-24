@@ -23,14 +23,24 @@ func TestListRequestsFiltersExactIDAndReturnsPriceProvenance(t *testing.T) {
 	}
 	admission, err := service.Admit(ctx, AdmissionInput{
 		KeyID: keyID, ConnectionID: "conn_test", ModelID: "model_test", Operation: "chat", Scope: "chat:generate", Dialect: "openai",
-		EstimatedInputTokens: 10, EstimatedOutputTokens: 5, OutputBounded: true,
+		EstimatedInputTokens: 10, EstimatedOutputTokens: 5, OutputBounded: true, RejectedCandidatesJSON: "null",
 	})
 	if err != nil {
+		t.Fatal(err)
+	}
+	var storedRejected string
+	if err := store.SystemDB().QueryRowContext(ctx, "SELECT rejected_candidates_json FROM attempts WHERE id=?", admission.AttemptID).Scan(&storedRejected); err != nil || storedRejected != "[]" {
+		t.Fatalf("new attempt stored rejected candidates = %q, err=%v", storedRejected, err)
+	}
+	if _, err := store.SystemDB().ExecContext(ctx, "UPDATE attempts SET rejected_candidates_json='null' WHERE id=?", admission.AttemptID); err != nil {
 		t.Fatal(err)
 	}
 	pending, _, err := service.ListRequests(ctx, owner, UsageQuery{RequestID: admission.RequestID})
 	if err != nil || len(pending) != 1 || pending[0].Attempts[0].InputTokens != nil || pending[0].Attempts[0].OutputTokens != nil {
 		t.Fatalf("pending usage was not null: %#v err=%v", pending, err)
+	}
+	if pending[0].Attempts[0].RejectedCandidates == nil {
+		t.Fatal("empty rejected candidates must be an array, not null")
 	}
 	input, output := int64(3), int64(5)
 	if err := service.Settle(ctx, admission.AttemptID, SettlementInput{IdempotencyKey: "request-detail", State: "succeeded", UsageStatus: "provider_reported", InputTokens: &input, OutputTokens: &output, FinalRequest: true}); err != nil {
