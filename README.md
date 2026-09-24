@@ -2,9 +2,9 @@
 
 A self-hosted gateway for OpenAI, Anthropic, and Gemini clients. One Go process serves the API and admin dashboard, stores configuration and usage in local SQLite, and routes requests through model names you control.
 
-![Pocket AI Gateway dashboard showing synthetic requests and spend](docs/images/demo-overview.png)
+[![Full desktop dashboard showing synthetic requests and spend](docs/images/demo-page-overview.png)](docs/images/demo-page-overview.png)
 
-*The embedded dashboard with disposable example data. [See more screens and run the demo](docs/guides/demo.md).*
+*The embedded dashboard with disposable example data. [Browse the desktop and mobile gallery](docs/guides/demo.md#screenshots).*
 
 ## Try it locally
 
@@ -57,9 +57,11 @@ Application requests use a scoped gateway API key. Dashboard sign-in uses a sepa
 
 From a source checkout, `./scripts/demo.sh` starts a disposable instance with three mock providers and seven days of synthetic requests. It needs no provider credential and cannot seed an existing data directory. The [demo guide](docs/guides/demo.md) has login instructions and more screenshots.
 
-| Usage and cost | Request history |
-| --- | --- |
-| [![Synthetic request, token, and cost summary](docs/images/demo-usage-summary.png)](docs/guides/demo.md#analytics) | [![Synthetic gateway request history](docs/images/demo-requests.png)](docs/guides/demo.md#analytics) |
+| Providers | Status | Account |
+| --- | --- | --- |
+| [![Full providers page with three mock connections](docs/images/demo-page-providers.png)](docs/images/demo-page-providers.png) | [![Full status page with operational checks](docs/images/demo-page-status.png)](docs/images/demo-page-status.png) | [![Full account page with profile and sessions](docs/images/demo-page-account.png)](docs/images/demo-page-account.png) |
+
+[Open the full-page usage charts](docs/images/demo-page-usage.png), [request history](docs/images/demo-page-requests.png), [model routing](docs/images/demo-page-models.png), or [all 18 desktop and mobile captures](docs/guides/demo.md#screenshots).
 
 ## Run one executable
 

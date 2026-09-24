@@ -12,97 +12,57 @@ The demo contains three synthetic users, three mock provider connections, three 
 
 ## Screenshots
 
-Captured from the embedded dashboard using only disposable demo data. The users, providers, keys, requests, and costs in these images are synthetic.
+These are full-page browser captures of the embedded dashboard, with a 1440-pixel desktop viewport and a 390-pixel mobile viewport. Every account, provider, key, request, and price shown comes from the disposable demo. Prices are examples, not provider quotes.
 
-### Analytics
+Select an image to open the full-resolution capture.
 
-#### Overview
+### Traffic and cost
 
-![Overview with populated request and spend totals](../images/demo-overview.png)
+| Overview | Usage and limits |
+| --- | --- |
+| [![Full desktop overview with synthetic request and spend totals](../images/demo-page-overview.png)](../images/demo-page-overview.png)<br>The home screen summarizes requests and known example spend. | [![Full desktop usage page with synthetic charts and cost data](../images/demo-page-usage.png)](../images/demo-page-usage.png)<br>Daily charts, cache use, and versioned prices explain the fixture's accounting. |
 
-The home screen summarizes the fixture's request and spend totals.
+| Request history | Request detail |
+| --- | --- |
+| [![Full desktop request history with synthetic gateway traffic](../images/demo-page-requests.png)](../images/demo-page-requests.png)<br>The list shows traffic generated through the gateway and local mock provider. | [![Full desktop request detail with attempts and token accounting](../images/demo-page-request-detail.png)](../images/demo-page-request-detail.png)<br>A request detail traces attempts, token use, and its example cost. |
 
-#### Usage summary
+### Gateway setup
 
-![Synthetic request, token, cache, and cost summary](../images/demo-usage-summary.png)
+| Providers | Models |
+| --- | --- |
+| [![Full desktop providers page with three mock connections](../images/demo-page-providers.png)](../images/demo-page-providers.png)<br>Three mock connections keep the demo offline. | [![Full desktop models page showing published routes](../images/demo-page-models.png)](../images/demo-page-models.png)<br>Public model names route to mock upstream targets. |
 
-Summary cards show request and token totals alongside cache usage and example cost provenance.
+| API keys | Media jobs |
+| --- | --- |
+| [![Full desktop API keys page with a scoped example key](../images/demo-page-keys.png)](../images/demo-page-keys.png)<br>The owner's example key shows its grants without exposing the secret value. | [![Full desktop media jobs page with no submitted jobs](../images/demo-page-media-jobs.png)](../images/demo-page-media-jobs.png)<br>No media jobs are seeded; submitted jobs would appear here. |
 
-#### Seven-day chart
+| Playground |
+| --- |
+| [![Full desktop playground page for trying a public model](../images/demo-page-playground.png)](../images/demo-page-playground.png)<br>The playground provides a request form for a published model. |
 
-![Seven-day token chart](../images/demo-usage.png)
+### Operations and access
 
-The chart shows daily token usage across the seven-day fixture.
+| Users | Audit log |
+| --- | --- |
+| [![Full desktop users page with disposable accounts](../images/demo-page-users.png)](../images/demo-page-users.png)<br>The users view contains three disposable accounts. | [![Full desktop audit log](../images/demo-page-audit.png)](../images/demo-page-audit.png)<br>Audit records trace configuration changes. |
 
-#### Effective prices
+| Settings and recovery | Status |
+| --- | --- |
+| [![Full desktop settings and recovery page](../images/demo-page-settings.png)](../images/demo-page-settings.png)<br>Backup is disabled in this demo because no archive encryption key is configured; recovery controls remain visible. | [![Full desktop status page with instance health](../images/demo-page-status.png)](../images/demo-page-status.png)<br>Status combines readiness and local runtime diagnostics. |
 
-![Versioned synthetic model prices](../images/demo-usage-prices.png)
+| Account |
+| --- |
+| [![Full desktop account page with profile and sessions](../images/demo-page-account.png)](../images/demo-page-account.png)<br>The account page lets the signed-in owner manage their profile and sessions. |
 
-Versioned example prices explain the cost calculation; they are not provider quotes.
+### Mobile
 
-#### Request history
+The same demo at 390 pixels wide, with complete pages rather than cropped viewports.
 
-![Request history for synthetic gateway traffic](../images/demo-requests.png)
+| Overview | Status |
+| --- | --- |
+| [![Full mobile overview page](../images/demo-mobile-overview.png)](../images/demo-mobile-overview.png) | [![Full mobile status page](../images/demo-mobile-status.png)](../images/demo-mobile-status.png) |
 
-The first page shows traffic generated through the real gateway paths and local mock provider.
-
-#### Request detail
-
-![Attempt, token, and cost provenance for a synthetic request](../images/demo-request-detail.png)
-
-The detail view traces an example request through its attempts, token accounting, and cost record.
-
-### Gateway configuration
-
-#### Providers
-
-![Mock provider connections](../images/demo-providers.png)
-
-Three mock provider connections let the demo run without external credentials.
-
-#### Models
-
-![Model routing with a mock provider target](../images/demo-models.png)
-
-Published model names route to the demo's mock provider targets.
-
-#### API keys
-
-![API key creation with explicit operation scopes](../images/demo-keys.png)
-
-The creation form shows explicit operation scopes without exposing secret values.
-
-#### Key management
-
-![Synthetic API key and its lifecycle actions](../images/demo-keys-list.png)
-
-An existing demo key shows its grant counts and lifecycle actions.
-
-### Administration
-
-#### Users
-
-![Synthetic dashboard users](../images/demo-users.png)
-
-The users view contains three disposable accounts.
-
-#### Audit
-
-![Audit events in the demo dashboard](../images/demo-audit.png)
-
-Audit records make configuration changes traceable.
-
-#### Settings
-
-![Instance settings in the demo dashboard](../images/demo-settings.png)
-
-Instance settings collect local operating controls.
-
-#### Status
-
-![Runtime status in the demo dashboard](../images/demo-status.png)
-
-The status view shows instance health and diagnostics.
+The [full mobile usage page](../images/demo-mobile-usage.png) and [full mobile request list](../images/demo-mobile-requests.png) are long, so open them at full size.
 
 ## Isolation and cleanup
 
@@ -118,4 +78,6 @@ go test ./scripts/demo -count=1
 
 The test checks loopback-only seeded endpoints, successful sign-in, request/token/cost totals, seven daily buckets, projected history, temporary-directory cleanup, and that an existing operator directory stays untouched.
 
-Verified September 22, 2026: the launcher built and served the embedded dashboard, sign-in displayed 124 requests and 596,254 synthetic tokens, and the usage chart rendered at 360-, 768-, and 1280-pixel widths without page overflow. Stopping the launcher removed the temporary instance. The demo exposed and helped verify a chart-sizing fix: the responsive chart now fills its existing 300-pixel container.
+Verified September 24, 2026: the rebuilt single executable served the disposable demo and all 18 full-page captures above. The capture script checked populated pages, headings, runtime status, PNG dimensions, and horizontal overflow at 1440- and 390-pixel widths. The local quick verification gate passed. The demo has no external provider credentials or media jobs; its backup warning reflects the absence of a demo backup key.
+
+To reproduce the gallery, start `./scripts/demo.sh`, then run `PAG_DEMO_PASSWORD=<printed temporary password> node scripts/capture-demo-screenshots.mjs`. The [capture manifest](../images/demo-screenshots.json) records each image's viewport and full-page height.
