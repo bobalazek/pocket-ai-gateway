@@ -10,7 +10,7 @@ const textFilters = ["user_id", "key_id", "model_id"] as const;
 
 export function RequestFilterForm({ filters, onSubmit }: { filters: RequestFilters; onSubmit: (event: FormEvent<HTMLFormElement>) => void }) {
   return (
-    <Card className="panel">
+    <Card className="panel request-filters">
       <h2>Filter requests</h2>
       <form className="filter-grid" key={JSON.stringify(filters)} onSubmit={onSubmit}>
         {textFilters.map((id) => (

@@ -26,6 +26,7 @@ export function ProviderCard({ item, busy, onToggle, onCredential, onAddModel, s
         <div className="grid gap-1"><strong>{item.name}</strong><small>{item.preset} · {item.adapter_label} · {item.base_url} · credential {item.credential_state} · {item.enabled ? "enabled" : "disabled"}</small><code>{item.id}</code></div>
         <Button variant="outline" disabled={busy} onClick={() => onToggle(item)}>{item.enabled ? "Disable" : "Enable"}</Button>
       </div>
+      <div className="provider-actions">
       {item.credential_required && (
         <details className="grant-editor">
           <summary>Replace credential</summary>
@@ -47,6 +48,7 @@ export function ProviderCard({ item, busy, onToggle, onCredential, onAddModel, s
           <Button disabled={busy}>Add upstream model</Button>
         </form>
       </details>
+      </div>
     </Card>
   );
 }
