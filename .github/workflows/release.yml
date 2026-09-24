@@ -45,13 +45,15 @@ jobs:
         run: |
           public_key=$(go run ./scripts/release-manifest --print-public-key)
           go run ./scripts/release-manifest --verify --version "$GITHUB_REF_NAME" --directory dist/release --public-key "$public_key"
+      - name: Remove package checksums before SBOM
+        run: rm -f dist/release/SHA256SUMS
       - uses: anchore/sbom-action@v0.24.2
         with:
           path: dist/release
           format: spdx-json
           output-file: dist/release/pocket-ai-gateway-${{ github.ref_name }}.spdx.json
       - name: Refresh checksums with SBOM
-        run: cd dist/release && rm -f SHA256SUMS && sha256sum ./* > SHA256SUMS && sha256sum --check SHA256SUMS
+        run: cd dist/release && sha256sum ./* > SHA256SUMS && sha256sum --check SHA256SUMS
       - uses: actions/attest@v4
         with: { subject-path: "dist/release/*" }
       - uses: actions/upload-artifact@v5
