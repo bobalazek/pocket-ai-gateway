@@ -238,7 +238,7 @@ Base path /api/v1/. Server-side session cookies authorize browser operations; se
 | Audit/settings | GET /admin/audit, GET/PATCH /admin/settings | Privileged views; owner-only secret/backup/security policy fields |
 | Import/export | POST /admin/config/preview, POST /admin/config/import, GET /admin/config/export | Owner; versioned, redacted, transactional |
 | Backup jobs | GET/POST /admin/backups, GET /admin/backups/{id} | Local/S3 destination; owner and recent authentication for artifact access |
-| Diagnostics/version | GET /admin/diagnostics, GET /version | Safe authenticated metadata; minimal public health separately |
+| Status/diagnostics | GET /admin/status, GET /admin/diagnostics, GET /version | Owner/admin component readiness (system and data stores, usage projection), backlog, and safe runtime metadata; minimal public health separately |
 
 OpenAPI must fully define fields, required/optional distinctions, ownership, read/write-only secrets, limits, pagination, and errors for each implemented slice. This route inventory is not a completed OpenAPI spec.
 

@@ -1091,6 +1091,15 @@ paths:
         "403": { $ref: "#/components/responses/Forbidden" }
         "503": { $ref: "#/components/responses/ServiceUnavailable" }
         default: { $ref: "#/components/responses/Error" }
+  /admin/status:
+    get:
+      operationId: getRuntimeStatus
+      responses:
+        "200": { description: Authenticated component checks; observable data-store or projection failures remain 200. A system-store failure may prevent authentication and return 503, content: { application/json: { schema: { type: object, required: [status], properties: { status: { $ref: "#/components/schemas/RuntimeStatus" } } } } } }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "503": { $ref: "#/components/responses/ServiceUnavailable" }
+        default: { $ref: "#/components/responses/Error" }
   /admin/diagnostics:
     get:
       operationId: getDiagnostics
@@ -1860,6 +1869,23 @@ components:
         started_at: { type: string, format: date-time }
         finished_at: { type: [string, "null"], format: date-time }
         attempts: { type: array, items: { $ref: "#/components/schemas/RequestAttempt" } }
+    RuntimeStatus:
+      type: object
+      required: [ready, checked_at, checks, outbox]
+      properties:
+        ready: { type: boolean, description: True only when both databases and usage projection capacity are available }
+        checked_at: { type: string, format: date-time }
+        checks:
+          type: array
+          minItems: 3
+          maxItems: 3
+          items:
+            type: object
+            required: [id, state]
+            properties:
+              id: { type: string, enum: [system_database, data_database, usage_projection] }
+              state: { type: string, enum: [ready, unavailable] }
+        outbox: { oneOf: [{ $ref: "#/components/schemas/OutboxStatus" }, { type: "null" }], description: Null when the system database or projection query is unavailable }
     OutboxStatus:
       type: object
       required: [pending_events, reserved_events, pending_bytes, oldest_event_at, full]

@@ -26,6 +26,7 @@ func (handler *Handler) Register(mux *http.ServeMux) {
 	mux.HandleFunc("POST /api/v1/admin/backups", handler.runBackup)
 	mux.HandleFunc("POST /api/v1/admin/retention", handler.runRetention)
 	mux.HandleFunc("GET /api/v1/admin/audit", handler.audit)
+	mux.HandleFunc("GET /api/v1/admin/status", handler.status)
 	mux.HandleFunc("GET /api/v1/admin/diagnostics", handler.diagnostics)
 	mux.HandleFunc("GET /api/v1/admin/config/export", handler.exportConfig)
 	mux.HandleFunc("POST /api/v1/admin/config/preview", handler.previewConfig)
@@ -182,6 +183,13 @@ func (handler *Handler) diagnostics(response http.ResponseWriter, request *http.
 		return
 	}
 	auth.WriteJSON(response, http.StatusOK, map[string]any{"diagnostics": value})
+}
+
+func (handler *Handler) status(response http.ResponseWriter, request *http.Request) {
+	if _, ok := handler.authorize(response, request, false); !ok {
+		return
+	}
+	auth.WriteJSON(response, http.StatusOK, map[string]any{"status": handler.service.RuntimeStatus(request.Context())})
 }
 
 func (handler *Handler) authorize(response http.ResponseWriter, request *http.Request, mutation bool) (auth.AuthenticatedSession, bool) {
