@@ -84,7 +84,7 @@ paths:
         background. Web search is JSON-only and rejects Conversations, previous_response_id/provider
         references, preview or image-search tool variants, unlimited search-token return, translation, post-dispatch fallback, free-only/lowest-cost
         routing, and spend policies. The gateway always sends store:false upstream. Token usage and the
-        completed web-search call count are recorded separately; provider search cost is unknown.
+        completed web-search call count are recorded separately; a configured versioned per-call fee is included in known cost when usage and token rates are complete.
         One file_search tool may search 1-10 same-key local Vector Stores with responses:file_search,
         positive cumulative max_output_tokens, and 1-4 max_tool_calls. The gateway runs a private
         function-tool loop on one native Responses target, sends only matched text upstream, restores

@@ -1779,7 +1779,7 @@ components:
         cache_read_input_tokens: { type: integer }
         cache_creation_5m_input_tokens: { type: integer }
         cache_creation_1h_input_tokens: { type: integer }
-        web_search_calls: { type: integer, minimum: 0, description: Settled hosted web-search calls; their provider cost is not included because it is unknown }
+        web_search_calls: { type: integer, minimum: 0, description: Settled hosted web-search calls; cost includes configured versioned per-call fees when all required usage and rates are known }
         known_cost_usd: { type: string }
         estimated_cost_usd: { type: string }
         as_recorded_cost_usd: { type: string }
@@ -1889,6 +1889,9 @@ components:
         cache_read_usd_per_million:
           type: [string, "null"]
           description: Null leaves cache reads unpriced; zero is an explicitly free cache-read rate.
+        web_search_usd_per_call:
+          type: [string, "null"]
+          description: Null leaves hosted web search unpriced; zero is an explicitly free per-call fee. Search cost also includes tokens.
         source: { type: string, minLength: 1, maxLength: 500 }
         effective_from: { type: string, format: date-time }
         effective_to: { oneOf: [{ type: string, format: date-time }, { type: string, maxLength: 0 }] }
@@ -1904,7 +1907,7 @@ components:
           description: Monday-based minute of week. Must be greater than the start and is exclusive; split ranges that cross Monday 00:00 UTC.
     PriceVersion:
       type: object
-      required: [id, connection_id, model_id, input_usd_per_million, output_usd_per_million, cache_read_usd_per_million, source, effective_from, effective_to, weekly_start_minute_utc, weekly_end_minute_utc, created_at]
+      required: [id, connection_id, model_id, input_usd_per_million, output_usd_per_million, cache_read_usd_per_million, web_search_usd_per_call, source, effective_from, effective_to, weekly_start_minute_utc, weekly_end_minute_utc, created_at]
       anyOf:
         - properties:
             weekly_start_minute_utc: { type: "null" }
@@ -1919,6 +1922,7 @@ components:
         input_usd_per_million: { type: string }
         output_usd_per_million: { type: string }
         cache_read_usd_per_million: { type: [string, "null"] }
+        web_search_usd_per_call: { type: [string, "null"] }
         source: { type: string }
         effective_from: { type: string, format: date-time }
         effective_to: { type: [string, "null"], format: date-time }

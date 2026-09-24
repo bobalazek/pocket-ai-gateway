@@ -127,13 +127,15 @@ func (service *Service) Settle(ctx context.Context, attemptID string, input Sett
 	}
 	defer tx.Rollback()
 	var webSearchMax sql.NullInt64
-	if err := tx.QueryRowContext(ctx, "SELECT web_search_max_calls FROM attempts WHERE id = ?", attemptID).Scan(&webSearchMax); err != nil {
+	var webFetchPresent bool
+	if err := tx.QueryRowContext(ctx, "SELECT web_search_max_calls, web_fetch_present FROM attempts WHERE id = ?", attemptID).Scan(&webSearchMax, &webFetchPresent); err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return ErrNotFound
 		}
 		return err
 	}
 	hasWebSearch := webSearchMax.Valid
+	combinedWebTools := hasWebSearch && webFetchPresent
 	knownWebSearch := input.State == "succeeded" && input.UsageStatus != "unknown"
 	if !hasWebSearch && input.WebSearchCallCount != nil || hasWebSearch && !knownWebSearch && input.WebSearchCallCount != nil || hasWebSearch && knownWebSearch && (input.WebSearchCallCount == nil || *input.WebSearchCallCount > webSearchMax.Int64) {
 		return errors.New("invalid web search settlement")
@@ -142,8 +144,8 @@ func (service *Service) Settle(ctx context.Context, attemptID string, input Sett
 	var settledTokens, settledCost sql.NullInt64
 	err = tx.QueryRowContext(ctx, "SELECT attempt_id, entry_type, token_units, cost_nanos, reason FROM usage_ledger WHERE idempotency_key = ?", input.IdempotencyKey).Scan(&settledAttemptID, &entryType, &settledTokens, &settledCost, &signature)
 	if err == nil {
-		if input.CostNanos == nil && !hasWebSearch {
-			input.CostNanos, _ = calculatedAttemptCost(ctx, tx, attemptID, input.InputTokens, input.OutputTokens, input.CacheCreationInputTokens, input.CacheReadInputTokens)
+		if input.CostNanos == nil && !combinedWebTools && (!hasWebSearch || input.WebSearchCallCount != nil) {
+			input.CostNanos, _ = calculatedAttemptCost(ctx, tx, attemptID, input.InputTokens, input.OutputTokens, input.CacheCreationInputTokens, input.CacheReadInputTokens, input.WebSearchCallCount)
 		}
 		tokens, sumErr := nullableInt64Sum(input.InputTokens, input.OutputTokens)
 		if sumErr != nil {
@@ -170,8 +172,8 @@ func (service *Service) Settle(ctx context.Context, attemptID string, input Sett
 	if !contains([]string{"reserved", "dispatching", "streaming"}, state) {
 		return ErrConflict
 	}
-	if input.CostNanos == nil && priceVersionID.Valid && !hasWebSearch {
-		input.CostNanos, err = calculatedPriceCost(ctx, tx, priceVersionID.String, input.InputTokens, input.OutputTokens, input.CacheCreationInputTokens, input.CacheReadInputTokens)
+	if input.CostNanos == nil && priceVersionID.Valid && !combinedWebTools && (!hasWebSearch || input.WebSearchCallCount != nil) {
+		input.CostNanos, err = calculatedPriceCost(ctx, tx, priceVersionID.String, input.InputTokens, input.OutputTokens, input.CacheCreationInputTokens, input.CacheReadInputTokens, input.WebSearchCallCount)
 		if err != nil {
 			return err
 		}
@@ -253,10 +255,7 @@ func (service *Service) Settle(ctx context.Context, attemptID string, input Sett
 		if err != nil {
 			return err
 		}
-		calculationVersion := 1
-		if input.CacheReadInputTokens != nil {
-			calculationVersion = 2
-		}
+		calculationVersion := priceCalculationVersion(input.CacheReadInputTokens != nil, hasWebSearch)
 		if _, err := tx.ExecContext(ctx, `INSERT INTO cost_assessments (id, attempt_id, price_version_id, calculation_version, kind, amount_nanos, delta_nanos, created_at)
 			VALUES (?, ?, ?, ?, 'recorded', ?, 0, ?)`, "ass_"+assessmentID, attemptID, priceVersionID.String, calculationVersion, *input.CostNanos, now); err != nil {
 			return err
@@ -281,15 +280,15 @@ func (service *Service) Settle(ctx context.Context, attemptID string, input Sett
 	return tx.Commit()
 }
 
-func calculatedAttemptCost(ctx context.Context, tx *sql.Tx, attemptID string, inputTokens, outputTokens, cacheCreationTokens, cacheReadTokens *int64) (*int64, error) {
+func calculatedAttemptCost(ctx context.Context, tx *sql.Tx, attemptID string, inputTokens, outputTokens, cacheCreationTokens, cacheReadTokens, webSearchCalls *int64) (*int64, error) {
 	var priceID sql.NullString
 	if err := tx.QueryRowContext(ctx, "SELECT price_version_id FROM attempts WHERE id = ?", attemptID).Scan(&priceID); err != nil || !priceID.Valid {
 		return nil, err
 	}
-	return calculatedPriceCost(ctx, tx, priceID.String, inputTokens, outputTokens, cacheCreationTokens, cacheReadTokens)
+	return calculatedPriceCost(ctx, tx, priceID.String, inputTokens, outputTokens, cacheCreationTokens, cacheReadTokens, webSearchCalls)
 }
 
-func calculatedPriceCost(ctx context.Context, tx *sql.Tx, priceID string, inputTokens, outputTokens, cacheCreationTokens, cacheReadTokens *int64) (*int64, error) {
+func calculatedPriceCost(ctx context.Context, tx *sql.Tx, priceID string, inputTokens, outputTokens, cacheCreationTokens, cacheReadTokens, webSearchCalls *int64) (*int64, error) {
 	if inputTokens == nil || outputTokens == nil {
 		return nil, nil
 	}
@@ -297,8 +296,8 @@ func calculatedPriceCost(ctx context.Context, tx *sql.Tx, priceID string, inputT
 		return nil, nil
 	}
 	var inputRate, outputRate int64
-	var cacheReadRate sql.NullInt64
-	if err := tx.QueryRowContext(ctx, "SELECT input_nanos_per_million, output_nanos_per_million, cache_read_nanos_per_million FROM price_versions WHERE id = ?", priceID).Scan(&inputRate, &outputRate, &cacheReadRate); err != nil {
+	var cacheReadRate, webSearchFee sql.NullInt64
+	if err := tx.QueryRowContext(ctx, "SELECT input_nanos_per_million, output_nanos_per_million, cache_read_nanos_per_million, web_search_nanos_per_call FROM price_versions WHERE id = ?", priceID).Scan(&inputRate, &outputRate, &cacheReadRate, &webSearchFee); err != nil {
 		return nil, err
 	}
 	readTokens := int64(0)
@@ -309,7 +308,11 @@ func calculatedPriceCost(ctx context.Context, tx *sql.Tx, priceID string, inputT
 	if cacheReadRate.Valid {
 		readRate = &cacheReadRate.Int64
 	}
-	return calculateCacheAwareCost(*inputTokens, *outputTokens, readTokens, inputRate, outputRate, readRate)
+	tokenCost, err := calculateCacheAwareCost(*inputTokens, *outputTokens, readTokens, inputRate, outputRate, readRate)
+	if err != nil || webSearchCalls == nil {
+		return tokenCost, err
+	}
+	return addWebSearchCost(tokenCost, webSearchFee, *webSearchCalls)
 }
 
 func settlementSignature(input SettlementInput) string {
@@ -499,7 +502,7 @@ func (service *Service) ReconcileUnknown(ctx context.Context, actor auth.User, a
 		return ErrConflict
 	}
 	if input.CostNanos == nil && !previousCost.Valid && priceID.Valid && !webSearchMax.Valid {
-		input.CostNanos, err = calculatedPriceCost(ctx, tx, priceID.String, input.InputTokens, input.OutputTokens, nullInt64Pointer(cacheCreation), nullInt64Pointer(cacheRead))
+		input.CostNanos, err = calculatedPriceCost(ctx, tx, priceID.String, input.InputTokens, input.OutputTokens, nullInt64Pointer(cacheCreation), nullInt64Pointer(cacheRead), nil)
 		if err != nil {
 			return err
 		}

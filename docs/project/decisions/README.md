@@ -63,6 +63,7 @@ Each record states status/source, context, decision, and consequences. A recomme
 | ADR-055 | [Anthropic web-tool response inclusion and cache bypass](2026-09-18-anthropic-web-tool-response-inclusion.md) | Delegated parity expansion extending ADR-020, ADR-032, and ADR-054 |
 | ADR-056 | [Anthropic combined web search and fetch](2026-09-18-anthropic-combined-web-tools.md) | Delegated parity expansion extending ADR-020, ADR-032, ADR-054, and ADR-055 |
 | ADR-057 | [Anthropic prompt caching with hosted web tools](2026-09-18-anthropic-prompt-cache-web-tools.md) | Delegated parity expansion extending ADR-020, ADR-032, ADR-054, ADR-055, and ADR-056 |
+| ADR-060 | [Versioned hosted web-search call pricing](2026-09-24-versioned-web-search-call-pricing.md) | Delegated pricing expansion extending ADR-005 and hosted-search contracts |
 
 Historical: [initial proposal](2026-09-14-initial-proposal.md), superseded by the records above where they differ. Its A/P/D/M identifiers are historical references only; current documents use ADR IDs.
 
