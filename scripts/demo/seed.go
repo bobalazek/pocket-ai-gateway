@@ -54,7 +54,7 @@ func newDemo(ctx context.Context, origin string) (_ *demo, err error) {
 		return nil, err
 	}
 	authService := auth.New(d.store.SystemDB())
-	d.owner, _, err = authService.Claim(ctx, auth.ClaimInput{Email: "demo@example.test", DisplayName: "Demo owner", Password: d.password})
+	d.owner, _, err = authService.Claim(ctx, auth.ClaimInput{Email: "operator@example.test", DisplayName: "Sample operator", Password: d.password})
 	if err != nil {
 		return nil, err
 	}
@@ -74,7 +74,7 @@ func newDemo(ctx context.Context, origin string) (_ *demo, err error) {
 	var connectionIDs []string
 	for index, name := range []string{"fast", "balanced", "reasoning"} {
 		connection, createErr := providerService.CreateConnection(ctx, d.owner, providers.ConnectionInput{
-			Name: "Demo " + name, Adapter: "openai_compatible", BaseURL: d.upstream.URL + "/v1", Enabled: true, AllowPrivateNetwork: true, TimeoutMS: 5000,
+			Name: "Local " + name + " lane", Adapter: "openai_compatible", BaseURL: d.upstream.URL + "/v1", Enabled: true, AllowPrivateNetwork: true, TimeoutMS: 5000,
 		})
 		if createErr != nil {
 			return nil, createErr
@@ -83,29 +83,33 @@ func newDemo(ctx context.Context, origin string) (_ *demo, err error) {
 		if err = providerService.PutCredential(ctx, d.owner, connection.ID, "synthetic-demo-credential", ""); err != nil {
 			return nil, err
 		}
-		model, createErr := providerService.CreateUpstreamModel(ctx, d.owner, connection.ID, "demo-"+name, []string{"chat"})
+		model, createErr := providerService.CreateUpstreamModel(ctx, d.owner, connection.ID, name+"-chat", []string{"chat"})
 		if createErr != nil {
 			return nil, createErr
 		}
-		if _, err = providerService.CreatePublicModel(ctx, d.owner, "demo-"+name, "Demo "+name, "Synthetic local mock; prices and responses are illustrative.", model.ID, model.Capabilities); err != nil {
+		if _, err = providerService.CreatePublicModel(ctx, d.owner, name+"-chat", strings.ToUpper(name[:1])+name[1:]+" Chat", "Local mock with illustrative pricing and responses.", model.ID, model.Capabilities); err != nil {
 			return nil, err
 		}
 		cacheRate := "0.25"
 		_, err = usageService.CreatePrice(ctx, d.owner, usage.PriceInput{
-			ConnectionID: connection.ID, ModelID: "demo-" + name, InputUSDPerMillion: fmt.Sprint(index + 1), OutputUSDPerMillion: fmt.Sprint((index + 1) * 4), CacheReadUSDPerMillion: &cacheRate,
-			Source: "Synthetic demo price, not a provider quote", EffectiveFrom: time.Now().AddDate(0, 0, -8).UTC().Format(time.RFC3339),
+			ConnectionID: connection.ID, ModelID: name + "-chat", InputUSDPerMillion: fmt.Sprint(index + 1), OutputUSDPerMillion: fmt.Sprint((index + 1) * 4), CacheReadUSDPerMillion: &cacheRate,
+			Source: "Illustrative local price, not a provider quote", EffectiveFrom: time.Now().AddDate(0, 0, -8).UTC().Format(time.RFC3339),
 		})
 		if err != nil {
 			return nil, err
 		}
 	}
 	var secrets []string
-	for index, label := range []string{"Demo product", "Demo research", "Demo support"} {
+	for index, person := range []struct{ email, name, key string }{
+		{"operator@example.test", "Sample operator", "Product API"},
+		{"research@example.test", "Researcher", "Research Assistant"},
+		{"support@example.test", "Support analyst", "Support Copilot"},
+	} {
 		userID := d.owner.ID
 		if index > 0 {
 			user, code, createErr := users.New(d.store.SystemDB()).Create(ctx, d.owner, users.CreateInput{
-				Email: fmt.Sprintf("demo-%d@example.test", index), DisplayName: label, Role: "member",
-				Grants: users.Grants{Scopes: []string{"chat:generate", "models:read"}, ModelPatterns: []string{"demo-*"}, ConnectionIDs: connectionIDs},
+				Email: person.email, DisplayName: person.name, Role: "member",
+				Grants: users.Grants{Scopes: []string{"chat:generate", "models:read"}, ModelPatterns: []string{"*-chat"}, ConnectionIDs: connectionIDs},
 			})
 			if createErr != nil {
 				return nil, createErr
@@ -115,14 +119,14 @@ func newDemo(ctx context.Context, origin string) (_ *demo, err error) {
 			}
 			userID = user.ID
 		}
-		_, secret, createErr := keyService.Create(ctx, userID, keys.Input{Label: label, Scopes: []string{"chat:generate", "models:read"}, ModelPatterns: []string{"demo-*"}, ConnectionIDs: connectionIDs})
+		_, secret, createErr := keyService.Create(ctx, userID, keys.Input{Label: person.key, Scopes: []string{"chat:generate", "models:read"}, ModelPatterns: []string{"*-chat"}, ConnectionIDs: connectionIDs})
 		if createErr != nil {
 			return nil, createErr
 		}
 		secrets = append(secrets, secret)
 	}
 	gatewayHandler := gateway.NewWithMasterKey(d.store.SystemDB(), keyService, providerService, usageService, masterKey, origin)
-	operationService := operations.New(d.store, providerService, "demo", func(string) string { return "" })
+	operationService := operations.New(d.store, providerService, "dev", func(string) string { return "" })
 	d.handler = server.NewRuntime(d.store.SystemDB(), origin, usageService, providerService, operationService, gatewayHandler)
 	if err = d.seedRequests(ctx, secrets); err != nil {
 		return nil, err
@@ -153,18 +157,52 @@ func (d *demo) close() {
 }
 
 func (d *demo) seedRequests(ctx context.Context, secrets []string) error {
-	models := []string{"demo-fast", "demo-balanced", "demo-reasoning"}
+	models := []string{"fast-chat", "balanced-chat", "reasoning-chat"}
+	tasks := []string{
+		"Summarize a fictional support ticket.",
+		"Draft a product release note for an imaginary feature.",
+		"Classify a sample feedback message.",
+		"Suggest a title for a made-up knowledge-base article.",
+	}
 	for day, count := range []int{8, 13, 11, 20, 17, 24, 31} {
 		for index := range count {
-			body := fmt.Sprintf(`{"model":%q,"messages":[{"role":"user","content":"Synthetic demo request %d"}],"max_tokens":4096}`, models[index%3], index)
-			request := httptest.NewRequest(http.MethodPost, "/api/openai/v1/chat/completions", strings.NewReader(body)).WithContext(ctx)
+			model := models[index%len(models)]
+			prompt := fmt.Sprintf("Synthetic demo task %d: %s", index, tasks[(index+day)%len(tasks)])
+			status := http.StatusOK
+			if day == 6 && index%5 == 4 || day < 6 && index == count-2 {
+				status = http.StatusTooManyRequests
+				if (index+day)%2 == 0 {
+					status = http.StatusServiceUnavailable
+				}
+				prompt = fmt.Sprintf("MOCK_ERROR_%d: %s", status, prompt)
+			}
+			var path, body, authHeader, authValue string
+			secret := secrets[(index/2+day)%len(secrets)]
+			switch (index + day) % 3 {
+			case 0:
+				path = "/api/openai/v1/chat/completions"
+				body = fmt.Sprintf(`{"model":%q,"messages":[{"role":"user","content":%q}],"max_tokens":4096}`, model, prompt)
+				authHeader, authValue = "Authorization", "Bearer "+secret
+			case 1:
+				path = "/api/anthropic/v1/messages"
+				body = fmt.Sprintf(`{"model":%q,"messages":[{"role":"user","content":%q}],"max_tokens":4096}`, model, prompt)
+				authHeader, authValue = "x-api-key", secret
+			case 2:
+				path = "/api/gemini/v1beta/models/" + model + ":generateContent"
+				body = fmt.Sprintf(`{"contents":[{"role":"user","parts":[{"text":%q}]}],"generationConfig":{"maxOutputTokens":4096}}`, prompt)
+				authHeader, authValue = "x-goog-api-key", secret
+			}
+			request := httptest.NewRequest(http.MethodPost, path, strings.NewReader(body)).WithContext(ctx)
 			request.Host = strings.TrimPrefix(d.origin, "http://")
-			request.Header.Set("Authorization", "Bearer "+secrets[(index/2+day)%len(secrets)])
+			request.Header.Set(authHeader, authValue)
+			if authHeader == "x-api-key" {
+				request.Header.Set("anthropic-version", "2023-06-01")
+			}
 			request.Header.Set("Content-Type", "application/json")
 			response := httptest.NewRecorder()
 			d.handler.ServeHTTP(response, request)
-			if response.Code != http.StatusOK {
-				return fmt.Errorf("seed request: status %d: %s", response.Code, response.Body.String())
+			if status == http.StatusOK && response.Code != http.StatusOK || status != http.StatusOK && response.Code != http.StatusTooManyRequests && response.Code != http.StatusBadGateway && response.Code != http.StatusServiceUnavailable {
+				return fmt.Errorf("seed %s request: unexpected status %d: %s", path, response.Code, response.Body.String())
 			}
 			requestID := response.Header().Get("X-Pocket-AI-Request-ID")
 			if requestID == "" {
@@ -203,13 +241,22 @@ func mockProvider(response http.ResponseWriter, request *http.Request) {
 		return
 	}
 	var input struct {
-		Model string `json:"model"`
+		Model    string          `json:"model"`
+		Messages json.RawMessage `json:"messages"`
 	}
 	if err := json.NewDecoder(http.MaxBytesReader(response, request.Body, 1<<20)).Decode(&input); err != nil {
 		http.Error(response, "Invalid demo request", http.StatusBadRequest)
 		return
 	}
-	inputTokens := map[string]int{"demo-fast": 1200, "demo-balanced": 3600, "demo-reasoning": 6400}[input.Model]
+	for _, status := range []int{http.StatusTooManyRequests, http.StatusServiceUnavailable} {
+		if strings.Contains(string(input.Messages), fmt.Sprintf("MOCK_ERROR_%d", status)) {
+			response.Header().Set("Content-Type", "application/json")
+			response.WriteHeader(status)
+			_ = json.NewEncoder(response).Encode(map[string]any{"error": map[string]string{"message": "Synthetic demo provider error", "type": "demo_error", "code": fmt.Sprintf("mock_%d", status)}})
+			return
+		}
+	}
+	inputTokens := map[string]int{"fast-chat": 1200, "balanced-chat": 3600, "reasoning-chat": 6400}[input.Model]
 	outputTokens := inputTokens / 3
 	response.Header().Set("Content-Type", "application/json")
 	_ = json.NewEncoder(response).Encode(map[string]any{

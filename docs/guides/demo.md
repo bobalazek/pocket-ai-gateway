@@ -6,13 +6,13 @@ From a source checkout with the [build prerequisites](deployment.md#build-once-d
 ./scripts/demo.sh
 ```
 
-The command builds the embedded dashboard and starts a demo at `http://127.0.0.1:18084/_/`. Sign in with `demo@example.test` and the temporary password printed in the terminal. Use `./scripts/demo.sh --port 0` to select an available port automatically.
+The command builds the embedded dashboard and starts an example instance at `http://127.0.0.1:18084/_/`. Sign in with `operator@example.test` and the temporary password printed in the terminal. Use `./scripts/demo.sh --port 0` to select an available port automatically.
 
-The demo contains three synthetic users, three mock provider connections, three public models, three scoped keys, illustrative token prices, and 124 requests spread across seven days. Requests pass through the real gateway authorization, routing, accounting, and history projection paths; the local mock supplies the text and token counts. Timestamps are shifted only inside the disposable fixture to populate the charts. The prices and usage are examples, not provider quotes or performance measurements.
+The disposable instance contains three example users, three local mock provider connections, three public models, three scoped keys, illustrative token prices, and 124 requests across seven days: 112 succeed and 12 fail. The latest hour has six failures among 31 requests, so the error chart and local alert are visible. Requests use the real gateway authorization, routing, accounting, and history projection paths; the loopback mock supplies responses and token counts. Timestamps are shifted only inside the fixture to populate the charts. Prices and usage are examples, not provider quotes or performance measurements.
 
 ## Screenshots
 
-These are full-page browser captures of the embedded dashboard, with a 1440-pixel desktop viewport and a 390-pixel mobile viewport. Every account, provider, key, request, and price shown comes from the disposable demo. Prices are examples, not provider quotes.
+These are full-page captures and focused close-ups of the embedded dashboard, with 1440-pixel desktop and 390-pixel mobile viewports. Every account, provider, key, request, and price shown comes from the disposable example instance. Prices are examples, not provider quotes.
 
 Select an image to open the full-resolution capture.
 
@@ -36,6 +36,10 @@ Select an image to open the full-resolution capture.
 | --- | --- |
 | [![Provider request, cost, latency, and failed-attempt charts](../images/demo-analytics-providers.png)](../images/demo-analytics-providers.png) | [![Protocol, operation, and outcome charts](../images/demo-analytics-operations.png)](../images/demo-analytics-operations.png) |
 
+| Failed requests by day | Failed request history |
+| --- | --- |
+| [![Daily failed requests with a recent spike](../images/demo-analytics-failures.png)](../images/demo-analytics-failures.png) | [![Request history filtered to failures](../images/demo-preview-request-errors.png)](../images/demo-page-request-errors.png) |
+
 | Usage and limits | Request history |
 | --- | --- |
 | [![Full desktop usage page with synthetic charts and cost data](../images/demo-page-usage.png)](../images/demo-page-usage.png)<br>Daily accounting, limits, and versioned prices explain the fixture's cost. | [![Full desktop request history with synthetic gateway traffic](../images/demo-page-requests.png)](../images/demo-page-requests.png)<br>The list shows traffic generated through the gateway and local mock provider. |
@@ -44,11 +48,27 @@ Select an image to open the full-resolution capture.
 | --- |
 | [![Full desktop request detail with attempts and token accounting](../images/demo-page-request-detail.png)](../images/demo-page-request-detail.png)<br>A request detail traces attempts, token use, and its example cost. |
 
+| Failed request detail |
+| --- |
+| [![Failed request detail with gateway accounting and a failed attempt](../images/demo-page-failed-request.png)](../images/demo-page-failed-request.png)<br>A failed request keeps its attempt and cost provenance without capturing the prompt. |
+
 ### Gateway setup
 
 | Providers | Models |
 | --- | --- |
-| [![Full desktop providers page with three mock connections](../images/demo-page-providers.png)](../images/demo-page-providers.png)<br>Three mock connections keep the demo offline. | [![Full desktop models page showing published routes](../images/demo-page-models.png)](../images/demo-page-models.png)<br>Public model names route to mock upstream targets. |
+| [![Full desktop providers page with three mock connections](../images/demo-page-providers.png)](../images/demo-page-providers.png)<br>Each local connection shows its base URL and upstream models. | [![Full desktop models page showing published routes](../images/demo-page-models.png)](../images/demo-page-models.png)<br>Public model names route to mock upstream targets. |
+
+| Connection and base URL | Model route |
+| --- | --- |
+| [![One provider connection with its base URL and upstream model](../images/demo-providers-connection.png)](../images/demo-providers-connection.png) | [![A public model route with its upstream targets](../images/demo-models-route.png)](../images/demo-models-route.png) |
+
+### Provider presets
+
+These are unsubmitted forms populated by the backend preset catalog. Selecting a preset does not create a connection or call the provider.
+
+| OpenAI base URL | Replicate base URL |
+| --- | --- |
+| [![OpenAI preset form showing reviewed base URL and supported operations](../images/demo-providers-preset-openai.png)](../images/demo-providers-preset-openai.png) | [![Replicate preset form showing reviewed base URL and prediction operation](../images/demo-providers-preset-replicate.png)](../images/demo-providers-preset-replicate.png) |
 
 | API keys | Media jobs |
 | --- | --- |
@@ -66,7 +86,11 @@ Select an image to open the full-resolution capture.
 
 | Settings and recovery | Status |
 | --- | --- |
-| [![Full desktop settings and recovery page](../images/demo-page-settings.png)](../images/demo-page-settings.png)<br>Backup is disabled in this demo because no archive encryption key is configured; recovery controls remain visible. | [![Full desktop status page with instance health](../images/demo-page-status.png)](../images/demo-page-status.png)<br>Status combines readiness and local runtime diagnostics. |
+| [![Full desktop settings and recovery page](../images/demo-page-settings.png)](../images/demo-page-settings.png)<br>Backup is disabled in this instance because no archive encryption key is configured; recovery controls remain visible. | [![Full desktop status page with instance health](../images/demo-page-status.png)](../images/demo-page-status.png)<br>Status combines readiness, runtime diagnostics, and a recent-error alert. |
+
+| Local alert | Account menu |
+| --- | --- |
+| [![Local high-error alert on the status page](../images/demo-status-alerts.png)](../images/demo-status-alerts.png) | [![Account menu anchored to the bottom of a short desktop viewport](../images/demo-desktop-account-menu.png)](../images/demo-desktop-account-menu.png) |
 
 | Account |
 | --- |
@@ -94,8 +118,8 @@ Stop with Ctrl+C to close the servers and delete the temporary databases and key
 go test ./scripts/demo -count=1
 ```
 
-The test checks loopback-only seeded endpoints, successful sign-in, request/token/cost totals, seven daily buckets, projected history, temporary-directory cleanup, and that an existing operator directory stays untouched.
+The test checks loopback-only seeded endpoints, sign-in, successful and failed requests across three client protocols, the recent alert window, token/cost totals, seven daily buckets, projected history, temporary-directory cleanup, and that an existing operator directory stays untouched.
 
-All 20 full-page and six analytics close-up captures were regenerated and verified September 24, 2026. The browser check confirmed populated pages and charts, a key-filtered request link after Refresh, headings, runtime status, PNG dimensions, and no horizontal overflow at 1440- and 390-pixel widths. The demo has no external provider credentials or media jobs; its backup warning reflects the absence of a demo backup key.
+All 39 captures were regenerated and verified September 24, 2026, including 22 full pages, preset examples, analytics and status close-ups, and a 700-pixel-tall desktop account-menu check. Before capturing, the browser verifies the expected synthetic counts and loopback-only mock connections. It also checks populated pages, errors, the local alert, a key-filtered request link after Refresh, headings, PNG dimensions, and no horizontal overflow at 1440- and 390-pixel widths. The instance has no external provider credentials or media jobs; its backup warning reflects the absence of a backup key.
 
-To reproduce the gallery, start `./scripts/demo.sh`, then run `PAG_DEMO_PASSWORD=<printed temporary password> node scripts/capture-demo-screenshots.mjs`. The [capture manifest](../images/demo-screenshots.json) records each image's viewport and full-page height.
+To reproduce the gallery, start `./scripts/demo.sh`, then run `PAG_DEMO_PASSWORD=<printed temporary password> node scripts/capture-demo-screenshots.mjs`. The [capture manifest](../images/demo-screenshots.json) records each image's capture dimensions and viewport where applicable.

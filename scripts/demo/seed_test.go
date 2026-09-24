@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
 
 	"github.com/bobalazek/pocket-ai-gateway/internal/features/auth"
 	"github.com/bobalazek/pocket-ai-gateway/internal/features/providers"
@@ -41,8 +42,18 @@ func TestDemoSeedIsDisposableAndPopulatesUsage(t *testing.T) {
 		}
 	}
 	summary, err := usage.New(demo.store.SystemDB()).Summary(ctx, demo.owner, usage.UsageQuery{})
-	if err != nil || summary.Requests != 124 || summary.Attempts != 124 || len(summary.Points) != 7 || summary.InputTokens == 0 || summary.CacheReadInputTokens == 0 || summary.KnownCostUSD == "0" || summary.UnknownAttempts != 0 {
+	if err != nil || summary.Requests != 124 || summary.Attempts != 124 || len(summary.Points) != 7 || summary.InputTokens == 0 || summary.CacheReadInputTokens == 0 || summary.KnownCostUSD == "0" || summary.UnknownAttempts != 5 {
 		t.Fatalf("usage: %+v, %v", summary, err)
+	}
+	var succeeded, failed, recent, recentFailed, dialects, failedDialects, models, keyCount, connectionCount int
+	if err := demo.store.SystemDB().QueryRowContext(ctx, `SELECT COUNT(*) FILTER (WHERE state='succeeded'),COUNT(*) FILTER (WHERE state='failed'),COUNT(*) FILTER (WHERE started_at>=?),COUNT(*) FILTER (WHERE state='failed' AND started_at>=?),COUNT(DISTINCT dialect),COUNT(DISTINCT dialect) FILTER (WHERE state='failed'),COUNT(DISTINCT model_id),COUNT(DISTINCT key_id) FROM requests`, time.Now().Add(-time.Hour).UnixMilli(), time.Now().Add(-time.Hour).UnixMilli()).Scan(&succeeded, &failed, &recent, &recentFailed, &dialects, &failedDialects, &models, &keyCount); err != nil {
+		t.Fatal(err)
+	}
+	if err := demo.store.SystemDB().QueryRowContext(ctx, "SELECT COUNT(DISTINCT connection_id) FROM attempts").Scan(&connectionCount); err != nil {
+		t.Fatal(err)
+	}
+	if succeeded != 112 || failed != 12 || recent != 31 || recentFailed != 6 || dialects != 3 || failedDialects != 3 || models != 3 || keyCount != 3 || connectionCount != 3 {
+		t.Fatalf("requests: succeeded=%d failed=%d recent=%d recent_failed=%d dialects=%d failed_dialects=%d models=%d keys=%d connections=%d", succeeded, failed, recent, recentFailed, dialects, failedDialects, models, keyCount, connectionCount)
 	}
 	var projected int
 	if err := demo.store.DataDB().QueryRowContext(ctx, "SELECT SUM(requests) FROM usage_daily").Scan(&projected); err != nil || projected != 124 {

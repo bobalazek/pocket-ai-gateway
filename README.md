@@ -37,11 +37,11 @@ Use the model ID you published in place of `assistant`. Compose binds to localho
 - **Separate client APIs.** OpenAI, Anthropic, and Gemini SDKs connect through their own URL namespaces. Supported operations have tested request, response, and streaming behavior.
 - **One model name, multiple targets.** Publish stable model IDs and route them with fixed, fallback, weighted, cost, or observed-latency strategies.
 - **Keys and limits.** Manage users and scoped API keys, then apply request, token, concurrency, quota, and spend policies by instance, user, key, or provider connection.
-- **Usage you can trace.** Compare traffic and known spend by API key, model, and provider; inspect attempts, cache usage, price versions, cost restatements, and audit events.
+- **Usage you can trace.** Compare traffic, errors, and known spend by API key, model, and provider; inspect attempts, cache usage, price versions, cost restatements, and audit events. Local status alerts flag sustained failures and backup or storage problems.
 - **Local operations.** Provider secrets are encrypted. The server includes backup and restore tools, local or S3-compatible scheduled backups, and no public telemetry.
 - **More than text.** The tested subset includes image and audio operations, live WebSocket transports, durable media jobs, and trusted JavaScript transforms for custom adapters.
 
-Built-in presets include OpenAI, Anthropic, Gemini, OpenRouter, Z.AI, MiniMax, Ollama, Together, and Replicate. A preset does not imply that every model supports every operation. See the [compatibility matrix](docs/project/compatibility.md) and [provider evidence](docs/project/provider-certification.md) for exact coverage.
+Built-in presets include OpenAI, Anthropic, Gemini, OpenRouter, Z.AI, MiniMax, Ollama, Together, and Replicate. Each preset fills its reviewed provider base URL; one connection can hold many upstream models. A preset does not imply that every model supports every operation. See [provider URLs and evidence](docs/project/provider-certification.md), the [Replicate model guide](docs/guides/adapters.md), and the [compatibility matrix](docs/project/compatibility.md).
 
 ## SDK base URLs
 
@@ -55,13 +55,21 @@ Application requests use a scoped gateway API key. Dashboard sign-in uses a sepa
 
 ## Explore the dashboard
 
-From a source checkout, `./scripts/demo.sh` starts a disposable instance with three mock providers and seven days of synthetic requests. It needs no provider credential and cannot seed an existing data directory. The [demo guide](docs/guides/demo.md) has login instructions and more screenshots.
+These screens use synthetic traffic in a disposable local instance. No real provider credential or paid AI request is involved; a deployed gateway shows its own data. Run `./scripts/demo.sh` to explore it, or browse the [full screenshot gallery](docs/guides/demo.md#screenshots).
 
-| Analytics | Providers | Status |
-| --- | --- | --- |
-| [![Analytics traffic charts with synthetic request and cost data](docs/images/demo-analytics-traffic.png)](docs/images/demo-page-analytics.png) | [![Full providers page with three mock connections](docs/images/demo-page-providers.png)](docs/images/demo-page-providers.png) | [![Full status page with operational checks](docs/images/demo-page-status.png)](docs/images/demo-page-status.png) |
+| Analytics | Failed requests |
+| --- | --- |
+| [![Analytics with request volume, failed requests, spend, and error rate](docs/images/demo-preview-analytics.png)](docs/images/demo-page-analytics.png) | [![Request history filtered to failed requests](docs/images/demo-preview-request-errors.png)](docs/images/demo-page-request-errors.png) |
 
-[Open the per-key charts](docs/images/demo-analytics-api-keys.png), [provider charts](docs/images/demo-analytics-providers.png), [usage controls](docs/images/demo-page-usage.png), [request history](docs/images/demo-page-requests.png), or the [full gallery](docs/guides/demo.md#screenshots).
+| Provider connection | Model routing |
+| --- | --- |
+| [![Provider base URL and upstream models under one connection](docs/images/demo-providers-connection.png)](docs/images/demo-page-providers.png) | [![Public model with routing strategy and upstream targets](docs/images/demo-models-route.png)](docs/images/demo-page-models.png) |
+
+| Usage | Status and alerts |
+| --- | --- |
+| [![Usage totals, token chart, and known spend](docs/images/demo-preview-usage.png)](docs/images/demo-page-usage.png) | [![Runtime checks and local high-error alert](docs/images/demo-preview-status.png)](docs/images/demo-page-status.png) |
+
+[OpenAI](docs/images/demo-providers-preset-openai.png) and [Replicate](docs/images/demo-providers-preset-replicate.png) preset previews show their base URLs and supported operations; selecting a preset does not connect or call its provider.
 
 ## Run one executable
 
