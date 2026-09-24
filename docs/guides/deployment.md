@@ -116,6 +116,8 @@ docker buildx build \
   .
 ```
 
+GitHub Container registry creates a new package as private by default, even when the source repository is public. After the first release image is pushed, make the package public in GitHub package settings and test a pull without registry credentials before advertising the image. Package visibility is separate from repository visibility. See [GitHub's package visibility guide](https://docs.github.com/en/packages/learn-github-packages/configuring-a-packages-access-control-and-visibility).
+
 Publishing requires an explicit `--push`; building locally does not publish anything.
 
 ## Configuration
