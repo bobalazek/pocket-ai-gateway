@@ -4,6 +4,14 @@ Root: /api/anthropic/v1 · SDK base root: /api/anthropic · Backend owner: inter
 
 Own Messages/count_tokens/models, Anthropic headers/types/errors, content blocks, tool mappings, SSE events, upstream encoding, and fixtures. Authentication validates an inference key; it does not create a browser session.
 
+## Gateway-owned Files
+
+The current GA `POST/GET /files`, `GET/DELETE /files/{file_id}`, and `GET /files/{file_id}/content` routes use the same `x-api-key`, `anthropic-version: 2023-06-01`, and `files:manage` scope. Upload one PDF, UTF-8 text, JPEG, PNG, GIF, or WebP as multipart `file` (at most 8 MiB); optional `expires_in_seconds` is 3,600–7,776,000. The gateway stores encrypted bytes locally for 30 days by default. List pages use `limit=1..100` and the returned `next_page` cursor. Uploaded file metadata has `downloadable:false`; the content endpoint returns Anthropic's documented 400 for uploaded files.
+
+A Messages or count-tokens request may use `{"type":"document","source":{"type":"file","file_id":"file_..."}}` for PDF/text or the same source inside an image block for supported images. Only the creating key can use that ID, and it also needs `files:manage` and the ordinary inference scope. Before any provider dispatch, the gateway expands PDF and images to base64 sources or UTF-8 text to a `text` source. File references require a native Anthropic target, are limited to 32 per request, and count toward the 16 MiB expanded request and normal admission limits. Unsupported provider translation, `container_upload`, other MIME types, foreign/deleted/expired IDs, and the old Files beta response shape fail locally. The gateway never accepts a raw upstream workspace file ID. This is a constrained GA SDK subset rather than full provider Files parity.
+
+Sources: [Anthropic Files](https://platform.claude.com/docs/en/build-with-claude/files), [Files HTTP API](https://platform.claude.com/docs/en/api/http/files/list), and [document source types](https://platform.claude.com/docs/en/api/http/messages).
+
 ## Illustrative Messages exchange
 
 POST /api/anthropic/v1/messages, with x-api-key gateway-key and a supported anthropic-version:

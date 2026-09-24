@@ -44,10 +44,33 @@ func (handler *Handler) forwardAuthorized(response http.ResponseWriter, request 
 		originalBodyBytes = int64(len(multipart.body))
 	}
 	requestToolCount := countRequestTools(dialect, body)
+	usesAnthropicFiles := false
 	var envelope map[string]json.RawMessage
 	if err := json.Unmarshal(body, &envelope); err != nil {
 		handler.writeError(response, dialect, http.StatusBadRequest, "invalid_request", "Request body must be a JSON object")
 		return
+	}
+	if dialect == "anthropic" && (upstreamPath == "messages" || upstreamPath == "messages/count_tokens") {
+		expanded, expandErr := handler.expandAnthropicFileReferences(request.Context(), principal.KeyID, principalHasScope(principal.Scopes, "files:manage"), len(body), envelope)
+		if expandErr != nil {
+			if errors.Is(expandErr, errAnthropicFileUnavailable) {
+				handler.writeError(response, dialect, http.StatusNotFound, "not_found_error", "File not found")
+			} else if errors.Is(expandErr, errAnthropicFileForbidden) {
+				handler.writeError(response, dialect, http.StatusForbidden, "permission_error", expandErr.Error())
+			} else if errors.Is(expandErr, errAnthropicFileStorage) {
+				handler.writeError(response, dialect, http.StatusServiceUnavailable, "api_error", expandErr.Error())
+			} else if errors.Is(expandErr, errAnthropicFileBusy) {
+				handler.writeError(response, dialect, http.StatusTooManyRequests, "rate_limit_error", expandErr.Error())
+			} else if errors.Is(expandErr, errAnthropicExpandedTooLarge) {
+				handler.writeError(response, dialect, http.StatusRequestEntityTooLarge, "request_too_large", expandErr.Error())
+			} else {
+				handler.writeError(response, dialect, http.StatusBadRequest, "invalid_request_error", expandErr.Error())
+			}
+			return
+		} else if expanded != nil {
+			body = expanded
+			usesAnthropicFiles = true
+		}
 	}
 	if dialect != "responses" && !(dialect == "anthropic" && upstreamPath == "messages") && containsHostedWebSearchTool(envelope["tools"]) {
 		handler.writeError(response, dialect, http.StatusBadRequest, "unsupported_feature", "web search is supported only by POST /api/openai/v1/responses or POST /api/anthropic/v1/messages")
@@ -212,7 +235,7 @@ func (handler *Handler) forwardAuthorized(response http.ResponseWriter, request 
 	if streamOverride != nil {
 		stream = *streamOverride
 	}
-	inputEstimate := originalBodyBytes
+	inputEstimate := max(originalBodyBytes, int64(len(body)))
 	if hostedWebSearch {
 		if webSearchMaxCalls > (int64(^uint64(0)>>1)-inputEstimate)/webSearchInputPerCall {
 			handler.writeError(response, dialect, http.StatusBadRequest, "invalid_request", "web search input reservation exceeds the supported range")
@@ -324,6 +347,9 @@ func (handler *Handler) forwardAuthorized(response http.ResponseWriter, request 
 	}
 	plan, err := handler.providers.Route(request.Context(), publicID, providers.RouteOptions{Operation: clientOperation, Streaming: stream, EstimatedInputTokens: inputEstimate, EstimatedOutputTokens: outputEstimate, QuoteAt: priceQuoteAt, Seed: string(seed[:]), AllowsConnection: func(connectionID string) bool { return principal.Allows(scope, publicID, connectionID) }, Eligibility: func(target providers.Target) (bool, string) {
 		native := providers.NativeTarget(dialect, target.Adapter)
+		if usesAnthropicFiles && !native {
+			return false, "anthropic_files_native_required"
+		}
 		if webSearch.enabled {
 			if eligible, reason := webSearchTargetEligibility(target); !eligible {
 				return false, reason
@@ -436,7 +462,7 @@ func (handler *Handler) forwardAuthorized(response http.ResponseWriter, request 
 		}
 		targetPath = providers.PresetOperationPath(target.Preset, targetPath)
 		quotedPriceVersionID := routeTarget.PriceVersionID()
-		admission, admitErr := handler.usage.Admit(request.Context(), usage.AdmissionInput{RequestID: requestID, KeyID: principal.KeyID, ConnectionID: target.TargetConnectionID, ModelID: publicID, UpstreamModelRecordID: target.TargetModelID, UpstreamModelID: target.UpstreamID, ConnectionRevision: target.ConnectionRevision, ModelRevision: target.Revision, Operation: clientOperation, TargetOperation: targetPath, Scope: scope, Dialect: recordDialect, TargetDialect: target.Adapter, TranslationApplied: !native, RequestToolCount: requestToolCount, WebSearchMaxCalls: webSearchMaxCalls, SelectionReason: plan.SelectionReason, RejectedCandidatesJSON: string(rejected), RequiredPriceVersionID: quotedPriceVersionID, PriceQuoteAt: priceQuoteAt, QuotedPriceVersionID: &quotedPriceVersionID, RequireFreePrice: plan.FreeOnly, SnapshotPriceOnly: promptCache.enabled || hostedWebTool, BodyBytes: originalBodyBytes, BatchItems: batchItems, EstimatedInputTokens: inputEstimate, EstimatedOutputTokens: outputEstimate, EnforceInputBound: anthropicWebFetch.enabled || fileSearch.enabled, InputBounded: !anthropicWebFetch.enabled, EnforceOutputBound: generation, OutputBounded: !generation || outputBounded})
+		admission, admitErr := handler.usage.Admit(request.Context(), usage.AdmissionInput{RequestID: requestID, KeyID: principal.KeyID, ConnectionID: target.TargetConnectionID, ModelID: publicID, UpstreamModelRecordID: target.TargetModelID, UpstreamModelID: target.UpstreamID, ConnectionRevision: target.ConnectionRevision, ModelRevision: target.Revision, Operation: clientOperation, TargetOperation: targetPath, Scope: scope, Dialect: recordDialect, TargetDialect: target.Adapter, TranslationApplied: !native, RequestToolCount: requestToolCount, WebSearchMaxCalls: webSearchMaxCalls, SelectionReason: plan.SelectionReason, RejectedCandidatesJSON: string(rejected), RequiredPriceVersionID: quotedPriceVersionID, PriceQuoteAt: priceQuoteAt, QuotedPriceVersionID: &quotedPriceVersionID, RequireFreePrice: plan.FreeOnly, SnapshotPriceOnly: promptCache.enabled || hostedWebTool, BodyBytes: max(originalBodyBytes, int64(len(body))), BatchItems: batchItems, EstimatedInputTokens: inputEstimate, EstimatedOutputTokens: outputEstimate, EnforceInputBound: anthropicWebFetch.enabled || fileSearch.enabled, InputBounded: !anthropicWebFetch.enabled, EnforceOutputBound: generation, OutputBounded: !generation || outputBounded})
 		if admitErr != nil {
 			if requestID != "" {
 				_ = handler.usage.CloseFailedRequest(context.WithoutCancel(request.Context()), requestID)

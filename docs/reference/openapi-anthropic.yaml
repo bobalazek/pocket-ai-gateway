@@ -10,6 +10,58 @@ paths:
       operationId: getAnthropicModel
       parameters: [{ name: id, in: path, required: true, schema: { type: string } }, { $ref: "#/components/parameters/Version" }]
       responses: { "200": { description: Authorized public model }, "404": { description: Model unavailable }, default: { description: Anthropic-compatible error } }
+  /files:
+    post:
+      operationId: uploadAnthropicFile
+      description: Creates one encrypted, creating-key-owned local File; requires files:manage. This gateway accepts only PDF, UTF-8 text, JPEG, PNG, GIF, and WebP up to 8 MiB, with 30-day default retention. Legacy Files beta response shapes are unsupported.
+      parameters: [{ $ref: "#/components/parameters/Version" }]
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [file]
+              properties:
+                file: { type: string, format: binary }
+                expires_in_seconds: { type: integer, minimum: 3600, maximum: 7776000 }
+      responses:
+        "200": { description: File uploaded locally, content not downloadable, content: { application/json: { schema: { $ref: "#/components/schemas/FileMetadata" } } } }
+        default: { description: Anthropic-compatible error }
+    get:
+      operationId: listAnthropicFiles
+      description: Lists only unexpired Files owned by the calling key, newest first.
+      parameters:
+        - { $ref: "#/components/parameters/Version" }
+        - { name: limit, in: query, schema: { type: integer, minimum: 1, maximum: 100, default: 20 } }
+        - { name: page, in: query, schema: { type: string, pattern: "^page_" } }
+      responses:
+        "200": { description: Key-owned Files page, content: { application/json: { schema: { $ref: "#/components/schemas/FileList" } } } }
+        default: { description: Anthropic-compatible error }
+  /files/{file_id}:
+    get:
+      operationId: getAnthropicFile
+      parameters: [{ $ref: "#/components/parameters/FileID" }, { $ref: "#/components/parameters/Version" }]
+      responses:
+        "200": { description: Creating-key File metadata, content: { application/json: { schema: { $ref: "#/components/schemas/FileMetadata" } } } }
+        "404": { description: File absent, expired, or owned by another key }
+        default: { description: Anthropic-compatible error }
+    delete:
+      operationId: deleteAnthropicFile
+      parameters: [{ $ref: "#/components/parameters/FileID" }, { $ref: "#/components/parameters/Version" }]
+      responses:
+        "200": { description: File deleted, content: { application/json: { schema: { $ref: "#/components/schemas/DeletedFile" } } } }
+        default: { description: Anthropic-compatible error }
+  /files/{file_id}/content:
+    get:
+      operationId: downloadAnthropicFile
+      description: Uploaded Files are never downloadable. Generated provider files are unsupported.
+      parameters: [{ $ref: "#/components/parameters/FileID" }, { $ref: "#/components/parameters/Version" }]
+      responses:
+        "400": { description: Uploaded File is not downloadable }
+        "404": { description: File absent, expired, or owned by another key }
+        default: { description: Anthropic-compatible error }
   /messages:
     post:
       operationId: createMessage
@@ -180,6 +232,33 @@ paths:
       responses: { "200": { description: Native token count }, default: { description: Anthropic-compatible error } }
 components:
   schemas:
+    FileMetadata:
+      type: object
+      additionalProperties: false
+      required: [id, type, filename, mime_type, size_bytes, created_at, expires_at, downloadable]
+      properties:
+        id: { type: string, pattern: "^file_" }
+        type: { type: string, const: file }
+        filename: { type: string, minLength: 1, maxLength: 255 }
+        mime_type: { type: string, enum: [application/pdf, text/plain, image/jpeg, image/png, image/gif, image/webp] }
+        size_bytes: { type: integer, minimum: 1, maximum: 8388608 }
+        created_at: { type: string, format: date-time }
+        expires_at: { type: string, format: date-time }
+        downloadable: { type: boolean, const: false }
+    FileList:
+      type: object
+      additionalProperties: false
+      required: [data, next_page]
+      properties:
+        data: { type: array, items: { $ref: "#/components/schemas/FileMetadata" } }
+        next_page: { type: [string, "null"] }
+    DeletedFile:
+      type: object
+      additionalProperties: false
+      required: [id, type]
+      properties:
+        id: { type: string }
+        type: { type: string, const: file_deleted }
     MessageBatchCreate:
       type: object
       additionalProperties: false
@@ -665,5 +744,6 @@ components:
   securitySchemes:
     apiKey: { type: apiKey, in: header, name: x-api-key }
   parameters:
+    FileID: { name: file_id, in: path, required: true, schema: { type: string, pattern: "^file_" } }
     BatchID: { name: message_batch_id, in: path, required: true, schema: { type: string, pattern: "^msgbatch_" } }
     Version: { name: anthropic-version, in: header, required: true, schema: { type: string, const: "2023-06-01" } }

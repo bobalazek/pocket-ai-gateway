@@ -1,4 +1,4 @@
-import Anthropic from "@anthropic-ai/sdk";
+import Anthropic, { toFile as toAnthropicFile } from "@anthropic-ai/sdk";
 import { GoogleGenAI } from "@google/genai";
 import { spawn, type ChildProcess } from "node:child_process";
 import { createInterface } from "node:readline";
@@ -651,6 +651,27 @@ describe("official SDK compatibility through the Go gateway", () => {
   it.each(models)("decodes Anthropic Messages through %s", async (model) => {
     const result = await anthropic().messages.create({ model, max_tokens: 8, messages: [{ role: "user", content: "Hi" }] });
     expect(result.content[0]).toMatchObject({ type: "text", text: "Hello" });
+  });
+
+  it("uses gateway-owned Anthropic Files through the GA SDK", async () => {
+    const client = anthropic();
+    const file = await client.files.upload({
+      file: await toAnthropicFile(Buffer.from("SDK document"), "notes.txt", { type: "text/plain" }),
+      expires_in_seconds: 3600,
+    });
+    expect(file).toMatchObject({ type: "file", filename: "notes.txt", mime_type: "text/plain", downloadable: false });
+    expect(file.id).toMatch(/^file_/);
+    expect((await client.files.retrieveMetadata(file.id)).id).toBe(file.id);
+    expect((await client.files.list({ limit: 1 })).data.map((item) => item.id)).toContain(file.id);
+    await expect(client.files.download(file.id)).rejects.toMatchObject({ status: 400 });
+    await expect(anthropic(otherApiKey).files.retrieveMetadata(file.id)).rejects.toMatchObject({ status: 404 });
+    await expect(anthropic(noFilesApiKey).files.list()).rejects.toMatchObject({ status: 403 });
+
+    const message = { model: "target-anthropic", max_tokens: 8, messages: [{ role: "user" as const, content: [{ type: "document" as const, source: { type: "file" as const, file_id: file.id } }] }] };
+    expect((await client.messages.create(message)).content[0]).toMatchObject({ type: "text", text: "Hello" });
+    await expect(anthropic(noFilesApiKey).messages.create(message)).rejects.toMatchObject({ status: 403 });
+    expect(await client.files.delete(file.id)).toMatchObject({ id: file.id, type: "file_deleted" });
+    await expect(client.files.retrieveMetadata(file.id)).rejects.toMatchObject({ status: 404 });
   });
 
   it("preserves native Anthropic prompt-cache usage", async () => {

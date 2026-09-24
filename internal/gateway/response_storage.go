@@ -108,6 +108,8 @@ func checkRetainedResourceCapacity(ctx context.Context, query responseQueryer, o
 			UNION ALL
 			SELECT owner_user_id,key_id,length(filename)+length(ciphertext)+length(nonce) AS size FROM openai_files WHERE expires_at>?
 			UNION ALL
+			SELECT owner_user_id,key_id,length(filename)+length(mime_type)+length(ciphertext)+length(nonce) AS size FROM anthropic_files WHERE expires_at>?
+			UNION ALL
 			SELECT owner_user_id,key_id,length(filename)+length(mime_type)+expected_bytes+28 AS size FROM openai_uploads WHERE status='pending' AND expires_at>?
 			UNION ALL
 			SELECT owner_user_id,key_id,length(input_file_id)+length(endpoint)+length(completion_window)+length(model_id)+length(metadata_json)+COALESCE(length(output_file_id),0)+COALESCE(length(error_file_id),0) AS size FROM openai_batches WHERE retention_expires_at>?
@@ -127,7 +129,7 @@ func checkRetainedResourceCapacity(ctx context.Context, query responseQueryer, o
 			JOIN openai_vector_stores ON openai_vector_stores.id=openai_vector_store_files.vector_store_id
 			JOIN openai_files ON openai_files.id=openai_vector_store_files.file_id
 			WHERE (openai_vector_stores.expires_at IS NULL OR openai_vector_stores.expires_at>?) AND openai_files.expires_at>?
-		)`, ownerID, ownerID, keyID, keyID, maxInferenceBody, time.Now().UnixMilli(), time.Now().UnixMilli(), time.Now().UnixMilli(), time.Now().UnixMilli(), time.Now().UnixMilli(), time.Now().UnixMilli(), time.Now().UnixMilli(), time.Now().UnixMilli(), time.Now().UnixMilli(), time.Now().UnixMilli(), time.Now().UnixMilli()).Scan(&count, &size, &ownerCount, &ownerSize, &keyCount, &keySize)
+		)`, ownerID, ownerID, keyID, keyID, maxInferenceBody, time.Now().UnixMilli(), time.Now().UnixMilli(), time.Now().UnixMilli(), time.Now().UnixMilli(), time.Now().UnixMilli(), time.Now().UnixMilli(), time.Now().UnixMilli(), time.Now().UnixMilli(), time.Now().UnixMilli(), time.Now().UnixMilli(), time.Now().UnixMilli(), time.Now().UnixMilli()).Scan(&count, &size, &ownerCount, &ownerSize, &keyCount, &keySize)
 	if err != nil {
 		return err
 	}

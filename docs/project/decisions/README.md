@@ -63,6 +63,7 @@ Each record states status/source, context, decision, and consequences. A recomme
 | ADR-055 | [Anthropic web-tool response inclusion and cache bypass](2026-09-18-anthropic-web-tool-response-inclusion.md) | Delegated parity expansion extending ADR-020, ADR-032, and ADR-054 |
 | ADR-056 | [Anthropic combined web search and fetch](2026-09-18-anthropic-combined-web-tools.md) | Delegated parity expansion extending ADR-020, ADR-032, ADR-054, and ADR-055 |
 | ADR-057 | [Anthropic prompt caching with hosted web tools](2026-09-18-anthropic-prompt-cache-web-tools.md) | Delegated parity expansion extending ADR-020, ADR-032, ADR-054, ADR-055, and ADR-056 |
+| ADR-059 | [Gateway-owned Anthropic Files](2026-09-24-gateway-owned-anthropic-files.md) | Delegated bounded native Files lifecycle and same-key Messages references |
 
 Historical: [initial proposal](2026-09-14-initial-proposal.md), superseded by the records above where they differ. Its A/P/D/M identifiers are historical references only; current documents use ADR IDs.
 
