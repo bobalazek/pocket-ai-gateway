@@ -12,19 +12,97 @@ The demo contains three synthetic users, three mock provider connections, three 
 
 ## Screenshots
 
-Captured from the embedded dashboard on September 24, 2026, using only disposable demo data.
+Captured from the embedded dashboard using only disposable demo data. The users, providers, keys, requests, and costs in these images are synthetic.
 
-### Overview
+### Analytics
+
+#### Overview
 
 ![Overview with populated request and spend totals](../images/demo-overview.png)
 
-### Usage
+The home screen summarizes the fixture's request and spend totals.
+
+#### Usage summary
+
+![Synthetic request, token, cache, and cost summary](../images/demo-usage-summary.png)
+
+Summary cards show request and token totals alongside cache usage and example cost provenance.
+
+#### Seven-day chart
 
 ![Seven-day token chart](../images/demo-usage.png)
 
-### Model routing
+The chart shows daily token usage across the seven-day fixture.
+
+#### Effective prices
+
+![Versioned synthetic model prices](../images/demo-usage-prices.png)
+
+Versioned example prices explain the cost calculation; they are not provider quotes.
+
+#### Request history
+
+![Request history for synthetic gateway traffic](../images/demo-requests.png)
+
+The first page shows traffic generated through the real gateway paths and local mock provider.
+
+#### Request detail
+
+![Attempt, token, and cost provenance for a synthetic request](../images/demo-request-detail.png)
+
+The detail view traces an example request through its attempts, token accounting, and cost record.
+
+### Gateway configuration
+
+#### Providers
+
+![Mock provider connections](../images/demo-providers.png)
+
+Three mock provider connections let the demo run without external credentials.
+
+#### Models
 
 ![Model routing with a mock provider target](../images/demo-models.png)
+
+Published model names route to the demo's mock provider targets.
+
+#### API keys
+
+![API key creation with explicit operation scopes](../images/demo-keys.png)
+
+The creation form shows explicit operation scopes without exposing secret values.
+
+#### Key management
+
+![Synthetic API key and its lifecycle actions](../images/demo-keys-list.png)
+
+An existing demo key shows its grant counts and lifecycle actions.
+
+### Administration
+
+#### Users
+
+![Synthetic dashboard users](../images/demo-users.png)
+
+The users view contains three disposable accounts.
+
+#### Audit
+
+![Audit events in the demo dashboard](../images/demo-audit.png)
+
+Audit records make configuration changes traceable.
+
+#### Settings
+
+![Instance settings in the demo dashboard](../images/demo-settings.png)
+
+Instance settings collect local operating controls.
+
+#### Status
+
+![Runtime status in the demo dashboard](../images/demo-status.png)
+
+The status view shows instance health and diagnostics.
 
 ## Isolation and cleanup
 
