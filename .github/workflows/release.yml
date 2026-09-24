@@ -15,9 +15,17 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
+      - name: Require release signing key
+        env:
+          POCKET_AI_GATEWAY_RELEASE_SIGNING_KEY: ${{ secrets.POCKET_AI_GATEWAY_RELEASE_SIGNING_KEY }}
+        run: test -n "${POCKET_AI_GATEWAY_RELEASE_SIGNING_KEY:-}" || { echo 'Release signing key is not configured' >&2; exit 1; }
       - uses: actions/checkout@v5
       - uses: actions/setup-go@v6
         with: { go-version: 1.27.1, cache: true }
+      - name: Validate release signing key before build
+        env:
+          POCKET_AI_GATEWAY_RELEASE_SIGNING_KEY: ${{ secrets.POCKET_AI_GATEWAY_RELEASE_SIGNING_KEY }}
+        run: go run ./scripts/release-manifest --print-public-key >/dev/null
       - uses: pnpm/action-setup@v4
         with: { version: 10.30.3, run_install: false }
       - uses: actions/setup-node@v6
