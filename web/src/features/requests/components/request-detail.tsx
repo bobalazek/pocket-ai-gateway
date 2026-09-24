@@ -14,7 +14,7 @@ export function RequestDetail({ item, loading, error, onClose }: { item?: Gatewa
       ) : item ? (
         <Card className="panel section-block">
           <div className="resource-row-main">
-            <div>
+            <div className="grid gap-1">
               <p className="context">Request outcome</p>
               <h2 id="request-detail-heading">{item.model_id}</h2>
               <small>{item.dialect} · {item.operation} · {new Date(item.started_at).toLocaleString()}</small>

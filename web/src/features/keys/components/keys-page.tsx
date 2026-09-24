@@ -27,7 +27,7 @@ export default function KeysPage() {
           <div className="field"><Label htmlFor="expires_at">Expires</Label><Input id="expires_at" name="expires_at" type="datetime-local" /><small>Optional. Times use this browser&apos;s local timezone.</small></div>
 			<Button type="submit" disabled={issuing}>{issuing ? "Creating…" : "Create key"}</Button>
         </form></Card>
-        <section className="section-block"><div className="section-heading"><div><p className="context">Credentials</p><h2>{keys.length} keys</h2></div></div>
+        <section className="section-block"><div className="section-heading"><div><p className="context">Credentials</p><h2>{keys.length} {keys.length === 1 ? "key" : "keys"}</h2></div></div>
 			<div className="resource-list">{keys.map((key) => { const effectiveState = effectiveKeyState(key); return <Card className="resource-row" key={key.id}><div><strong>{key.label}</strong><small>{effectiveState} · {key.scopes.length} scopes · {key.model_patterns.length} model grants · {key.connection_ids.length} connections{key.expires_at ? ` · expires ${new Date(key.expires_at).toLocaleString()}` : ""}</small></div>{key.state !== "revoked" && <div className="row-actions">{effectiveState !== "expired" && <Button variant="outline" onClick={() => toggle(key)}>{key.state === "active" ? "Disable" : "Enable"}</Button>}{effectiveState === "active" && <Button variant="outline" disabled={issuing} onClick={() => rotate(key)}>Rotate</Button>}<Button variant="outline" onClick={() => revoke(key)}>Revoke</Button></div>}</Card>; })}</div>
 			{nextCursor && <Button variant="outline" disabled={loadingPage} onClick={() => loadPage(nextCursor, true)}>{loadingPage ? "Loading…" : "Next page"}</Button>}
         </section>
