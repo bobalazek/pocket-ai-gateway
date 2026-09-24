@@ -31,13 +31,19 @@ jobs:
         env:
           POCKET_AI_GATEWAY_RELEASE_SIGNING_KEY: ${{ secrets.POCKET_AI_GATEWAY_RELEASE_SIGNING_KEY }}
         run: go run ./scripts/release-manifest --version "$GITHUB_REF_NAME" --base-url "https://github.com/${GITHUB_REPOSITORY}/releases/download/${GITHUB_REF_NAME}" --directory dist/release
+      - name: Verify signed release artifacts
+        env:
+          POCKET_AI_GATEWAY_RELEASE_SIGNING_KEY: ${{ secrets.POCKET_AI_GATEWAY_RELEASE_SIGNING_KEY }}
+        run: |
+          public_key=$(go run ./scripts/release-manifest --print-public-key)
+          go run ./scripts/release-manifest --verify --version "$GITHUB_REF_NAME" --directory dist/release --public-key "$public_key"
       - uses: anchore/sbom-action@v0.24.2
         with:
           path: dist/release
           format: spdx-json
           output-file: dist/release/pocket-ai-gateway-${{ github.ref_name }}.spdx.json
       - name: Refresh checksums with SBOM
-        run: cd dist/release && sha256sum ./* | grep -v ' SHA256SUMS$' > SHA256SUMS
+        run: cd dist/release && sha256sum ./* | grep -v ' SHA256SUMS$' > SHA256SUMS && sha256sum --check SHA256SUMS
       - uses: actions/attest@v4
         with: { subject-path: "dist/release/*" }
       - uses: actions/upload-artifact@v5
@@ -48,6 +54,7 @@ jobs:
           retention-days: 1
 
   image:
+    needs: artifacts
     runs-on: ubuntu-latest
     timeout-minutes: 30
     outputs:
