@@ -96,7 +96,7 @@ Base URL: `/api/gemini/v1beta`.
 | Generated images | Native target only | Native `generateContent` image response parts pass through unchanged for capable Gemini models; no cross-provider image-wire translation is claimed |
 | Veo video generation | Constrained, gateway-owned lifecycle | Submitted and polled through `/api/v1/media/jobs` with fixed provider affinity, encrypted key-owned output, bounded retries, local cancellation, and honest unknown cost |
 | Cached content | Pending | Needs provider affinity, expiry, ownership, and cost accounting |
-| Files and resumable media upload | Pending | Needs upload limits, storage ownership, scanning, and cleanup |
+| Files and resumable media upload | Constrained, gateway-owned | SDK resumable start/upload/finalize (1–8 MiB), encrypted one-hour upload sessions, encrypted 48-hour key-owned Files, list/get/delete, and opaque local File URIs; up to four references/8 MiB combined are expanded under the 16 MiB request cap before native Gemini generation or token counting; Interactions, remote URIs, scanning, downloads, and provider-side Files are not supported |
 | Batch generation | Pending | Needs the shared durable-job contract |
 | Tuning, permissions, and corpora | Pending | Administrative/resource APIs need separate authorization and lifecycle design |
 | Thought signatures | Pending across translated paths | No opaque signature is stripped or fabricated |

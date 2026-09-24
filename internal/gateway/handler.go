@@ -144,6 +144,11 @@ func (handler *Handler) Register(mux *http.ServeMux) {
 	mux.HandleFunc("DELETE /api/anthropic/v1/messages/batches/{message_batch_id}", handler.deleteMessageBatch)
 	mux.HandleFunc("GET /api/anthropic/v1/messages/batches/{message_batch_id}/results", handler.messageBatchResults)
 	mux.HandleFunc("GET /api/gemini/v1beta/models", handler.geminiModels)
+	mux.HandleFunc("POST /api/gemini/upload/v1beta/files", handler.startGeminiFileUpload)
+	mux.HandleFunc("POST /api/gemini/upload/v1beta/files/{upload_id}", handler.uploadGeminiFileChunk)
+	mux.HandleFunc("GET /api/gemini/v1beta/files", handler.listGeminiFiles)
+	mux.HandleFunc("GET /api/gemini/v1beta/files/{file_id}", handler.getGeminiFile)
+	mux.HandleFunc("DELETE /api/gemini/v1beta/files/{file_id}", handler.deleteGeminiFile)
 	mux.HandleFunc("GET /api/gemini/v1beta/models/{model}", handler.geminiModel)
 	mux.HandleFunc("GET /api/gemini/v1beta/live", handler.geminiLive)
 	mux.HandleFunc("POST /api/gemini/v1beta/interactions", func(w http.ResponseWriter, r *http.Request) {

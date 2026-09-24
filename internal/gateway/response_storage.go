@@ -95,6 +95,11 @@ type responseQueryer interface {
 
 func checkRetainedResourceCapacity(ctx context.Context, query responseQueryer, ownerID, keyID string, incomingCount, incomingBytes int64) error {
 	var count, size, ownerCount, ownerSize, keyCount, keySize int64
+	now := time.Now().UnixMilli()
+	args := []any{ownerID, ownerID, keyID, keyID, maxInferenceBody}
+	for range 13 {
+		args = append(args, now)
+	}
 	err := query.QueryRowContext(ctx, `SELECT COUNT(*),COALESCE(SUM(size),0),
 		COALESCE(SUM(CASE WHEN owner_user_id=? THEN 1 ELSE 0 END),0),COALESCE(SUM(CASE WHEN owner_user_id=? THEN size ELSE 0 END),0),
 		COALESCE(SUM(CASE WHEN key_id=? THEN 1 ELSE 0 END),0),COALESCE(SUM(CASE WHEN key_id=? THEN size ELSE 0 END),0)
@@ -107,6 +112,10 @@ func checkRetainedResourceCapacity(ctx context.Context, query responseQueryer, o
 			FROM message_batch_items JOIN message_batches ON message_batches.id=message_batch_items.batch_id WHERE message_batches.expires_at>?
 			UNION ALL
 			SELECT owner_user_id,key_id,length(filename)+length(ciphertext)+length(nonce) AS size FROM openai_files WHERE expires_at>?
+			UNION ALL
+			SELECT owner_user_id,key_id,length(display_name)+length(mime_type)+length(ciphertext)+length(nonce) AS size FROM gemini_files WHERE expires_at>?
+			UNION ALL
+			SELECT owner_user_id,key_id,length(display_name)+length(mime_type)+expected_bytes+28 AS size FROM gemini_uploads WHERE status='pending' AND expires_at>?
 			UNION ALL
 			SELECT owner_user_id,key_id,length(filename)+length(mime_type)+expected_bytes+28 AS size FROM openai_uploads WHERE status='pending' AND expires_at>?
 			UNION ALL
@@ -127,7 +136,7 @@ func checkRetainedResourceCapacity(ctx context.Context, query responseQueryer, o
 			JOIN openai_vector_stores ON openai_vector_stores.id=openai_vector_store_files.vector_store_id
 			JOIN openai_files ON openai_files.id=openai_vector_store_files.file_id
 			WHERE (openai_vector_stores.expires_at IS NULL OR openai_vector_stores.expires_at>?) AND openai_files.expires_at>?
-		)`, ownerID, ownerID, keyID, keyID, maxInferenceBody, time.Now().UnixMilli(), time.Now().UnixMilli(), time.Now().UnixMilli(), time.Now().UnixMilli(), time.Now().UnixMilli(), time.Now().UnixMilli(), time.Now().UnixMilli(), time.Now().UnixMilli(), time.Now().UnixMilli(), time.Now().UnixMilli(), time.Now().UnixMilli()).Scan(&count, &size, &ownerCount, &ownerSize, &keyCount, &keySize)
+		)`, args...).Scan(&count, &size, &ownerCount, &ownerSize, &keyCount, &keySize)
 	if err != nil {
 		return err
 	}

@@ -361,6 +361,12 @@ func (service *Service) RunDue(ctx context.Context) error {
 	if _, err := service.store.SystemDB().ExecContext(ctx, `DELETE FROM openai_files WHERE expires_at < ?`, time.Now().UnixMilli()); err != nil {
 		return err
 	}
+	if _, err := service.store.SystemDB().ExecContext(ctx, `DELETE FROM gemini_uploads WHERE expires_at < ?`, time.Now().UnixMilli()); err != nil {
+		return err
+	}
+	if _, err := service.store.SystemDB().ExecContext(ctx, `DELETE FROM gemini_files WHERE expires_at < ?`, time.Now().UnixMilli()); err != nil {
+		return err
+	}
 	if _, err := service.store.SystemDB().ExecContext(ctx, `DELETE FROM openai_vector_stores WHERE expires_at IS NOT NULL AND expires_at < ?`, time.Now().UnixMilli()); err != nil {
 		return err
 	}
@@ -441,6 +447,16 @@ func (service *Service) RunRetention(ctx context.Context, actor string) (map[str
 		return nil, err
 	}
 	counts["openai_files"] = rowsAffected(result)
+	result, err = tx.ExecContext(ctx, `DELETE FROM gemini_uploads WHERE expires_at < ?`, time.Now().UnixMilli())
+	if err != nil {
+		return nil, err
+	}
+	counts["gemini_uploads"] = rowsAffected(result)
+	result, err = tx.ExecContext(ctx, `DELETE FROM gemini_files WHERE expires_at < ?`, time.Now().UnixMilli())
+	if err != nil {
+		return nil, err
+	}
+	counts["gemini_files"] = rowsAffected(result)
 	result, err = tx.ExecContext(ctx, `DELETE FROM openai_vector_stores WHERE expires_at IS NOT NULL AND expires_at < ?`, time.Now().UnixMilli())
 	if err != nil {
 		return nil, err

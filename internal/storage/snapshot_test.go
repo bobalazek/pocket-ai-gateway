@@ -166,6 +166,40 @@ func TestSnapshotRequiresMasterKeyForEncryptedFiles(t *testing.T) {
 	}
 }
 
+func TestSnapshotRequiresMasterKeyForGeminiFilesAndUploads(t *testing.T) {
+	for _, kind := range []string{"file", "upload"} {
+		t.Run(kind, func(t *testing.T) {
+			ctx := context.Background()
+			root := t.TempDir()
+			source := filepath.Join(root, "source")
+			store, err := Open(ctx, source)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if _, err := store.SystemDB().ExecContext(ctx, `INSERT INTO users(id,email,display_name,password_hash,role,status,inference_unrestricted,created_at,updated_at) VALUES('usr_gemini','gemini@example.test','Gemini','hash','owner','active',1,1,1)`); err != nil {
+				t.Fatal(err)
+			}
+			if _, err := store.SystemDB().ExecContext(ctx, `INSERT INTO api_keys(id,owner_user_id,label,state,scopes_json,created_at,updated_at) VALUES('key_gemini','usr_gemini','Gemini','active','[]',1,1)`); err != nil {
+				t.Fatal(err)
+			}
+			if kind == "file" {
+				_, err = store.SystemDB().ExecContext(ctx, `INSERT INTO gemini_files(id,owner_user_id,key_id,display_name,mime_type,bytes,ciphertext,nonce,created_at,expires_at) VALUES('gfile-test','usr_gemini','key_gemini','file.txt','text/plain',1,?,?,1,172800001)`, make([]byte, 17), make([]byte, 12))
+			} else {
+				_, err = store.SystemDB().ExecContext(ctx, `INSERT INTO gemini_uploads(id,owner_user_id,key_id,display_name,mime_type,expected_bytes,received_bytes,ciphertext,nonce,created_at,expires_at) VALUES('gupl_test','usr_gemini','key_gemini','file.txt','text/plain',1,1,?,?,1,3600001)`, make([]byte, 17), make([]byte, 12))
+			}
+			if err != nil {
+				t.Fatal(err)
+			}
+			if err := store.Close(); err != nil {
+				t.Fatal(err)
+			}
+			if _, err := CreateSnapshot(ctx, source, filepath.Join(root, "snapshot"), "test"); err == nil || !strings.Contains(err.Error(), "without master.key") {
+				t.Fatalf("snapshot without master key error = %v", err)
+			}
+		})
+	}
+}
+
 func TestRestoreFailureLeavesSourceUntouchedAndRejectsFutureSchema(t *testing.T) {
 	ctx := context.Background()
 	root := t.TempDir()

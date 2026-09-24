@@ -64,6 +64,7 @@ Each record states status/source, context, decision, and consequences. A recomme
 | ADR-056 | [Anthropic combined web search and fetch](2026-09-18-anthropic-combined-web-tools.md) | Delegated parity expansion extending ADR-020, ADR-032, ADR-054, and ADR-055 |
 | ADR-057 | [Anthropic prompt caching with hosted web tools](2026-09-18-anthropic-prompt-cache-web-tools.md) | Delegated parity expansion extending ADR-020, ADR-032, ADR-054, ADR-055, and ADR-056 |
 | ADR-058 | [Bounded PDF text parsing for Vector Stores](2026-09-24-vector-store-pdf-parsing.md) | Delegated parity expansion extending ADR-041, ADR-042, and ADR-049 |
+| ADR-061 | [Gateway-owned Gemini Files](2026-09-24-gateway-owned-gemini-files.md) | Delegated bounded SDK compatibility; native Gemini File references only |
 
 Historical: [initial proposal](2026-09-14-initial-proposal.md), superseded by the records above where they differ. Its A/P/D/M identifiers are historical references only; current documents use ADR IDs.
 

@@ -1,6 +1,7 @@
 package gateway
 
 import (
+	"bytes"
 	"context"
 	"crypto/sha256"
 	"database/sql"
@@ -28,6 +29,22 @@ func (handler *Handler) forward(response http.ResponseWriter, request *http.Requ
 	if err != nil {
 		handler.writeError(response, dialect, http.StatusRequestEntityTooLarge, "request_too_large", "Request body exceeds 16 MiB")
 		return
+	}
+	if dialect == "gemini" {
+		originalBody := body
+		body, err = handler.resolveGeminiFileReferences(request.Context(), principal.KeyID, upstreamPath, principalHasScope(principal.Scopes, geminiFileScope), body)
+		if err != nil {
+			var referenceError geminiReferenceError
+			if errors.As(err, &referenceError) {
+				handler.writeError(response, dialect, referenceError.status, "INVALID_ARGUMENT", referenceError.message)
+			} else {
+				handler.writeError(response, dialect, http.StatusServiceUnavailable, "UNAVAILABLE", "File reference could not be resolved")
+			}
+			return
+		}
+		if !bytes.Equal(originalBody, body) {
+			request = request.WithContext(context.WithValue(request.Context(), geminiFileReferenceContextKey{}, true))
+		}
 	}
 	handler.forwardAuthorized(response, request, dialect, scope, upstreamPath, publicIDOverride, streamOverride, principal, body)
 }
@@ -354,6 +371,9 @@ func (handler *Handler) forwardAuthorized(response http.ResponseWriter, request 
 			if target.RoutingStrategy == "lowest_cost" || target.FreeOnly {
 				return false, "cache_price_contract_unavailable"
 			}
+		}
+		if request.Context().Value(geminiFileReferenceContextKey{}) == true && !native {
+			return false, "gemini_file_native_required"
 		}
 		if eligible, reason := providers.StaticTargetEligibility(target, providers.StaticEligibilityInput{Dialect: dialect, Capability: requiredCapability, Operation: clientOperation, Streaming: stream, OpaqueMedia: opaqueMedia, ImageStreaming: imageStreamInput.stream}); !eligible {
 			return false, reason

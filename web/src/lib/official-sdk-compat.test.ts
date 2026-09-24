@@ -1,6 +1,9 @@
 import Anthropic from "@anthropic-ai/sdk";
 import { GoogleGenAI } from "@google/genai";
 import { spawn, type ChildProcess } from "node:child_process";
+import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { createInterface } from "node:readline";
 import OpenAI, { toFile } from "openai";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
@@ -953,6 +956,59 @@ describe("official SDK compatibility through the Go gateway", () => {
   it.each(models)("decodes Google Gen AI through %s", async (model) => {
     const result = await gemini().models.generateContent({ model, contents: "Hi" });
     expect(result.text).toBe("Hello");
+  });
+
+  it("uploads a key-owned Gemini File and expands it for generation and counting", async () => {
+    const client = gemini();
+    const uploaded = await client.files.upload({ file: new Blob(["sdk file"], { type: "text/plain" }), config: { displayName: "SDK note", mimeType: "text/plain" } });
+    expect(uploaded).toMatchObject({ mimeType: "text/plain", sizeBytes: "8", state: "ACTIVE" });
+    expect(uploaded.name).toMatch(/^files\/gfile-[a-f0-9]{32}$/);
+    expect(uploaded.uri).toMatch(/^pag-gemini:\/\/files\//);
+    expect((await client.files.get({ name: uploaded.name! })).name).toBe(uploaded.name);
+    const listed = [];
+    for await (const file of await client.files.list()) listed.push(file);
+    expect(listed.some((file) => file.name === uploaded.name)).toBe(true);
+    await expect(gemini(otherApiKey).files.get({ name: uploaded.name! })).rejects.toBeTruthy();
+    const contents = [{ role: "user", parts: [{ fileData: { fileUri: uploaded.uri!, mimeType: uploaded.mimeType! } }] }];
+    expect((await client.models.generateContent({ model: "target-gemini", contents })).text).toBe("Uploaded file seen");
+    expect((await client.models.countTokens({ model: "target-gemini", contents })).totalTokens).toBe(4);
+    await expect(client.models.generateContent({ model: "target-openai", contents })).rejects.toBeTruthy();
+    await expect(client.models.generateContent({ model: "target-gemini", contents: [{ role: "user", parts: [{ fileData: { fileUri: "https://example.com/file", mimeType: "text/plain" } }] }] })).rejects.toBeTruthy();
+    await expect(gemini(noFilesApiKey).files.upload({ file: new Blob(["x"], { type: "text/plain" }) })).rejects.toBeTruthy();
+    await client.files.delete({ name: uploaded.name! });
+    await expect(client.files.get({ name: uploaded.name! })).rejects.toBeTruthy();
+    await expect(client.models.generateContent({ model: "target-gemini", contents })).rejects.toBeTruthy();
+  });
+
+  it("accepts the Google Gen AI SDK's Node file-path upload", async () => {
+    const directory = await mkdtemp(join(tmpdir(), "pag-gemini-sdk-"));
+    const path = join(directory, "note.txt");
+    try {
+      await writeFile(path, "sdk file");
+      const client = gemini();
+      const uploaded = await client.files.upload({ file: path, config: { mimeType: "text/plain" } });
+      expect(uploaded).toMatchObject({ displayName: "note.txt", mimeType: "text/plain", sizeBytes: "8" });
+      await client.files.delete({ name: uploaded.name! });
+    } finally {
+      await rm(directory, { recursive: true, force: true });
+    }
+  });
+
+  it("supports parameterized Blob MIME types and key-scoped custom File names", async () => {
+    const first = gemini();
+    const second = gemini(otherApiKey);
+    const file = new Blob(["sdk file"], { type: "text/plain;charset=utf-8" });
+    const firstFile = await first.files.upload({ file, config: { name: "custom-sdk-note", displayName: "First note" } });
+    const secondFile = await second.files.upload({ file, config: { name: "files/custom-sdk-note", displayName: "Second note" } });
+    expect(firstFile).toMatchObject({ name: "files/custom-sdk-note", mimeType: "text/plain", displayName: "First note" });
+    expect(secondFile).toMatchObject({ name: "files/custom-sdk-note", mimeType: "text/plain", displayName: "Second note" });
+    expect((await first.files.get({ name: firstFile.name! })).displayName).toBe("First note");
+    expect((await second.files.get({ name: secondFile.name! })).displayName).toBe("Second note");
+    const contents = [{ role: "user", parts: [{ fileData: { fileUri: firstFile.uri!, mimeType: "text/plain;charset=utf-8" } }] }];
+    expect((await first.models.generateContent({ model: "target-gemini", contents })).text).toBe("Uploaded file seen");
+    await expect(first.files.upload({ file, config: { name: "files/custom-sdk-note" } })).rejects.toBeTruthy();
+    await first.files.delete({ name: firstFile.name! });
+    await second.files.delete({ name: secondFile.name! });
   });
 
   it("decodes a stateless Google Gen AI Interaction", async () => {
