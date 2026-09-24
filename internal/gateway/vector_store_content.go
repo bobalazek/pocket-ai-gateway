@@ -3,6 +3,7 @@ package gateway
 import (
 	"archive/zip"
 	"bytes"
+	"context"
 	"database/sql"
 	"encoding/binary"
 	"encoding/xml"
@@ -65,7 +66,7 @@ func (handler *Handler) vectorStoreFileContent(response http.ResponseWriter, req
 		handler.writeError(response, "openai", http.StatusServiceUnavailable, "gateway_unavailable", "Vector Store file content is unavailable")
 		return
 	}
-	chunks, err := vectorStoreContentChunks(file.Filename, content)
+	chunks, err := vectorStoreContentChunks(request.Context(), file.Filename, content)
 	if err != nil {
 		handler.writeError(response, "openai", http.StatusBadRequest, "unsupported_feature", err.Error())
 		return
@@ -74,7 +75,7 @@ func (handler *Handler) vectorStoreFileContent(response http.ResponseWriter, req
 	writeJSON(response, map[string]any{"object": "list", "data": chunks})
 }
 
-func vectorStoreContentChunks(filename string, content []byte) ([]vectorStoreContent, error) {
+func vectorStoreContentChunks(ctx context.Context, filename string, content []byte) ([]vectorStoreContent, error) {
 	lowerName := strings.ToLower(filename)
 	switch {
 	case strings.HasSuffix(lowerName, ".docx"):
@@ -102,7 +103,11 @@ func vectorStoreContentChunks(filename string, content []byte) ([]vectorStoreCon
 		}
 		content = text
 	case strings.HasSuffix(lowerName, ".pdf") || vectorStorePDFHeader(content):
-		return nil, errors.New("PDF content is not supported")
+		text, err := vectorStorePDFText(ctx, content)
+		if err != nil {
+			return nil, err
+		}
+		content = text
 	case strings.HasSuffix(lowerName, ".doc"), strings.HasSuffix(lowerName, ".ppt"), strings.HasSuffix(lowerName, ".xls"), bytes.HasPrefix(content, []byte{0xd0, 0xcf, 0x11, 0xe0, 0xa1, 0xb1, 0x1a, 0xe1}):
 		return nil, errors.New("legacy Office content is not supported")
 	}

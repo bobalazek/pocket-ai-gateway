@@ -131,7 +131,7 @@ func (handler *Handler) searchVectorStores(ctx context.Context, keyID string, st
 			if err != nil {
 				return nil, err
 			}
-			chunks, err := vectorStoreContentChunks(storedFile.Filename, content)
+			chunks, err := vectorStoreContentChunks(ctx, storedFile.Filename, content)
 			if err != nil {
 				return nil, fmt.Errorf("%w: %v", errVectorStoreSearchContent, err)
 			}

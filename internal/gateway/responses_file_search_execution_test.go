@@ -74,7 +74,7 @@ func TestResponsesFileSearchRunsLocalToolLoopAndAccountsAggregateUsage(t *testin
 	mux := http.NewServeMux()
 	handler.Register(mux)
 
-	upload := performFileUpload(t, mux, secret, "facts.txt", []byte("Pocket AI facts for gateway facts"), map[string]string{"purpose": "user_data"}, nil)
+	upload := performFileUpload(t, mux, secret, "facts.pdf", vectorStoreTestPDFFacts(), map[string]string{"purpose": "user_data"}, nil)
 	var file openAIFile
 	if upload.Code != http.StatusOK || json.Unmarshal(upload.Body.Bytes(), &file) != nil {
 		t.Fatalf("upload status=%d body=%s", upload.Code, upload.Body.String())
