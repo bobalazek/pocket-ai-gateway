@@ -11,7 +11,9 @@ export type RequestPriceProvenance = {
   id: string;
   source: string;
   input_usd_per_million: string;
+  cache_read_usd_per_million: string | null;
   output_usd_per_million: string;
+  web_search_usd_per_call: string | null;
   effective_from: string;
   effective_to: string | null;
 };

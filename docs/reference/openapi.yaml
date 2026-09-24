@@ -1836,12 +1836,14 @@ components:
         started_at: { type: string, format: date-time }
     RequestPrice:
       type: object
-      required: [id, source, input_usd_per_million, output_usd_per_million, effective_from, effective_to]
+      required: [id, source, input_usd_per_million, cache_read_usd_per_million, output_usd_per_million, web_search_usd_per_call, effective_from, effective_to]
       properties:
         id: { type: string }
         source: { type: string }
         input_usd_per_million: { type: string }
+        cache_read_usd_per_million: { type: [string, "null"] }
         output_usd_per_million: { type: string }
+        web_search_usd_per_call: { type: [string, "null"] }
         effective_from: { type: string, format: date-time }
         effective_to: { type: [string, "null"], format: date-time }
     RequestRecord:

@@ -10,12 +10,14 @@ import (
 )
 
 type RequestPrice struct {
-	ID                  string  `json:"id"`
-	Source              string  `json:"source"`
-	InputUSDPerMillion  string  `json:"input_usd_per_million"`
-	OutputUSDPerMillion string  `json:"output_usd_per_million"`
-	EffectiveFrom       string  `json:"effective_from"`
-	EffectiveTo         *string `json:"effective_to"`
+	ID                     string  `json:"id"`
+	Source                 string  `json:"source"`
+	InputUSDPerMillion     string  `json:"input_usd_per_million"`
+	OutputUSDPerMillion    string  `json:"output_usd_per_million"`
+	CacheReadUSDPerMillion *string `json:"cache_read_usd_per_million"`
+	WebSearchUSDPerCall    *string `json:"web_search_usd_per_call"`
+	EffectiveFrom          string  `json:"effective_from"`
+	EffectiveTo            *string `json:"effective_to"`
 }
 
 type RequestAttempt struct {
@@ -138,8 +140,8 @@ func (service *Service) ListRequests(ctx context.Context, actor auth.User, query
 	for index := range items {
 		attemptRows, err := tx.QueryContext(ctx, `SELECT
 			a.id,a.ordinal,a.connection_id,a.model_id,a.upstream_model_id,a.target_dialect,a.target_operation,a.translation_applied,a.request_tool_count,a.web_search_max_calls,a.web_search_call_count,a.response_tool_call_count,a.tool_call_status,a.selection_reason,a.rejected_candidates_json,a.state,a.usage_status,a.input_tokens,a.output_tokens,a.cache_creation_input_tokens,a.cache_read_input_tokens,a.cache_creation_5m_input_tokens,a.cache_creation_1h_input_tokens,a.estimated_cost_nanos,a.as_recorded_cost_nanos,assessment.amount_nanos,COALESCE(a.restated_cost_nanos,a.as_recorded_cost_nanos),a.started_at,
-			recorded.id,recorded.source,recorded.input_nanos_per_million,recorded.output_nanos_per_million,recorded.effective_from,recorded.effective_to,
-			restated.id,restated.source,restated.input_nanos_per_million,restated.output_nanos_per_million,restated.effective_from,restated.effective_to
+			recorded.id,recorded.source,recorded.input_nanos_per_million,recorded.output_nanos_per_million,recorded.cache_read_nanos_per_million,recorded.web_search_nanos_per_call,recorded.effective_from,recorded.effective_to,
+			restated.id,restated.source,restated.input_nanos_per_million,restated.output_nanos_per_million,restated.cache_read_nanos_per_million,restated.web_search_nanos_per_call,restated.effective_from,restated.effective_to
 			FROM attempts a
 			LEFT JOIN price_versions recorded ON recorded.id=a.price_version_id
 			LEFT JOIN cost_assessments assessment ON assessment.id=(SELECT id FROM cost_assessments WHERE attempt_id=a.id AND kind='restated' ORDER BY created_at DESC,id DESC LIMIT 1)
@@ -156,9 +158,9 @@ func (service *Service) ListRequests(ctx context.Context, actor auth.User, query
 			var rejected string
 			var webSearchMax, webSearchCount sql.NullInt64
 			var recordedID, recordedSource, restatedID, restatedSource sql.NullString
-			var recordedInput, recordedOutput, recordedFrom, recordedTo sql.NullInt64
-			var restatedInput, restatedOutput, restatedFrom, restatedTo sql.NullInt64
-			if err := attemptRows.Scan(&attempt.ID, &attempt.Ordinal, &attempt.ConnectionID, &attempt.ModelID, &attempt.UpstreamID, &attempt.TargetDialect, &attempt.TargetOperation, &attempt.TranslationApplied, &attempt.RequestToolCount, &webSearchMax, &webSearchCount, &attempt.ResponseToolCalls, &attempt.ToolCallStatus, &attempt.SelectionReason, &rejected, &attempt.State, &attempt.UsageStatus, &inputTokens, &outputTokens, &cacheCreation, &cacheRead, &cache5m, &cache1h, &estimatedCost, &recordedCost, &restatedCost, &effectiveCost, &started, &recordedID, &recordedSource, &recordedInput, &recordedOutput, &recordedFrom, &recordedTo, &restatedID, &restatedSource, &restatedInput, &restatedOutput, &restatedFrom, &restatedTo); err != nil {
+			var recordedInput, recordedOutput, recordedCacheRead, recordedWebSearch, recordedFrom, recordedTo sql.NullInt64
+			var restatedInput, restatedOutput, restatedCacheRead, restatedWebSearch, restatedFrom, restatedTo sql.NullInt64
+			if err := attemptRows.Scan(&attempt.ID, &attempt.Ordinal, &attempt.ConnectionID, &attempt.ModelID, &attempt.UpstreamID, &attempt.TargetDialect, &attempt.TargetOperation, &attempt.TranslationApplied, &attempt.RequestToolCount, &webSearchMax, &webSearchCount, &attempt.ResponseToolCalls, &attempt.ToolCallStatus, &attempt.SelectionReason, &rejected, &attempt.State, &attempt.UsageStatus, &inputTokens, &outputTokens, &cacheCreation, &cacheRead, &cache5m, &cache1h, &estimatedCost, &recordedCost, &restatedCost, &effectiveCost, &started, &recordedID, &recordedSource, &recordedInput, &recordedOutput, &recordedCacheRead, &recordedWebSearch, &recordedFrom, &recordedTo, &restatedID, &restatedSource, &restatedInput, &restatedOutput, &restatedCacheRead, &restatedWebSearch, &restatedFrom, &restatedTo); err != nil {
 				attemptRows.Close()
 				return nil, "", err
 			}
@@ -175,8 +177,8 @@ func (service *Service) ListRequests(ctx context.Context, actor auth.User, query
 			attempt.AsRecordedCostUSD = optionalUSD(recordedCost)
 			attempt.RestatedCostUSD = optionalUSD(restatedCost)
 			attempt.CostUSD = optionalUSD(effectiveCost)
-			attempt.RecordedPrice = requestPrice(recordedID, recordedSource, recordedInput, recordedOutput, recordedFrom, recordedTo)
-			attempt.RestatedPrice = requestPrice(restatedID, restatedSource, restatedInput, restatedOutput, restatedFrom, restatedTo)
+			attempt.RecordedPrice = requestPrice(recordedID, recordedSource, recordedInput, recordedOutput, recordedCacheRead, recordedWebSearch, recordedFrom, recordedTo)
+			attempt.RestatedPrice = requestPrice(restatedID, restatedSource, restatedInput, restatedOutput, restatedCacheRead, restatedWebSearch, restatedFrom, restatedTo)
 			attempt.StartedAt = timeString(started)
 			items[index].Attempts = append(items[index].Attempts, attempt)
 		}
@@ -206,16 +208,18 @@ func optionalUSD(value sql.NullInt64) *string {
 	return &formatted
 }
 
-func requestPrice(id, source sql.NullString, input, output, from, to sql.NullInt64) *RequestPrice {
+func requestPrice(id, source sql.NullString, input, output, cacheRead, webSearch, from, to sql.NullInt64) *RequestPrice {
 	if !id.Valid {
 		return nil
 	}
 	price := &RequestPrice{
-		ID:                  id.String,
-		Source:              source.String,
-		InputUSDPerMillion:  FormatUSD(input.Int64),
-		OutputUSDPerMillion: FormatUSD(output.Int64),
-		EffectiveFrom:       timeString(from.Int64),
+		ID:                     id.String,
+		Source:                 source.String,
+		InputUSDPerMillion:     FormatUSD(input.Int64),
+		OutputUSDPerMillion:    FormatUSD(output.Int64),
+		CacheReadUSDPerMillion: optionalUSD(cacheRead),
+		WebSearchUSDPerCall:    optionalUSD(webSearch),
+		EffectiveFrom:          timeString(from.Int64),
 	}
 	if to.Valid {
 		value := timeString(to.Int64)
