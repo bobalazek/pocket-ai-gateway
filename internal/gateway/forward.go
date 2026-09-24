@@ -60,6 +60,10 @@ func (handler *Handler) forwardAuthorized(response http.ResponseWriter, request 
 	if multipart, ok := multipartRequest(request); ok {
 		originalBodyBytes = int64(len(multipart.body))
 	}
+	if dialect == "anthropic" && (upstreamPath == "messages" || upstreamPath == "messages/count_tokens") && !uniqueJSONFields(body, 64) {
+		handler.writeError(response, dialect, http.StatusBadRequest, "invalid_request_error", "Invalid, duplicate, or excessively nested JSON fields")
+		return
+	}
 	requestToolCount := countRequestTools(dialect, body)
 	usesAnthropicFiles := false
 	var envelope map[string]json.RawMessage

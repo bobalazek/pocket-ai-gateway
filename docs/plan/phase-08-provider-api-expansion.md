@@ -45,6 +45,7 @@ No semantic cache, distributed coordinator, plugin marketplace, automatic prompt
 
 - Anthropic GA Files now offers bounded, encrypted, creating-key-owned upload/list/metadata/delete and the documented uploaded-content 400 response. PDF, UTF-8 text, and supported images may be referenced by the creating key in native Anthropic Messages or count-tokens requests, including nested tool-result history; raw provider file IDs are rejected before dispatch. References are capped at 32 and charged against the 16 MiB request and normal admission limits. Expired files are hidden and cleaned up by retention. This is a constrained GA SDK subset, not provider workspace storage or generated-file download support.
 - Local verification passed for the gateway, operations, and storage Go suites, affected-package vet/staticcheck, focused Anthropic Files race tests, dashboard typecheck, and the pinned Anthropic SDK 0.125.0 Files lifecycle/Message test. The Anthropic OpenAPI YAML parses. No credentialed live Anthropic request was run.
+- Duplicate JSON keys and excessive nesting in Messages, count-tokens, and Message Batch params now fail before local File lookup or provider dispatch. Focused cross-key/nested regression tests first reproduced upstream dispatch, then passed with zero upstream calls; the full gateway suite, focused race check, and gateway vet passed locally. No GitHub workflow or billable provider was used.
 
 ## Incremental Gemini Files evidence — 2026-09-24
 

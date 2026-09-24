@@ -166,7 +166,7 @@ func validateMessageBatchParams(raw json.RawMessage) error {
 
 func validateMessageBatchParamsObject(raw json.RawMessage) error {
 	var value map[string]json.RawMessage
-	if json.Unmarshal(raw, &value) != nil || value == nil {
+	if !uniqueJSONFields(raw, 64) || json.Unmarshal(raw, &value) != nil || value == nil {
 		return errors.New("each params value must be a JSON object")
 	}
 	return nil
