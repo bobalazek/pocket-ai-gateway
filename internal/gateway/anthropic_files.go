@@ -13,6 +13,7 @@ import (
 	"strconv"
 	"strings"
 	"time"
+	"unicode"
 	"unicode/utf8"
 
 	"github.com/bobalazek/pocket-ai-gateway/internal/credentials"
@@ -23,6 +24,8 @@ const (
 	maxAnthropicFileBytes      = 8 << 20 // Inline references must fit the 16 MiB Messages limit.
 	maxAnthropicUploadBody     = 9 << 20
 	maxAnthropicFileReferences = 32
+	maxAnthropicContentBlocks  = 16384
+	maxAnthropicContentDepth   = 16
 	defaultAnthropicFileExpiry = 30 * 24 * time.Hour
 )
 
@@ -141,7 +144,7 @@ func parseAnthropicUpload(body io.Reader, contentType string) (string, string, [
 		switch part.FormName() {
 		case "file":
 			filename = part.FileName()
-			if len(filename) > 255 || !validFileName(filename) || strings.ContainsAny(filename, `<>:"|?*`) {
+			if len(filename) > 255 || !validFileName(filename) || strings.ContainsAny(filename, `<>:"|?*`) || strings.IndexFunc(filename, unicode.IsControl) >= 0 {
 				return "", "", nil, 0, errors.New("file must have a safe filename of at most 255 bytes")
 			}
 			content, err = io.ReadAll(io.LimitReader(part, maxAnthropicFileBytes+1))
@@ -365,88 +368,24 @@ func (handler *Handler) expandAnthropicFileReferences(ctx context.Context, keyID
 	if err := json.Unmarshal(envelope["messages"], &messages); err != nil || messages == nil {
 		return nil, nil // Existing Messages validation owns malformed requests.
 	}
+	expansion := anthropicFileExpansion{handler: handler, ctx: ctx, keyID: keyID, canUseFiles: canUseFiles, estimatedBytes: originalBodyBytes}
+	defer func() {
+		if expansion.locked {
+			handler.releaseFileTransfer()
+		}
+	}()
+	if _, _, err := expansion.expandBlocks(envelope["system"], 0, false); err != nil {
+		return nil, err
+	}
 	changed := false
-	locked := false
-	references := 0
-	estimatedExpandedBytes := originalBodyBytes
 	for _, message := range messages {
-		var blocks []map[string]json.RawMessage
-		if json.Unmarshal(message["content"], &blocks) != nil {
-			continue
+		content, expanded, err := expansion.expandBlocks(message["content"], 0, true)
+		if err != nil {
+			return nil, err
 		}
-		for _, block := range blocks {
-			var kind string
-			_ = json.Unmarshal(block["type"], &kind)
-			if kind == "container_upload" {
-				return nil, errors.New("container_upload files are not supported")
-			}
-			var source map[string]json.RawMessage
-			if json.Unmarshal(block["source"], &source) != nil {
-				continue
-			}
-			var sourceType string
-			_ = json.Unmarshal(source["type"], &sourceType)
-			if sourceType != "file" {
-				continue
-			}
-			references++
-			if references > maxAnthropicFileReferences {
-				return nil, errors.New("messages request has too many file references")
-			}
-			if kind != "document" && kind != "image" {
-				return nil, errors.New("file source requires a document or image block")
-			}
-			if !canUseFiles {
-				return nil, errAnthropicFileForbidden
-			}
-			if !locked {
-				select {
-				case handler.fileTransfers <- struct{}{}:
-					defer handler.releaseFileTransfer()
-					locked = true
-				default:
-					return nil, errAnthropicFileBusy
-				}
-			}
-			var id string
-			if json.Unmarshal(source["file_id"], &id) != nil || id == "" {
-				return nil, errors.New("file source requires file_id")
-			}
-			item, content, err := handler.readAnthropicFile(ctx, keyID, id, true)
-			if errors.Is(err, sql.ErrNoRows) {
-				return nil, errAnthropicFileUnavailable
-			}
-			if err != nil {
-				return nil, errAnthropicFileStorage
-			}
-			if kind == "document" && item.MimeType != "application/pdf" && item.MimeType != "text/plain" || kind == "image" && !strings.HasPrefix(item.MimeType, "image/") {
-				return nil, errors.New("file type does not match content block")
-			}
-			inlineBytes := base64.StdEncoding.EncodedLen(len(content))
-			if item.MimeType == "text/plain" {
-				inlineBytes = len(content)
-			}
-			// Charge the whole inline payload before encoding. This conservative estimate
-			// bounds repeated IDs and avoids allocating a large intermediate request.
-			if inlineBytes > maxInferenceBody-estimatedExpandedBytes {
-				return nil, errAnthropicExpandedTooLarge
-			}
-			estimatedExpandedBytes += inlineBytes
-			var data string
-			if item.MimeType == "text/plain" {
-				sourceType, data = "text", string(content)
-			} else {
-				sourceType, data = "base64", base64.StdEncoding.EncodeToString(content)
-			}
-			source = make(map[string]json.RawMessage, 3)
-			source["type"], _ = json.Marshal(sourceType)
-			source["media_type"], _ = json.Marshal(item.MimeType)
-			source["data"], _ = json.Marshal(data)
-			block["source"], _ = json.Marshal(source)
+		if expanded {
+			message["content"] = content
 			changed = true
-		}
-		if changed {
-			message["content"], _ = json.Marshal(blocks)
 		}
 	}
 	if !changed {
@@ -458,4 +397,127 @@ func (handler *Handler) expandAnthropicFileReferences(ctx context.Context, keyID
 		return nil, errAnthropicExpandedTooLarge
 	}
 	return body, nil
+}
+
+type anthropicFileExpansion struct {
+	handler        *Handler
+	ctx            context.Context
+	keyID          string
+	canUseFiles    bool
+	estimatedBytes int
+	references     int
+	blocks         int
+	locked         bool
+}
+
+func (expansion *anthropicFileExpansion) expandBlocks(raw json.RawMessage, depth int, allowReferences bool) (json.RawMessage, bool, error) {
+	if depth > maxAnthropicContentDepth {
+		return nil, false, errors.New("messages content is nested too deeply")
+	}
+	var blocks []map[string]json.RawMessage
+	if json.Unmarshal(raw, &blocks) != nil || blocks == nil {
+		return raw, false, nil // String content and malformed content remain with Messages validation.
+	}
+	changed := false
+	for _, block := range blocks {
+		expansion.blocks++
+		if expansion.blocks > maxAnthropicContentBlocks {
+			return nil, false, errors.New("messages content has too many blocks")
+		}
+		var kind string
+		_ = json.Unmarshal(block["type"], &kind)
+		if kind == "container_upload" {
+			return nil, false, errors.New("container_upload files are not supported")
+		}
+		if _, present := block["file_id"]; present {
+			return nil, false, errors.New("provider file_id fields are not supported")
+		}
+		var source map[string]json.RawMessage
+		if json.Unmarshal(block["source"], &source) == nil && source != nil {
+			var sourceType string
+			_ = json.Unmarshal(source["type"], &sourceType)
+			if sourceType == "file" {
+				if !allowReferences {
+					return nil, false, errors.New("file references are supported only in messages content")
+				}
+				rewritten, err := expansion.expandSource(kind, source)
+				if err != nil {
+					return nil, false, err
+				}
+				block["source"] = rewritten
+				changed = true
+			} else if _, present := source["file_id"]; present {
+				return nil, false, errors.New("provider file_id fields are not supported")
+			}
+		}
+		if kind == "tool_result" {
+			nested, nestedChanged, err := expansion.expandBlocks(block["content"], depth+1, allowReferences)
+			if err != nil {
+				return nil, false, err
+			}
+			if nestedChanged {
+				block["content"] = nested
+				changed = true
+			}
+		}
+	}
+	if !changed {
+		return raw, false, nil
+	}
+	encoded, err := json.Marshal(blocks)
+	return encoded, true, err
+}
+
+func (expansion *anthropicFileExpansion) expandSource(kind string, source map[string]json.RawMessage) (json.RawMessage, error) {
+	expansion.references++
+	if expansion.references > maxAnthropicFileReferences {
+		return nil, errors.New("messages request has too many file references")
+	}
+	if kind != "document" && kind != "image" {
+		return nil, errors.New("file source requires a document or image block")
+	}
+	if !expansion.canUseFiles {
+		return nil, errAnthropicFileForbidden
+	}
+	if !expansion.locked {
+		select {
+		case expansion.handler.fileTransfers <- struct{}{}:
+			expansion.locked = true
+		default:
+			return nil, errAnthropicFileBusy
+		}
+	}
+	var id string
+	if json.Unmarshal(source["file_id"], &id) != nil || id == "" {
+		return nil, errors.New("file source requires file_id")
+	}
+	item, content, err := expansion.handler.readAnthropicFile(expansion.ctx, expansion.keyID, id, true)
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil, errAnthropicFileUnavailable
+	}
+	if err != nil {
+		return nil, errAnthropicFileStorage
+	}
+	if kind == "document" && item.MimeType != "application/pdf" && item.MimeType != "text/plain" || kind == "image" && !strings.HasPrefix(item.MimeType, "image/") {
+		return nil, errors.New("file type does not match content block")
+	}
+	inlineBytes := base64.StdEncoding.EncodedLen(len(content))
+	if item.MimeType == "text/plain" {
+		inlineBytes = len(content)
+	}
+	if inlineBytes > maxInferenceBody-expansion.estimatedBytes {
+		return nil, errAnthropicExpandedTooLarge
+	}
+	expansion.estimatedBytes += inlineBytes
+	var sourceType, data string
+	if item.MimeType == "text/plain" {
+		sourceType, data = "text", string(content)
+	} else {
+		sourceType, data = "base64", base64.StdEncoding.EncodeToString(content)
+	}
+	rewritten := make(map[string]json.RawMessage, 3)
+	rewritten["type"], _ = json.Marshal(sourceType)
+	rewritten["media_type"], _ = json.Marshal(item.MimeType)
+	rewritten["data"], _ = json.Marshal(data)
+	return json.Marshal(rewritten)
 }

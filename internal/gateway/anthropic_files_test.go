@@ -184,6 +184,7 @@ func TestAnthropicFilesValidateUploadsAndPagination(t *testing.T) {
 		status                         int
 	}{
 		{"wrong.pdf", "application/pdf", "plain text", "", http.StatusBadRequest},
+		{"bad\tname.txt", "text/plain", "hello", "", http.StatusBadRequest},
 		{"binary.bin", "application/octet-stream", "\x00\x01", "", http.StatusBadRequest},
 		{"data.txt", "text/plain", "hello", "3599", http.StatusBadRequest},
 		{"data.txt", "text/plain", "hello", "7776001", http.StatusBadRequest},
@@ -213,6 +214,68 @@ func TestAnthropicFilesValidateUploadsAndPagination(t *testing.T) {
 	oversized := performAnthropicFileRequest(t, mux, http.MethodPost, "/api/anthropic/v1/messages", secret, strings.NewReader(message), "application/json")
 	if oversized.Code != http.StatusRequestEntityTooLarge {
 		t.Fatalf("expanded size status=%d body=%s", oversized.Code, oversized.Body.String())
+	}
+}
+
+func TestAnthropicFilesNestedReferencesStayKeyScopedAndNative(t *testing.T) {
+	var anthropicCalls, openAICalls atomic.Int64
+	var forwarded []byte
+	anthropicUpstream := httptest.NewServer(http.HandlerFunc(func(response http.ResponseWriter, request *http.Request) {
+		anthropicCalls.Add(1)
+		forwarded, _ = io.ReadAll(request.Body)
+		_, _ = io.WriteString(response, `{"id":"msg_nested","type":"message","role":"assistant","model":"claude-upstream","content":[{"type":"text","text":"done"}],"stop_reason":"end_turn","usage":{"input_tokens":3,"output_tokens":1}}`)
+	}))
+	defer anthropicUpstream.Close()
+	openAIUpstream := httptest.NewServer(http.HandlerFunc(func(response http.ResponseWriter, _ *http.Request) {
+		openAICalls.Add(1)
+		_, _ = io.WriteString(response, `{"id":"chatcmpl_1","object":"chat.completion","choices":[{"index":0,"message":{"role":"assistant","content":"unexpected"},"finish_reason":"stop"}]}`)
+	}))
+	defer openAIUpstream.Close()
+	ctx, store, owner, keyService, providerService, usageService := gatewayFixture(t)
+	defer store.Close()
+	anthropicConnection, anthropicModel := publishModel(t, ctx, providerService, owner, "anthropic", anthropicUpstream.URL+"/v1", "claude-upstream", []string{"chat"})
+	openAIConnection, openAIModel := publishModel(t, ctx, providerService, owner, "openai", openAIUpstream.URL+"/v1", "gpt-upstream", []string{"chat"})
+	_, secret, err := keyService.Create(ctx, owner.ID, keys.Input{Label: "Nested Files", Scopes: []string{"files:manage", "chat:generate"}, ModelPatterns: []string{anthropicModel.ID, openAIModel.ID}, ConnectionIDs: []string{anthropicConnection.ID, openAIConnection.ID}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	mux := http.NewServeMux()
+	NewWithMasterKey(store.SystemDB(), keyService, providerService, usageService, bytes.Repeat([]byte{9}, 32)).Register(mux)
+	upload := performAnthropicFileUpload(t, mux, secret, "nested.txt", "text/plain", []byte("nested document"), "")
+	var file anthropicFile
+	if upload.Code != http.StatusOK || json.Unmarshal(upload.Body.Bytes(), &file) != nil {
+		t.Fatalf("upload status=%d body=%s", upload.Code, upload.Body.String())
+	}
+	nestedMessage := func(model, id string) string {
+		return fmt.Sprintf(`{"model":%q,"max_tokens":8,"messages":[{"role":"user","content":[{"type":"tool_result","tool_use_id":"toolu_1","content":[{"type":"document","source":{"type":"file","file_id":%q}}]}]}]}`, model, id)
+	}
+	path := "/api/anthropic/v1/messages"
+	if result := performAnthropicFileRequest(t, mux, http.MethodPost, path, secret, strings.NewReader(nestedMessage(anthropicModel.ID, "file_upstream_workspace")), "application/json"); result.Code != http.StatusNotFound || anthropicCalls.Load() != 0 {
+		t.Fatalf("raw nested ID status=%d upstream=%d body=%s", result.Code, anthropicCalls.Load(), result.Body.String())
+	}
+	if result := performAnthropicFileRequest(t, mux, http.MethodPost, path, secret, strings.NewReader(nestedMessage(anthropicModel.ID, file.ID)), "application/json"); result.Code != http.StatusOK || anthropicCalls.Load() != 1 {
+		t.Fatalf("nested local ID status=%d upstream=%d body=%s", result.Code, anthropicCalls.Load(), result.Body.String())
+	}
+	var sent map[string]any
+	if json.Unmarshal(forwarded, &sent) != nil {
+		t.Fatalf("forwarded=%s", forwarded)
+	}
+	nestedSource := sent["messages"].([]any)[0].(map[string]any)["content"].([]any)[0].(map[string]any)["content"].([]any)[0].(map[string]any)["source"].(map[string]any)
+	if nestedSource["type"] != "text" || nestedSource["data"] != "nested document" || nestedSource["file_id"] != nil {
+		t.Fatalf("nested source=%v", nestedSource)
+	}
+	for _, block := range []string{`{"type":"bash_code_execution_output","file_id":"file_upstream_workspace"}`, `{"type":"container_upload","file_id":"file_upstream_workspace"}`} {
+		message := fmt.Sprintf(`{"model":%q,"max_tokens":8,"messages":[{"role":"user","content":[{"type":"tool_result","tool_use_id":"toolu_1","content":[%s]}]}]}`, anthropicModel.ID, block)
+		if result := performAnthropicFileRequest(t, mux, http.MethodPost, path, secret, strings.NewReader(message), "application/json"); result.Code != http.StatusBadRequest || anthropicCalls.Load() != 1 {
+			t.Fatalf("unsupported nested ID status=%d upstream=%d body=%s", result.Code, anthropicCalls.Load(), result.Body.String())
+		}
+	}
+	unrelated := fmt.Sprintf(`{"model":%q,"max_tokens":8,"messages":[{"role":"assistant","content":[{"type":"tool_use","id":"toolu_1","name":"lookup","input":{"file_id":"application-data"}}]}]}`, anthropicModel.ID)
+	if result := performAnthropicFileRequest(t, mux, http.MethodPost, path, secret, strings.NewReader(unrelated), "application/json"); result.Code != http.StatusOK || anthropicCalls.Load() != 2 {
+		t.Fatalf("unrelated input status=%d upstream=%d body=%s", result.Code, anthropicCalls.Load(), result.Body.String())
+	}
+	if result := performAnthropicFileRequest(t, mux, http.MethodPost, path, secret, strings.NewReader(nestedMessage(openAIModel.ID, file.ID)), "application/json"); result.Code != http.StatusNotFound || openAICalls.Load() != 0 {
+		t.Fatalf("translated file status=%d openai=%d body=%s", result.Code, openAICalls.Load(), result.Body.String())
 	}
 }
 
