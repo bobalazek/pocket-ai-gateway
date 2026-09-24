@@ -18,13 +18,31 @@ Select an image to open the full-resolution capture.
 
 ### Traffic and cost
 
-| Overview | Usage and limits |
+| Overview | Analytics |
 | --- | --- |
-| [![Full desktop overview with synthetic request and spend totals](../images/demo-page-overview.png)](../images/demo-page-overview.png)<br>The home screen summarizes requests and known example spend. | [![Full desktop usage page with synthetic charts and cost data](../images/demo-page-usage.png)](../images/demo-page-usage.png)<br>Daily charts, cache use, and versioned prices explain the fixture's accounting. |
+| [![Full desktop overview with synthetic request and spend totals](../images/demo-page-overview.png)](../images/demo-page-overview.png)<br>The home screen summarizes requests and known example spend. | [![Full desktop analytics page with per-key, model, and provider charts](../images/demo-page-analytics.png)](../images/demo-page-analytics.png)<br>Shared filters and ranked charts compare traffic, known spend, tokens, outcomes, and gateway duration. |
 
-| Request history | Request detail |
+### Analytics close-ups
+
+| Daily traffic and spend | API keys |
 | --- | --- |
-| [![Full desktop request history with synthetic gateway traffic](../images/demo-page-requests.png)](../images/demo-page-requests.png)<br>The list shows traffic generated through the gateway and local mock provider. | [![Full desktop request detail with attempts and token accounting](../images/demo-page-request-detail.png)](../images/demo-page-request-detail.png)<br>A request detail traces attempts, token use, and its example cost. |
+| [![Daily requests, tokens, cost, and cache charts](../images/demo-analytics-traffic.png)](../images/demo-analytics-traffic.png) | [![Requests, known spend, tokens, latency, and cache use by API key](../images/demo-analytics-api-keys.png)](../images/demo-analytics-api-keys.png) |
+
+| Users | Models |
+| --- | --- |
+| [![Requests and known spend by user](../images/demo-analytics-users.png)](../images/demo-analytics-users.png) | [![Requests, known spend, and gateway latency by model](../images/demo-analytics-models.png)](../images/demo-analytics-models.png) |
+
+| Providers | Protocols, operations, and outcomes |
+| --- | --- |
+| [![Provider request, cost, latency, and failed-attempt charts](../images/demo-analytics-providers.png)](../images/demo-analytics-providers.png) | [![Protocol, operation, and outcome charts](../images/demo-analytics-operations.png)](../images/demo-analytics-operations.png) |
+
+| Usage and limits | Request history |
+| --- | --- |
+| [![Full desktop usage page with synthetic charts and cost data](../images/demo-page-usage.png)](../images/demo-page-usage.png)<br>Daily accounting, limits, and versioned prices explain the fixture's cost. | [![Full desktop request history with synthetic gateway traffic](../images/demo-page-requests.png)](../images/demo-page-requests.png)<br>The list shows traffic generated through the gateway and local mock provider. |
+
+| Request detail |
+| --- |
+| [![Full desktop request detail with attempts and token accounting](../images/demo-page-request-detail.png)](../images/demo-page-request-detail.png)<br>A request detail traces attempts, token use, and its example cost. |
 
 ### Gateway setup
 
@@ -62,7 +80,7 @@ The same demo at 390 pixels wide, with complete pages rather than cropped viewpo
 | --- | --- |
 | [![Full mobile overview page](../images/demo-mobile-overview.png)](../images/demo-mobile-overview.png) | [![Full mobile status page](../images/demo-mobile-status.png)](../images/demo-mobile-status.png) |
 
-The [full mobile usage page](../images/demo-mobile-usage.png) and [full mobile request list](../images/demo-mobile-requests.png) are long, so open them at full size.
+The [full mobile analytics page](../images/demo-mobile-analytics.png), [usage page](../images/demo-mobile-usage.png), and [request list](../images/demo-mobile-requests.png) are long, so open them at full size.
 
 ## Isolation and cleanup
 
@@ -78,6 +96,6 @@ go test ./scripts/demo -count=1
 
 The test checks loopback-only seeded endpoints, successful sign-in, request/token/cost totals, seven daily buckets, projected history, temporary-directory cleanup, and that an existing operator directory stays untouched.
 
-Verified September 24, 2026: the rebuilt single executable served the disposable demo and all 18 full-page captures above. The capture script checked populated pages, headings, runtime status, PNG dimensions, and horizontal overflow at 1440- and 390-pixel widths. The local quick verification gate passed. The demo has no external provider credentials or media jobs; its backup warning reflects the absence of a demo backup key.
+All 20 full-page and six analytics close-up captures were regenerated and verified September 24, 2026. The browser check confirmed populated pages and charts, a key-filtered request link after Refresh, headings, runtime status, PNG dimensions, and no horizontal overflow at 1440- and 390-pixel widths. The demo has no external provider credentials or media jobs; its backup warning reflects the absence of a demo backup key.
 
 To reproduce the gallery, start `./scripts/demo.sh`, then run `PAG_DEMO_PASSWORD=<printed temporary password> node scripts/capture-demo-screenshots.mjs`. The [capture manifest](../images/demo-screenshots.json) records each image's viewport and full-page height.

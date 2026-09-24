@@ -11,7 +11,7 @@ Pocket AI Gateway uses an embedded, local-first administration dashboard built w
 
 ## Application shell
 
-Desktop uses a 248-pixel dark sidebar and a wide content column. Page headers are compact so data appears in the first viewport. Keep Overview, Status, Users, Providers, Models, API keys, Requests, Usage, Audit, and Settings in stable order according to role. The signed-in account belongs at the bottom and opens email, password, session, and logout controls.
+Desktop uses a 248-pixel dark sidebar and a wide content column. Page headers are compact so data appears in the first viewport. Keep Overview, Status, Users, Providers, Models, API keys, Requests, Analytics, Usage, Audit, and Settings in stable order according to role. The signed-in account belongs at the bottom and opens email, password, session, and logout controls.
 
 At 900 pixels and below, collapse the sidebar into a compact header with a labelled Lucide menu/close control and native keyboard-accessible disclosure panel. Content becomes a single column, primary actions remain visible, and pages must work at 360, 768, and 1280 pixels without horizontal scrolling.
 
@@ -21,7 +21,7 @@ Add reusable UI primitives under `web/src/components/ui` through the configured 
 
 All browser API calls go through `web/src/lib/api-client.ts` or a feature client built on it. Components do not call `fetch` directly. The client keeps same-origin credentials, CSRF, abort, error, and no-retry behavior consistent.
 
-Overview leads with readiness, period metrics, daily request volume, and recent requests. Usage leads with token and spend trends, then a daily breakdown; advanced filters and price/limit controls follow. Charts use the shadcn Chart component with Recharts v3. Every chart needs an accessible layer, a readable text summary or table, explicit units and periods, and non-color-only series labels. Requests use comparable rows; full attempts and cost provenance belong in the detail view.
+Overview leads with readiness, period metrics, daily request volume, and recent requests. Analytics compares traffic, known spend, tokens, failure counts, and whole-gateway duration by API key, user, public model, provider connection, protocol, operation, and outcome. Its period and entity filters share the URL with deep links into request history; unknown cost and retained history remain explicit. Usage holds effective limits, price versions, reconciliation, and detailed daily accounting. Charts use the shadcn Chart component with Recharts v3. Every chart needs an accessible layer, a readable text summary or table, explicit units and periods, and non-color-only series labels. Requests use comparable rows; full attempts and cost provenance belong in the detail view.
 
 ## Interaction and content
 

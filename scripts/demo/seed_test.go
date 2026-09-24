@@ -48,6 +48,10 @@ func TestDemoSeedIsDisposableAndPopulatesUsage(t *testing.T) {
 	if err := demo.store.DataDB().QueryRowContext(ctx, "SELECT SUM(requests) FROM usage_daily").Scan(&projected); err != nil || projected != 124 {
 		t.Fatalf("projected requests: %d, %v", projected, err)
 	}
+	var keysAcrossModels int
+	if err := demo.store.SystemDB().QueryRowContext(ctx, "SELECT COUNT(*) FROM (SELECT key_id FROM requests GROUP BY key_id HAVING COUNT(DISTINCT model_id) > 1)").Scan(&keysAcrossModels); err != nil || keysAcrossModels != 3 {
+		t.Fatalf("demo key/model diversity: %d, %v", keysAcrossModels, err)
+	}
 	if _, _, err := auth.New(demo.store.SystemDB()).Login(ctx, auth.LoginInput{Email: demo.owner.Email, Password: demo.password, Source: "127.0.0.1"}); err != nil {
 		t.Fatalf("demo login: %v", err)
 	}
