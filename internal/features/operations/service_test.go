@@ -241,6 +241,9 @@ func TestConfigPreviewRejectsUnsafeProviderAndRetentionPreservesEnforcement(t *t
 	if _, err := store.SystemDB().ExecContext(ctx, `INSERT INTO openai_files(id,owner_user_id,key_id,filename,purpose,bytes,ciphertext,nonce,created_at,expires_at) VALUES('file_old','usr_owner','key_old','old.jsonl','batch',0,?,?,0,3600000)`, make([]byte, 16), make([]byte, 12)); err != nil {
 		t.Fatal(err)
 	}
+	if _, err := store.SystemDB().ExecContext(ctx, `INSERT INTO anthropic_files(id,owner_user_id,key_id,filename,mime_type,size_bytes,ciphertext,nonce,created_at,expires_at) VALUES('afile_old','usr_owner','key_old','old.txt','text/plain',1,?,?,0,3600000)`, make([]byte, 17), make([]byte, 12)); err != nil {
+		t.Fatal(err)
+	}
 	if _, err := store.SystemDB().ExecContext(ctx, `INSERT INTO openai_vector_stores(id,owner_user_id,key_id,name,metadata_json,created_at,last_active_at,expires_after_days,expires_at) VALUES('vs_old','usr_owner','key_old','Old','{}',0,0,1,86400000)`); err != nil {
 		t.Fatal(err)
 	}
@@ -275,6 +278,9 @@ func TestConfigPreviewRejectsUnsafeProviderAndRetentionPreservesEnforcement(t *t
 	}
 	if retentionCounts["openai_files"] != 1 {
 		t.Fatalf("retained OpenAI file count = %d", retentionCounts["openai_files"])
+	}
+	if retentionCounts["anthropic_files"] != 1 {
+		t.Fatalf("retained Anthropic file count = %d", retentionCounts["anthropic_files"])
 	}
 	if retentionCounts["openai_vector_stores"] != 1 {
 		t.Fatalf("retained OpenAI Vector Store count = %d", retentionCounts["openai_vector_stores"])

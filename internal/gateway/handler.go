@@ -131,6 +131,11 @@ func (handler *Handler) Register(mux *http.ServeMux) {
 	mux.HandleFunc("GET /api/openai/v1/live", handler.live)
 	mux.HandleFunc("GET /api/anthropic/v1/models", handler.anthropicModels)
 	mux.HandleFunc("GET /api/anthropic/v1/models/{model}", handler.anthropicModel)
+	mux.HandleFunc("POST /api/anthropic/v1/files", handler.createAnthropicFile)
+	mux.HandleFunc("GET /api/anthropic/v1/files", handler.listAnthropicFiles)
+	mux.HandleFunc("GET /api/anthropic/v1/files/{file_id}", handler.getAnthropicFile)
+	mux.HandleFunc("DELETE /api/anthropic/v1/files/{file_id}", handler.deleteAnthropicFile)
+	mux.HandleFunc("GET /api/anthropic/v1/files/{file_id}/content", handler.anthropicFileContent)
 	mux.HandleFunc("POST /api/anthropic/v1/messages", func(w http.ResponseWriter, r *http.Request) {
 		handler.forward(w, r, "anthropic", "chat:generate", "messages", "", nil)
 	})
