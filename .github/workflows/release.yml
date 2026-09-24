@@ -51,7 +51,7 @@ jobs:
           format: spdx-json
           output-file: dist/release/pocket-ai-gateway-${{ github.ref_name }}.spdx.json
       - name: Refresh checksums with SBOM
-        run: cd dist/release && sha256sum ./* | grep -v ' SHA256SUMS$' > SHA256SUMS && sha256sum --check SHA256SUMS
+        run: cd dist/release && rm -f SHA256SUMS && sha256sum ./* > SHA256SUMS && sha256sum --check SHA256SUMS
       - uses: actions/attest@v4
         with: { subject-path: "dist/release/*" }
       - uses: actions/upload-artifact@v5

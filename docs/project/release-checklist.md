@@ -26,7 +26,7 @@
 ## Before publishing a tag
 
 - [ ] Select the final committed candidate and rerun the local verification, Compose recovery, and Linux update gates on its release artifacts. The current working-tree verification does not attest a future tag.
-- [ ] Record the final artifact checksums, environment, and performance results in [compatibility](compatibility.md) and [benchmark](benchmark.md); address any unmet performance target before claiming it.
+- [ ] Record the candidate's source revision, environment, and performance results in [benchmark](benchmark.md); address any unmet performance target before claiming it. Publish exact tagged-artifact hashes in the release's `SHA256SUMS` and signed manifest, then link that immutable evidence from [compatibility](compatibility.md) after publication.
 - [ ] Enable the confidential vulnerability-reporting route named in `SECURITY.md`.
 - [ ] Configure the external Ed25519 signing secret and distribute its public key; verify the final `release-manifest.json` and detached signature. Local test keys are not release trust keys.
 - [ ] Confirm repository publication/attestation permissions, then publish `SHA256SUMS`, the signed update manifest, SPDX SBOM, GitHub artifact attestation, release notes, and container provenance.
