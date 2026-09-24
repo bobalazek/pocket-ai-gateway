@@ -4,7 +4,7 @@ Resolved choices belong in [decisions](decisions/README.md). Implementation work
 
 ## Release prerequisites
 
-- [ ] Enable GitHub private vulnerability reporting or replace the documented private contact before the first public tag — Owner: project owner/maintainer — Unblocks: accepting confidential reports.
+- [ ] Make the repository public when ready, then enable GitHub private vulnerability reporting or replace the documented private contact before the first public tag — Owner: project owner/maintainer — Unblocks: accepting confidential reports.
 - [ ] Configure the external Ed25519 release-signing secret and distribute its public verification key — Owner: maintainer — Unblocks: signed public update manifests. Disposable keys used by local tests are never release keys.
 - [ ] Grant the release workflow artifact/container publication access and verify repository attestation settings — Owner: maintainer — Unblocks: publishing verified release artifacts.
 
