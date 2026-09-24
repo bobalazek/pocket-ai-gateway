@@ -46,7 +46,7 @@ export function ModelCard({ item, dashboard }: { item: CatalogModel | PublicMode
 
   return (
     <Card className="panel">
-      <div className="resource-row-main"><div><strong>{item.label}</strong><code>{item.id}</code><small>{item.adapter_label} · {item.capability_details.map((capability) => capability.label).join(", ")}{dashboard.manager ? ` · ${strategyLabels[model.routing_strategy] ?? model.routing_strategy}` : ""}</small></div></div>
+      <div className="resource-row-main"><div className="grid gap-1"><strong>{item.label}</strong><code>{item.id}</code><small>{item.adapter_label} · {item.capability_details.map((capability) => capability.label).join(", ")}{dashboard.manager ? ` · ${strategyLabels[model.routing_strategy] ?? model.routing_strategy}` : ""}</small></div></div>
       {dashboard.manager && (
         <form className="route-preview-controls" onSubmit={previewRoute}>
           <div className="field"><Label htmlFor={`preview-operation-${model.id}`}>Operation</Label><Input id={`preview-operation-${model.id}`} name="operation" placeholder="Operation path" required /></div>
@@ -67,7 +67,11 @@ export function ModelCard({ item, dashboard }: { item: CatalogModel | PublicMode
             <div className="resource-list">
               {(dashboard.availableTargets[item.id] ?? []).map((target, index) => {
                 const current = configuredByID[target.id];
-                return <div className="route-target" key={`${target.id}:${strategy}`}><label className="checkbox-row"><input name="target" value={target.id} type={maximumTargets === 1 ? "radio" : "checkbox"} defaultChecked={maximumTargets === 1 ? target.id === model.target_model_id : Boolean(current)} /> {target.upstream_id}</label><Input aria-label={`${target.upstream_id} ${model.routing_policy.priority_field.label}`} name={`priority:${target.id}`} type="number" min={model.routing_policy.priority_field.min} max={model.routing_policy.priority_field.max} defaultValue={current?.priority ?? Math.min(model.routing_policy.priority_field.max, model.routing_policy.priority_field.default + index)} /><Input aria-label={`${target.upstream_id} ${model.routing_policy.weight_field.label}`} name={`weight:${target.id}`} type="number" min={model.routing_policy.weight_field.min} max={model.routing_policy.weight_field.max} defaultValue={current?.weight ?? model.routing_policy.weight_field.default} /></div>;
+                return <div className="route-target" key={`${target.id}:${strategy}`}>
+                  <label className="checkbox-row"><input name="target" value={target.id} type={maximumTargets === 1 ? "radio" : "checkbox"} defaultChecked={maximumTargets === 1 ? target.id === model.target_model_id : Boolean(current)} /> {target.upstream_id}</label>
+                  <div className="field"><Label htmlFor={`priority-${model.id}-${target.id}`}>{model.routing_policy.priority_field.label}</Label><Input id={`priority-${model.id}-${target.id}`} aria-label={`${target.upstream_id} ${model.routing_policy.priority_field.label}`} name={`priority:${target.id}`} type="number" min={model.routing_policy.priority_field.min} max={model.routing_policy.priority_field.max} defaultValue={current?.priority ?? Math.min(model.routing_policy.priority_field.max, model.routing_policy.priority_field.default + index)} /></div>
+                  <div className="field"><Label htmlFor={`weight-${model.id}-${target.id}`}>{model.routing_policy.weight_field.label}</Label><Input id={`weight-${model.id}-${target.id}`} aria-label={`${target.upstream_id} ${model.routing_policy.weight_field.label}`} name={`weight:${target.id}`} type="number" min={model.routing_policy.weight_field.min} max={model.routing_policy.weight_field.max} defaultValue={current?.weight ?? model.routing_policy.weight_field.default} /></div>
+                </div>;
               })}
             </div>
             <Button disabled={dashboard.busy}>Save route</Button>
