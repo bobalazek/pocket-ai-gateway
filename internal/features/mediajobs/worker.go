@@ -196,6 +196,7 @@ func (service *Service) applyPrediction(ctx context.Context, id string, predicti
 	now := time.Now().UnixMilli()
 	var outputCiphertext, outputNonce []byte
 	outputBytes := int64(0)
+	errorJSON := `null`
 	if terminal && state == "succeeded" && string(prediction.Output) != "null" {
 		var keyID string
 		if err := service.database.QueryRowContext(ctx, "SELECT key_id FROM media_jobs WHERE id=?", id).Scan(&keyID); err != nil {
@@ -203,18 +204,21 @@ func (service *Service) applyPrediction(ctx context.Context, id string, predicti
 		}
 		outputBytes = int64(len(prediction.Output))
 		if outputBytes > maxOutputBytes {
-			service.fail(ctx, id, "provider_output_too_large", "The provider output exceeds 4 MiB")
-			return
-		}
-		var err error
-		outputCiphertext, outputNonce, err = credentials.Seal(service.masterKey, prediction.Output, mediaJobAAD(id, keyID, outputBytes, "output"))
-		if err != nil {
-			service.fail(ctx, id, "storage_unavailable", "The provider output could not be stored")
-			return
+			state = "failed"
+			errorJSON = `{"code":"provider_output_too_large","message":"The provider output exceeds 4 MiB"}`
+			outputBytes = 0
+		} else {
+			var err error
+			outputCiphertext, outputNonce, err = credentials.Seal(service.masterKey, prediction.Output, mediaJobAAD(id, keyID, outputBytes, "output"))
+			if err != nil {
+				state = "failed"
+				errorJSON = `{"code":"storage_unavailable","message":"The provider output could not be stored"}`
+				outputCiphertext, outputNonce = nil, nil
+				outputBytes = 0
+			}
 		}
 	}
-	errorJSON := `null`
-	if state == "failed" {
+	if state == "failed" && errorJSON == `null` {
 		errorJSON = `{"code":"provider_failed","message":"The provider media job failed"}`
 	}
 	completed := any(nil)
