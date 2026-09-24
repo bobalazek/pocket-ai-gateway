@@ -89,6 +89,18 @@ type Diagnostics struct {
 	LatestBackupState   string `json:"latest_backup_state"`
 }
 
+type RuntimeCheck struct {
+	ID    string `json:"id"`
+	State string `json:"state"`
+}
+
+type RuntimeStatus struct {
+	Ready     bool                `json:"ready"`
+	CheckedAt string              `json:"checked_at"`
+	Checks    []RuntimeCheck      `json:"checks"`
+	Outbox    *usage.OutboxStatus `json:"outbox"`
+}
+
 type Service struct {
 	store     *storage.Store
 	providers *providers.Service
@@ -577,18 +589,38 @@ func (service *Service) Diagnostics(ctx context.Context) (Diagnostics, error) {
 	return value, nil
 }
 
-func (service *Service) Ready(ctx context.Context) error {
-	for _, database := range []*sql.DB{service.store.SystemDB(), service.store.DataDB()} {
-		if err := database.PingContext(ctx); err != nil {
-			return err
+func (service *Service) RuntimeStatus(ctx context.Context) RuntimeStatus {
+	status := RuntimeStatus{Ready: true, CheckedAt: time.Now().UTC().Format(time.RFC3339), Checks: make([]RuntimeCheck, 0, 3)}
+	for _, item := range []struct {
+		id       string
+		database *sql.DB
+	}{{"system_database", service.store.SystemDB()}, {"data_database", service.store.DataDB()}} {
+		check := RuntimeCheck{ID: item.id, State: "ready"}
+		if err := item.database.PingContext(ctx); err != nil {
+			check.State = "unavailable"
+			status.Ready = false
+		}
+		status.Checks = append(status.Checks, check)
+	}
+	projection := RuntimeCheck{ID: "usage_projection", State: "unavailable"}
+	if status.Checks[0].State == "ready" {
+		if outbox, err := usage.OutboxState(ctx, service.store.SystemDB()); err == nil {
+			status.Outbox = &outbox
+			if !outbox.Full {
+				projection.State = "ready"
+			}
 		}
 	}
-	status, err := usage.OutboxState(ctx, service.store.SystemDB())
-	if err != nil {
-		return err
+	if projection.State != "ready" {
+		status.Ready = false
 	}
-	if status.Full {
-		return errors.New("usage projection backlog is full")
+	status.Checks = append(status.Checks, projection)
+	return status
+}
+
+func (service *Service) Ready(ctx context.Context) error {
+	if !service.RuntimeStatus(ctx).Ready {
+		return errors.New("runtime is unavailable")
 	}
 	return nil
 }

@@ -12,13 +12,17 @@ export function useRuntimeHealth() {
 
   useEffect(() => {
     const controller = new AbortController();
-    void pocketAIGatewayAdmin.status.health(controller.signal)
-      .then(({ status }) => { if (!controller.signal.aborted) setLiveness(status === "ok" ? "ready" : "unavailable"); })
-      .catch(() => { if (!controller.signal.aborted) setLiveness("unavailable"); });
-    void pocketAIGatewayAdmin.status.readiness(controller.signal)
-      .then(({ ready }) => { if (!controller.signal.aborted) setReadiness(ready ? "ready" : "unavailable"); })
-      .catch(() => { if (!controller.signal.aborted) setReadiness("unavailable"); });
-    return () => controller.abort();
+    const check = () => {
+      void pocketAIGatewayAdmin.status.health(controller.signal)
+        .then(({ status }) => { if (!controller.signal.aborted) setLiveness(status === "ok" ? "ready" : "unavailable"); })
+        .catch(() => { if (!controller.signal.aborted) setLiveness("unavailable"); });
+      void pocketAIGatewayAdmin.status.readiness(controller.signal)
+        .then(({ ready }) => { if (!controller.signal.aborted) setReadiness(ready ? "ready" : "unavailable"); })
+        .catch(() => { if (!controller.signal.aborted) setReadiness("unavailable"); });
+    };
+    check();
+    const interval = window.setInterval(check, 30_000);
+    return () => { window.clearInterval(interval); controller.abort(); };
   }, []);
 
   return { liveness, readiness };

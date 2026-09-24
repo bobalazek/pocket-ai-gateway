@@ -77,6 +77,49 @@ func TestLocalBackupSettingsAndDiagnostics(t *testing.T) {
 	}
 }
 
+func TestRuntimeStatusTracksReadinessComponents(t *testing.T) {
+	ctx := context.Background()
+	store, err := storage.Open(ctx, filepath.Join(t.TempDir(), "data"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+	service := New(store, providers.New(store.SystemDB(), make([]byte, 32)), "test", func(string) string { return "" })
+	status := service.RuntimeStatus(ctx)
+	if !status.Ready || len(status.Checks) != 3 || status.Outbox == nil || status.CheckedAt == "" {
+		t.Fatalf("healthy runtime status = %+v", status)
+	}
+	for index, id := range []string{"system_database", "data_database", "usage_projection"} {
+		if status.Checks[index] != (RuntimeCheck{ID: id, State: "ready"}) {
+			t.Fatalf("healthy check %d = %+v", index, status.Checks[index])
+		}
+	}
+	_, err = store.SystemDB().ExecContext(ctx, `WITH RECURSIVE events(n) AS (SELECT 1 UNION ALL SELECT n+1 FROM events WHERE n < 10000)
+		INSERT INTO event_outbox(id,event_type,payload_json,created_at)
+		SELECT printf('evt_%d',n),'test','{}',1 FROM events`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	status = service.RuntimeStatus(ctx)
+	if status.Ready || status.Outbox == nil || !status.Outbox.Full || status.Checks[2].State != "unavailable" || service.Ready(ctx) == nil {
+		t.Fatalf("full projection status = %+v", status)
+	}
+	if err := store.DataDB().Close(); err != nil {
+		t.Fatal(err)
+	}
+	status = service.RuntimeStatus(ctx)
+	if status.Ready || status.Checks[0].State != "ready" || status.Checks[1].State != "unavailable" {
+		t.Fatalf("closed data store status = %+v", status)
+	}
+	if err := store.SystemDB().Close(); err != nil {
+		t.Fatal(err)
+	}
+	status = service.RuntimeStatus(ctx)
+	if status.Ready || status.Checks[0].State != "unavailable" || status.Checks[2].State != "unavailable" || status.Outbox != nil {
+		t.Fatalf("closed system store status = %+v", status)
+	}
+}
+
 func TestGeminiFileRetentionRunsManuallyAndOnSchedule(t *testing.T) {
 	ctx := context.Background()
 	store, err := storage.Open(ctx, filepath.Join(t.TempDir(), "data"))

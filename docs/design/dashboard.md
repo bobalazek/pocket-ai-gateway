@@ -13,11 +13,11 @@ Scope: the embedded browser dashboard, including member and administration views
 | Public marketing site | Out of scope for gateway runtime | Repository documentation is the initial public entry point |
 | Public instance entry | Setup/login/activation only | No open registration or public provider directory |
 
-Owner/admin navigation: Overview, Users, Providers, Models, API keys, Requests, Usage, Audit, Settings. Members: Overview, Models, My keys, My requests, My usage, Account. Playground is a contextual action on an eligible model/key. No workspace switcher or billing subscription screen.
+Owner/admin navigation: Overview, Users, Providers, Models, API keys, Requests, Usage, Audit, Settings, plus Playground and Status. Members: Overview, Models, My keys, My requests, My usage, Status, Account. No workspace switcher or billing subscription screen.
 
 User menu contains identity/role, account/security/sessions, local help/about/version, and sign out. Privileged recovery and destructive settings stay on explicit settings pages, not inside an incidental menu.
 
-Every page has a clear title, primary action, scoped filters when needed, and a recoverable state. New/edit forms are dialogs with labelled sections/tabs; long model/key policy forms can use a full-height dialog. Closing warns about unsaved changes but does not trap the user.
+Every page has a clear title, primary action, scoped filters when needed, and a recoverable state. Multi-field creation and editing use labelled panels or disclosures; request details use a deep link. The dashboard keeps ordinary navigation visible during long edits.
 
 ## Screen inventory
 
@@ -27,13 +27,14 @@ All routes below are under /_. List/detail views use the same route hierarchy; c
 | --- | --- | --- | --- |
 | /setup | Claim → owner → provider → model → key → first request | Owner identity and password, provider wizard; retention explanation | Claimed already, DB failure; resume after login |
 | /login and /activate | Authenticate/choose initial password | Session APIs; code in POST body | Invalid/expired/throttled; local recovery instructions |
-| /overview | Understand health and recent activity | Request/failure counts, known/estimated spend, unresolved usage, recent requests | No traffic, partial data, upstream unavailable, recovery mode |
+| / | Understand health and recent activity | Local readiness, period metrics, daily request-volume chart, recent requests | No traffic, partial data, upstream unavailable, recovery mode |
 | /users/ and /users/?id=… | Manage who can access what | Member list, status, grants, aggregate policies, activation/suspension | Last-owner guard, own-role limits, activation pending |
 | /providers/ and /providers/?id=… | Configure an upstream account | Name, adapter, endpoint, masked credential state, capabilities, tests/discovery | Missing secret, invalid URL, unavailable, billable-test confirmation |
 | /models/ and /models/?id=… | Publish a stable client model | Catalog selection/manual entry, targets, strategy, capability evidence, price source | Unpublished, stale/free price, no eligible target, breaking embedding change |
 | /keys/ and /keys/?id=… | Issue least-privilege credentials | Owner, scopes/models/connections, effective limits, expire/rotate/revoke | Empty grants deny, inherited limit ceiling, one-time secret, lost secret |
-| /requests/ and /requests/?id=… | Explain a client operation | Filters, metadata, attempt timeline, route reasons, usage, tool counts; content opt-in | No results, pending, failed, incomplete, unknown cost, content disabled/expired |
-| /usage | Understand consumption and limits | Period selector, user/key/model/provider filters, known vs estimated/unknown, remaining caps, original/restated pricing and repricing preview | Stale aggregates, cap exhausted, adjustment pending, no traffic |
+| /requests/ and /requests/?request_id=… | Explain a client operation | Compact comparable history, filters, detailed attempt timeline, route reasons, usage, tool counts; content opt-in | No results, pending, failed, incomplete, unknown cost, content disabled/expired |
+| /usage | Understand consumption and limits | Token/spend charts and daily table first; then filters, limits, known vs estimated/unknown, original/restated pricing and repricing preview | Stale aggregates, cap exhausted, adjustment pending, no traffic |
+| /status | Check local operations | Public liveness/readiness plus authenticated database and usage-projection checks and backlog | Unavailable storage, backlog at capacity, unauthorized view |
 | /playground | Test an ordinary authorized request | Public model, client protocol namespace, operation, selected inference key, prompt/tool editor, streaming output | Missing permission/key, price warning, cancel/incomplete/error |
 | /audit | Inspect privileged changes | Actor/action/resource/time filters and redacted details | Empty, retention reached, permission denied |
 | /settings | Operate the instance | Retention/capture, local/S3 backup jobs, import/export, storage backend/lag, security/proxy summary, version/update guide | Backup failed, import conflict, external secret missing, recovery mode |

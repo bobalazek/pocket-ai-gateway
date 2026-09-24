@@ -61,6 +61,36 @@ func TestOwnerOnlyOperationsAndRecentAuthentication(t *testing.T) {
 	if err := json.Unmarshal(response.Body.Bytes(), &diagnostic); err != nil || response.Code != http.StatusOK || diagnostic.Value.Goroutines < 1 {
 		t.Fatalf("admin runtime diagnostics = %s, status = %d, error = %v", response.Body.String(), response.Code, err)
 	}
+	request = httptest.NewRequest(http.MethodGet, "/api/v1/admin/status", nil)
+	response = httptest.NewRecorder()
+	mux.ServeHTTP(response, request)
+	if response.Code != http.StatusUnauthorized {
+		t.Fatalf("anonymous runtime status = %d", response.Code)
+	}
+	request.AddCookie(&http.Cookie{Name: auth.SessionCookie, Value: adminToken})
+	response = httptest.NewRecorder()
+	mux.ServeHTTP(response, request)
+	var runtimeStatus struct {
+		Value RuntimeStatus `json:"status"`
+	}
+	if err := json.Unmarshal(response.Body.Bytes(), &runtimeStatus); err != nil || response.Code != http.StatusOK || !runtimeStatus.Value.Ready || len(runtimeStatus.Value.Checks) != 3 {
+		t.Fatalf("admin runtime status = %s, status = %d, error = %v", response.Body.String(), response.Code, err)
+	}
+	memberToken := "synthetic-member-session-token"
+	memberVerifier := credentials.Verifier(memberToken)
+	if _, err := store.SystemDB().ExecContext(ctx, `INSERT INTO users(id,email,display_name,password_hash,role,status,created_at,updated_at) VALUES('usr_member','member@example.test','Member','hash','member','active',?,?)`, now, now); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.SystemDB().ExecContext(ctx, `INSERT INTO user_sessions(id,verifier,user_id,expires_at,created_at,last_seen_at,authenticated_at,auth_revision,user_agent) VALUES('ses_member',?,'usr_member',?,?,?,?,1,'test')`, memberVerifier[:], now+time.Hour.Milliseconds(), now, now, now); err != nil {
+		t.Fatal(err)
+	}
+	request = httptest.NewRequest(http.MethodGet, "/api/v1/admin/status", nil)
+	request.AddCookie(&http.Cookie{Name: auth.SessionCookie, Value: memberToken})
+	response = httptest.NewRecorder()
+	mux.ServeHTTP(response, request)
+	if response.Code != http.StatusForbidden {
+		t.Fatalf("member runtime status = %d", response.Code)
+	}
 
 	ownerVerifier := credentials.Verifier(ownerToken)
 	if _, err := store.SystemDB().ExecContext(ctx, `UPDATE user_sessions SET authenticated_at=0 WHERE verifier=?`, ownerVerifier[:]); err != nil {
