@@ -1789,10 +1789,14 @@ components:
         resets_at: { type: [string, "null"], format: date-time }
     UsagePoint:
       type: object
-      required: [date, requests, input_tokens, output_tokens, cache_creation_input_tokens, cache_read_input_tokens, cache_creation_5m_input_tokens, cache_creation_1h_input_tokens, web_search_calls, known_cost_usd, unknown_attempts]
+      required: [date, requests, successful_requests, failed_requests, failed_attempts, error_rate_percent, input_tokens, output_tokens, cache_creation_input_tokens, cache_read_input_tokens, cache_creation_5m_input_tokens, cache_creation_1h_input_tokens, web_search_calls, known_cost_usd, unknown_attempts]
       properties:
         date: { type: string, format: date }
         requests: { type: integer }
+        successful_requests: { type: integer, minimum: 0 }
+        failed_requests: { type: integer, minimum: 0 }
+        failed_attempts: { type: integer, minimum: 0, description: Failed upstream attempts, including failures recovered by fallback }
+        error_rate_percent: { type: number, minimum: 0, maximum: 100, description: Failed divided by succeeded plus failed requests; pending, cancelled, and interrupted requests are excluded }
         input_tokens: { type: integer }
         output_tokens: { type: integer }
         cache_creation_input_tokens: { type: integer }
@@ -1804,12 +1808,16 @@ components:
         unknown_attempts: { type: integer }
     UsageSummary:
       type: object
-      required: [from, to, requests, attempts, input_tokens, output_tokens, cache_creation_input_tokens, cache_read_input_tokens, cache_creation_5m_input_tokens, cache_creation_1h_input_tokens, web_search_calls, known_cost_usd, estimated_cost_usd, as_recorded_cost_usd, restatement_delta_usd, unknown_attempts, points]
+      required: [from, to, requests, successful_requests, failed_requests, attempts, failed_attempts, error_rate_percent, input_tokens, output_tokens, cache_creation_input_tokens, cache_read_input_tokens, cache_creation_5m_input_tokens, cache_creation_1h_input_tokens, web_search_calls, known_cost_usd, estimated_cost_usd, as_recorded_cost_usd, restatement_delta_usd, unknown_attempts, points]
       properties:
         from: { type: string, format: date-time }
         to: { type: string, format: date-time }
         requests: { type: integer }
+        successful_requests: { type: integer, minimum: 0 }
+        failed_requests: { type: integer, minimum: 0 }
         attempts: { type: integer }
+        failed_attempts: { type: integer, minimum: 0, description: Failed upstream attempts, including failures recovered by fallback }
+        error_rate_percent: { type: number, minimum: 0, maximum: 100, description: Failed divided by succeeded plus failed requests; pending, cancelled, and interrupted requests are excluded }
         input_tokens: { type: integer }
         output_tokens: { type: integer }
         cache_creation_input_tokens: { type: integer }
@@ -1836,13 +1844,14 @@ components:
         next_offset: { type: [integer, "null"], minimum: 0, maximum: 10000 }
     UsageBreakdownRow:
       type: object
-      required: [id, label, requests, successful_requests, failed_requests, attempts, failed_attempts, input_tokens, output_tokens, cache_creation_input_tokens, cache_read_input_tokens, web_search_calls, response_tool_calls, known_cost_usd, unknown_attempts, finished_requests, avg_gateway_duration_ms, p95_gateway_duration_ms]
+      required: [id, label, requests, successful_requests, failed_requests, error_rate_percent, attempts, failed_attempts, input_tokens, output_tokens, cache_creation_input_tokens, cache_read_input_tokens, web_search_calls, response_tool_calls, known_cost_usd, unknown_attempts, finished_requests, avg_gateway_duration_ms, p95_gateway_duration_ms]
       properties:
         id: { type: string }
         label: { type: string }
         requests: { type: integer, minimum: 0 }
         successful_requests: { type: integer, minimum: 0 }
         failed_requests: { type: integer, minimum: 0 }
+        error_rate_percent: { type: number, minimum: 0, maximum: 100, description: Failed divided by succeeded plus failed requests for this group }
         attempts: { type: integer, minimum: 0 }
         failed_attempts: { type: integer, minimum: 0, description: Upstream attempts that failed, even when a later fallback succeeded }
         input_tokens: { type: integer, minimum: 0 }
@@ -1932,7 +1941,7 @@ components:
         attempts: { type: array, items: { $ref: "#/components/schemas/RequestAttempt" } }
     RuntimeStatus:
       type: object
-      required: [ready, checked_at, checks, outbox]
+      required: [ready, checked_at, checks, outbox, alerts]
       properties:
         ready: { type: boolean, description: True only when both databases and usage projection capacity are available }
         checked_at: { type: string, format: date-time }
@@ -1947,6 +1956,17 @@ components:
               id: { type: string, enum: [system_database, data_database, usage_projection] }
               state: { type: string, enum: [ready, unavailable] }
         outbox: { oneOf: [{ $ref: "#/components/schemas/OutboxStatus" }, { type: "null" }], description: Null when the system database or projection query is unavailable }
+        alerts:
+          type: array
+          description: Local management alerts evaluated on status reads; no external notifications are sent
+          items:
+            type: object
+            required: [id, severity, title, description]
+            properties:
+              id: { type: string }
+              severity: { type: string, enum: [warning, critical] }
+              title: { type: string }
+              description: { type: string }
     OutboxStatus:
       type: object
       required: [pending_events, reserved_events, pending_bytes, oldest_event_at, full]

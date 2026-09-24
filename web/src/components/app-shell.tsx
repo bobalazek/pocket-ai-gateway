@@ -39,11 +39,11 @@ function Navigation({ active, onNavigate }: { active: AppSection; onNavigate?: (
   return <nav aria-label="Gateway sections"><div>{links(primary)}</div><div className="nav-tools"><p>Tools</p>{links(tools)}</div></nav>;
 }
 
-function AccountMenu({ active, open, error, version, onToggle, onClose, onLogout }: { active: AppSection; open: boolean; error: string; version: string; onToggle: () => void; onClose: () => void; onLogout: () => void }) {
+function AccountMenu({ active, open, error, onToggle, onClose, onLogout }: { active: AppSection; open: boolean; error: string; onToggle: () => void; onClose: () => void; onLogout: () => void }) {
   const user = useGatewayUser();
   return <div className="account-menu">
     {open && <nav className="account-popover" aria-label="Account links">
-      <div className="account-identity"><strong>{user?.display_name ?? "Account"}</strong><small>{user?.email}</small>{version && <small>Version {version}</small>}<span>{user?.role ?? "signed out"}</span></div>
+      <div className="account-identity"><strong>{user?.display_name ?? "Account"}</strong><small>{user?.email}</small><span>{user?.role ?? "signed out"}</span></div>
       <Link href="/account/" onClick={onClose}><UserRoundIcon aria-hidden="true" size={16}/>Account and security</Link>
       <Link href="/status/" onClick={onClose}><CircleHelpIcon aria-hidden="true" size={16}/>Help and runtime status</Link>
       <button type="button" onClick={onLogout}><LogOutIcon aria-hidden="true" size={16}/>Sign out</button>
@@ -58,19 +58,18 @@ function AccountMenu({ active, open, error, version, onToggle, onClose, onLogout
 }
 
 export function AppShell({ active, children }: { active: AppSection; children: ReactNode }) {
-  const user = useGatewayUser();
-  const shell = useAppShell(user?.role);
+  const shell = useAppShell();
   const closeMobile = () => { shell.setMobileOpen(false); shell.mobileButton.current?.focus(); };
   return <div className="app-shell">
     <aside className="sidebar" aria-label="Gateway navigation">
       <div className="brand"><span className="brand-mark" aria-hidden="true">P</span><span><strong>Pocket AI</strong><small>Gateway</small></span></div>
       <div className="desktop-navigation"><Navigation active={active} /></div>
-      <div className="sidebar-footer"><AccountMenu active={active} open={shell.accountOpen} error={shell.accountError} version={shell.version} onToggle={() => shell.setAccountOpen((value) => !value)} onClose={() => shell.setAccountOpen(false)} onLogout={() => void shell.logout()} /></div>
+      <div className="sidebar-footer"><AccountMenu active={active} open={shell.accountOpen} error={shell.accountError} onToggle={() => shell.setAccountOpen((value) => !value)} onClose={() => shell.setAccountOpen(false)} onLogout={() => void shell.logout()} /></div>
       <button ref={shell.mobileButton} className="mobile-menu-button" type="button" aria-expanded={shell.mobileOpen} aria-controls="mobile-navigation" onClick={() => shell.setMobileOpen((value) => !value)}>
         {shell.mobileOpen ? <XIcon aria-hidden="true" size={20}/> : <MenuIcon aria-hidden="true" size={20}/>}<span className="sr-only">{shell.mobileOpen ? "Close navigation" : "Open navigation"}</span>
       </button>
     </aside>
-    {shell.mobileOpen && <div className="mobile-menu-backdrop" onMouseDown={closeMobile}><div id="mobile-navigation" ref={shell.drawer} className="mobile-menu-panel" role="dialog" aria-modal="true" aria-label="Gateway navigation" onMouseDown={(event) => event.stopPropagation()}><div className="mobile-menu-heading"><strong>Navigation</strong><button type="button" onClick={closeMobile} aria-label="Close navigation"><XIcon aria-hidden="true" size={20}/></button></div><Navigation active={active} onNavigate={closeMobile}/><AccountMenu active={active} open={shell.accountOpen} error={shell.accountError} version={shell.version} onToggle={() => shell.setAccountOpen((value) => !value)} onClose={closeMobile} onLogout={() => void shell.logout()}/></div></div>}
+    {shell.mobileOpen && <div className="mobile-menu-backdrop" onMouseDown={closeMobile}><div id="mobile-navigation" ref={shell.drawer} className="mobile-menu-panel" role="dialog" aria-modal="true" aria-label="Gateway navigation" onMouseDown={(event) => event.stopPropagation()}><div className="mobile-menu-heading"><strong>Navigation</strong><button type="button" onClick={closeMobile} aria-label="Close navigation"><XIcon aria-hidden="true" size={20}/></button></div><Navigation active={active} onNavigate={closeMobile}/><AccountMenu active={active} open={shell.accountOpen} error={shell.accountError} onToggle={() => shell.setAccountOpen((value) => !value)} onClose={closeMobile} onLogout={() => void shell.logout()}/></div></div>}
     {children}
   </div>;
 }

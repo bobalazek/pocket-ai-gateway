@@ -12,24 +12,25 @@ import (
 const maxBreakdownOffset = 10_000
 
 type BreakdownRow struct {
-	ID                       string `json:"id"`
-	Label                    string `json:"label"`
-	Requests                 int64  `json:"requests"`
-	SuccessfulRequests       int64  `json:"successful_requests"`
-	FailedRequests           int64  `json:"failed_requests"`
-	Attempts                 int64  `json:"attempts"`
-	FailedAttempts           int64  `json:"failed_attempts"`
-	InputTokens              int64  `json:"input_tokens"`
-	OutputTokens             int64  `json:"output_tokens"`
-	CacheCreationInputTokens int64  `json:"cache_creation_input_tokens"`
-	CacheReadInputTokens     int64  `json:"cache_read_input_tokens"`
-	WebSearchCalls           int64  `json:"web_search_calls"`
-	ResponseToolCalls        int64  `json:"response_tool_calls"`
-	KnownCostUSD             string `json:"known_cost_usd"`
-	UnknownAttempts          int64  `json:"unknown_attempts"`
-	FinishedRequests         int64  `json:"finished_requests"`
-	AvgGatewayDurationMS     *int64 `json:"avg_gateway_duration_ms"`
-	P95GatewayDurationMS     *int64 `json:"p95_gateway_duration_ms"`
+	ID                       string  `json:"id"`
+	Label                    string  `json:"label"`
+	Requests                 int64   `json:"requests"`
+	SuccessfulRequests       int64   `json:"successful_requests"`
+	FailedRequests           int64   `json:"failed_requests"`
+	ErrorRatePercent         float64 `json:"error_rate_percent"`
+	Attempts                 int64   `json:"attempts"`
+	FailedAttempts           int64   `json:"failed_attempts"`
+	InputTokens              int64   `json:"input_tokens"`
+	OutputTokens             int64   `json:"output_tokens"`
+	CacheCreationInputTokens int64   `json:"cache_creation_input_tokens"`
+	CacheReadInputTokens     int64   `json:"cache_read_input_tokens"`
+	WebSearchCalls           int64   `json:"web_search_calls"`
+	ResponseToolCalls        int64   `json:"response_tool_calls"`
+	KnownCostUSD             string  `json:"known_cost_usd"`
+	UnknownAttempts          int64   `json:"unknown_attempts"`
+	FinishedRequests         int64   `json:"finished_requests"`
+	AvgGatewayDurationMS     *int64  `json:"avg_gateway_duration_ms"`
+	P95GatewayDurationMS     *int64  `json:"p95_gateway_duration_ms"`
 }
 
 type Breakdown struct {
@@ -206,6 +207,7 @@ func (service *Service) Breakdown(ctx context.Context, actor auth.User, query Us
 			}
 		}
 		row.KnownCostUSD = FormatUSD(cost)
+		row.ErrorRatePercent = errorRatePercent(row.FailedRequests, row.SuccessfulRequests)
 		row.AvgGatewayDurationMS = optionalInt64(avg)
 		row.P95GatewayDurationMS = optionalInt64(p95)
 		result.Data = append(result.Data, row)

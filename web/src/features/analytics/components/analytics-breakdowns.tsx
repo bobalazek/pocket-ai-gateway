@@ -17,11 +17,12 @@ function RankingTable({ model, dimension, rows, hasMore }: { model: AnalyticsMod
     <summary>Explore {dimension === "connection" ? "providers" : dimension === "key" ? "API keys" : dimension === "state" ? "outcomes" : `${dimension}s`} in a table</summary>
     <div className="table-wrap" tabIndex={0} role="region" aria-label={`Usage breakdown by ${dimension}`}>
       <table className="analytics-table">
-        <thead><tr><th>{dimension === "connection" ? "Provider" : dimension === "key" ? "API key" : dimension === "user" ? "User" : dimension}</th><th>Requests</th><th>Failed requests</th><th>Failed attempts</th><th>Tokens</th><th>Known spend</th><th>Gateway p95</th><th>Explore</th></tr></thead>
+        <thead><tr><th>{dimension === "connection" ? "Provider" : dimension === "key" ? "API key" : dimension === "user" ? "User" : dimension}</th><th>Requests</th><th>Failed requests</th><th>Error rate</th><th>Failed attempts</th><th>Tokens</th><th>Known spend</th><th>Gateway p95</th><th>Explore</th></tr></thead>
         <tbody>{rows.map((row) => <tr key={row.id}>
           <td><strong>{row.label}</strong></td>
           <td>{row.requests.toLocaleString()}</td>
           <td>{row.failed_requests.toLocaleString()}</td>
+          <td>{row.successful_requests + row.failed_requests ? `${row.error_rate_percent.toFixed(1)}%` : "—"}</td>
           <td>{row.failed_attempts.toLocaleString()}</td>
           <td>{(row.input_tokens + row.output_tokens).toLocaleString()}</td>
           <td>${row.known_cost_usd}{row.unknown_attempts > 0 && <small className="analytics-unknown"> · {row.unknown_attempts} unpriced</small>}</td>

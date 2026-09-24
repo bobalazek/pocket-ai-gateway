@@ -33,14 +33,13 @@ export function ProviderForm({ presets, adapters, selected, selectedPreset, adap
             </select>
           </div>
         </div>
-        {selected && <p className="help-text">{selected.adapter_label} · {selected.operations.join(", ")}{selected.authentication ? ` · ${selected.authentication}` : ""} · <a href={selected.documentation_url} target="_blank" rel="noreferrer">Documentation</a> · reviewed {selected.reviewed_at}</p>}
+        {selected && <p className="help-text">Supported: {selected.operations.join(", ")}{selected.authentication ? ` · ${selected.authentication}` : ""} · <a href={selected.documentation_url} target="_blank" rel="noreferrer">Documentation</a> · reviewed {selected.reviewed_at}</p>}
         <div className="inline-fields">
           <div className="field">
-            <Label htmlFor="adapter">Adapter</Label>
-            {selected && <input type="hidden" name="adapter" value={adapter} />}
-            <select id="adapter" name={selected ? undefined : "adapter"} className="select" value={adapter} disabled={Boolean(selected)} onChange={(event) => onAdapter(event.target.value as ProviderConnection["adapter"])}>
+            <Label htmlFor="adapter">{selected ? "Provider interface" : "Adapter"}</Label>
+            {selected ? <><input type="hidden" name="adapter" value={adapter} /><Input id="adapter" value={selected.label} readOnly /></> : <select id="adapter" name="adapter" className="select" value={adapter} onChange={(event) => onAdapter(event.target.value as ProviderConnection["adapter"])}>
               {adapters.map((option) => <option key={option.id} value={option.id}>{option.label}</option>)}
-            </select>
+            </select>}
           </div>
           {selected?.base_url ? <div className="field"><Label htmlFor="base_url">Base URL</Label><Input id="base_url" name="base_url" type="url" value={selected.base_url} readOnly /></div> : <Field id="base_url" label={selected?.base_url_required ? "Resource base URL" : "Versioned base URL"} type="url" placeholder={selected?.base_url_example} required />}
         </div>

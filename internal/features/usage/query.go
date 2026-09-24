@@ -12,24 +12,32 @@ import (
 )
 
 type UsagePoint struct {
-	Date                     string `json:"date"`
-	Requests                 int64  `json:"requests"`
-	InputTokens              int64  `json:"input_tokens"`
-	OutputTokens             int64  `json:"output_tokens"`
-	CacheCreationInputTokens int64  `json:"cache_creation_input_tokens"`
-	CacheReadInputTokens     int64  `json:"cache_read_input_tokens"`
-	CacheCreation5mTokens    int64  `json:"cache_creation_5m_input_tokens"`
-	CacheCreation1hTokens    int64  `json:"cache_creation_1h_input_tokens"`
-	WebSearchCalls           int64  `json:"web_search_calls"`
-	KnownCostUSD             string `json:"known_cost_usd"`
-	UnknownAttempts          int64  `json:"unknown_attempts"`
+	Date                     string  `json:"date"`
+	Requests                 int64   `json:"requests"`
+	SuccessfulRequests       int64   `json:"successful_requests"`
+	FailedRequests           int64   `json:"failed_requests"`
+	FailedAttempts           int64   `json:"failed_attempts"`
+	ErrorRatePercent         float64 `json:"error_rate_percent"`
+	InputTokens              int64   `json:"input_tokens"`
+	OutputTokens             int64   `json:"output_tokens"`
+	CacheCreationInputTokens int64   `json:"cache_creation_input_tokens"`
+	CacheReadInputTokens     int64   `json:"cache_read_input_tokens"`
+	CacheCreation5mTokens    int64   `json:"cache_creation_5m_input_tokens"`
+	CacheCreation1hTokens    int64   `json:"cache_creation_1h_input_tokens"`
+	WebSearchCalls           int64   `json:"web_search_calls"`
+	KnownCostUSD             string  `json:"known_cost_usd"`
+	UnknownAttempts          int64   `json:"unknown_attempts"`
 }
 
 type UsageSummary struct {
 	From                     string       `json:"from"`
 	To                       string       `json:"to"`
 	Requests                 int64        `json:"requests"`
+	SuccessfulRequests       int64        `json:"successful_requests"`
+	FailedRequests           int64        `json:"failed_requests"`
 	Attempts                 int64        `json:"attempts"`
+	FailedAttempts           int64        `json:"failed_attempts"`
+	ErrorRatePercent         float64      `json:"error_rate_percent"`
 	InputTokens              int64        `json:"input_tokens"`
 	OutputTokens             int64        `json:"output_tokens"`
 	CacheCreationInputTokens int64        `json:"cache_creation_input_tokens"`
@@ -72,6 +80,13 @@ type UsageQuery struct {
 	RequestID    string
 }
 
+func errorRatePercent(failed, succeeded int64) float64 {
+	if failed+succeeded == 0 {
+		return 0
+	}
+	return 100 * float64(failed) / float64(failed+succeeded)
+}
+
 func (service *Service) Summary(ctx context.Context, actor auth.User, query UsageQuery) (UsageSummary, error) {
 	var err error
 	actor, err = refreshUsageActor(ctx, service.database, actor)
@@ -94,19 +109,20 @@ func (service *Service) Summary(ctx context.Context, actor auth.User, query Usag
 	filter, args := usageFilter(userID, from, to, query)
 	var summary UsageSummary
 	var estimatedCost, recordedCost, currentCost int64
-	err = tx.QueryRowContext(ctx, `SELECT COUNT(attempts.id), COALESCE(SUM(attempts.input_tokens), 0), COALESCE(SUM(attempts.output_tokens), 0), COALESCE(SUM(attempts.cache_creation_input_tokens), 0), COALESCE(SUM(attempts.cache_read_input_tokens), 0), COALESCE(SUM(attempts.cache_creation_5m_input_tokens), 0), COALESCE(SUM(attempts.cache_creation_1h_input_tokens), 0), COALESCE(SUM(attempts.web_search_call_count), 0),
+	err = tx.QueryRowContext(ctx, `SELECT COUNT(attempts.id), COALESCE(SUM(attempts.state = 'failed'), 0), COALESCE(SUM(attempts.input_tokens), 0), COALESCE(SUM(attempts.output_tokens), 0), COALESCE(SUM(attempts.cache_creation_input_tokens), 0), COALESCE(SUM(attempts.cache_read_input_tokens), 0), COALESCE(SUM(attempts.cache_creation_5m_input_tokens), 0), COALESCE(SUM(attempts.cache_creation_1h_input_tokens), 0), COALESCE(SUM(attempts.web_search_call_count), 0),
 		COALESCE(SUM(attempts.estimated_cost_nanos), 0), COALESCE(SUM(attempts.as_recorded_cost_nanos), 0),
 		COALESCE(SUM(COALESCE(attempts.restated_cost_nanos, attempts.as_recorded_cost_nanos, 0)), 0),
 		COALESCE(SUM(CASE WHEN attempts.state != 'cancelled_before_dispatch' AND (attempts.usage_status = 'unknown' OR COALESCE(attempts.restated_cost_nanos, attempts.as_recorded_cost_nanos) IS NULL) THEN 1 ELSE 0 END), 0)
-		FROM attempts JOIN requests ON requests.id = attempts.request_id WHERE `+filter, args...).Scan(&summary.Attempts, &summary.InputTokens, &summary.OutputTokens, &summary.CacheCreationInputTokens, &summary.CacheReadInputTokens, &summary.CacheCreation5mTokens, &summary.CacheCreation1hTokens, &summary.WebSearchCalls, &estimatedCost, &recordedCost, &currentCost, &summary.UnknownAttempts)
+		FROM attempts JOIN requests ON requests.id = attempts.request_id WHERE `+filter, args...).Scan(&summary.Attempts, &summary.FailedAttempts, &summary.InputTokens, &summary.OutputTokens, &summary.CacheCreationInputTokens, &summary.CacheReadInputTokens, &summary.CacheCreation5mTokens, &summary.CacheCreation1hTokens, &summary.WebSearchCalls, &estimatedCost, &recordedCost, &currentCost, &summary.UnknownAttempts)
 	if err != nil {
 		return UsageSummary{}, err
 	}
 	requestWhere, requestArgs := requestUsageFilter(userID, from, to, query)
-	if err := tx.QueryRowContext(ctx, "SELECT COUNT(*) FROM requests WHERE "+requestWhere, requestArgs...).Scan(&summary.Requests); err != nil {
+	if err := tx.QueryRowContext(ctx, "SELECT COUNT(*), COALESCE(SUM(state = 'succeeded'), 0), COALESCE(SUM(state = 'failed'), 0) FROM requests WHERE "+requestWhere, requestArgs...).Scan(&summary.Requests, &summary.SuccessfulRequests, &summary.FailedRequests); err != nil {
 		return UsageSummary{}, err
 	}
-	rows, err := tx.QueryContext(ctx, `SELECT strftime('%Y-%m-%d', attempts.started_at / 1000, 'unixepoch'), COUNT(DISTINCT requests.id), COALESCE(SUM(attempts.input_tokens), 0), COALESCE(SUM(attempts.output_tokens), 0), COALESCE(SUM(attempts.cache_creation_input_tokens), 0), COALESCE(SUM(attempts.cache_read_input_tokens), 0), COALESCE(SUM(attempts.cache_creation_5m_input_tokens), 0), COALESCE(SUM(attempts.cache_creation_1h_input_tokens), 0), COALESCE(SUM(attempts.web_search_call_count), 0),
+	summary.ErrorRatePercent = errorRatePercent(summary.FailedRequests, summary.SuccessfulRequests)
+	rows, err := tx.QueryContext(ctx, `SELECT strftime('%Y-%m-%d', attempts.started_at / 1000, 'unixepoch'), COUNT(DISTINCT requests.id), COALESCE(SUM(attempts.state = 'failed'), 0), COALESCE(SUM(attempts.input_tokens), 0), COALESCE(SUM(attempts.output_tokens), 0), COALESCE(SUM(attempts.cache_creation_input_tokens), 0), COALESCE(SUM(attempts.cache_read_input_tokens), 0), COALESCE(SUM(attempts.cache_creation_5m_input_tokens), 0), COALESCE(SUM(attempts.cache_creation_1h_input_tokens), 0), COALESCE(SUM(attempts.web_search_call_count), 0),
 		COALESCE(SUM(COALESCE(attempts.restated_cost_nanos, attempts.as_recorded_cost_nanos, 0)), 0), COALESCE(SUM(CASE WHEN attempts.state != 'cancelled_before_dispatch' AND (attempts.usage_status = 'unknown' OR COALESCE(attempts.restated_cost_nanos, attempts.as_recorded_cost_nanos) IS NULL) THEN 1 ELSE 0 END), 0)
 		FROM attempts JOIN requests ON requests.id = attempts.request_id WHERE `+filter+` GROUP BY 1 ORDER BY 1`, args...)
 	if err != nil {
@@ -117,7 +133,7 @@ func (service *Service) Summary(ctx context.Context, actor auth.User, query Usag
 		var point UsagePoint
 		var pointCost int64
 		var ignoredAttemptRequests int64
-		if err := rows.Scan(&point.Date, &ignoredAttemptRequests, &point.InputTokens, &point.OutputTokens, &point.CacheCreationInputTokens, &point.CacheReadInputTokens, &point.CacheCreation5mTokens, &point.CacheCreation1hTokens, &point.WebSearchCalls, &pointCost, &point.UnknownAttempts); err != nil {
+		if err := rows.Scan(&point.Date, &ignoredAttemptRequests, &point.FailedAttempts, &point.InputTokens, &point.OutputTokens, &point.CacheCreationInputTokens, &point.CacheReadInputTokens, &point.CacheCreation5mTokens, &point.CacheCreation1hTokens, &point.WebSearchCalls, &pointCost, &point.UnknownAttempts); err != nil {
 			rows.Close()
 			return UsageSummary{}, err
 		}
@@ -127,19 +143,20 @@ func (service *Service) Summary(ctx context.Context, actor auth.User, query Usag
 	if err := rows.Close(); err != nil {
 		return UsageSummary{}, err
 	}
-	rows, err = tx.QueryContext(ctx, `SELECT strftime('%Y-%m-%d', requests.started_at / 1000, 'unixepoch'), COUNT(*) FROM requests WHERE `+requestWhere+` GROUP BY 1`, requestArgs...)
+	rows, err = tx.QueryContext(ctx, `SELECT strftime('%Y-%m-%d', requests.started_at / 1000, 'unixepoch'), COUNT(*), COALESCE(SUM(requests.state = 'succeeded'), 0), COALESCE(SUM(requests.state = 'failed'), 0) FROM requests WHERE `+requestWhere+` GROUP BY 1`, requestArgs...)
 	if err != nil {
 		return UsageSummary{}, err
 	}
 	for rows.Next() {
 		var date string
-		var count int64
-		if err := rows.Scan(&date, &count); err != nil {
+		var count, succeeded, failed int64
+		if err := rows.Scan(&date, &count, &succeeded, &failed); err != nil {
 			rows.Close()
 			return UsageSummary{}, err
 		}
 		point := points[date]
-		point.Date, point.Requests = date, count
+		point.Date, point.Requests, point.SuccessfulRequests, point.FailedRequests = date, count, succeeded, failed
+		point.ErrorRatePercent = errorRatePercent(failed, succeeded)
 		if point.KnownCostUSD == "" {
 			point.KnownCostUSD = "0"
 		}
@@ -156,12 +173,12 @@ func (service *Service) Summary(ctx context.Context, actor auth.User, query Usag
 	summary.Points = make([]UsagePoint, 0, len(dates))
 	for _, date := range dates {
 		point := points[date]
-		if point.Requests > maxSafeInteger || point.InputTokens > maxSafeInteger || point.OutputTokens > maxSafeInteger || point.CacheCreationInputTokens > maxSafeInteger || point.CacheReadInputTokens > maxSafeInteger || point.CacheCreation5mTokens > maxSafeInteger || point.CacheCreation1hTokens > maxSafeInteger || point.WebSearchCalls > maxSafeInteger || point.UnknownAttempts > maxSafeInteger {
+		if point.Requests > maxSafeInteger || point.SuccessfulRequests > maxSafeInteger || point.FailedRequests > maxSafeInteger || point.FailedAttempts > maxSafeInteger || point.InputTokens > maxSafeInteger || point.OutputTokens > maxSafeInteger || point.CacheCreationInputTokens > maxSafeInteger || point.CacheReadInputTokens > maxSafeInteger || point.CacheCreation5mTokens > maxSafeInteger || point.CacheCreation1hTokens > maxSafeInteger || point.WebSearchCalls > maxSafeInteger || point.UnknownAttempts > maxSafeInteger {
 			return UsageSummary{}, errors.New("usage totals exceed the dashboard-safe integer range")
 		}
 		summary.Points = append(summary.Points, point)
 	}
-	if summary.Requests > maxSafeInteger || summary.Attempts > maxSafeInteger || summary.InputTokens > maxSafeInteger || summary.OutputTokens > maxSafeInteger || summary.CacheCreationInputTokens > maxSafeInteger || summary.CacheReadInputTokens > maxSafeInteger || summary.CacheCreation5mTokens > maxSafeInteger || summary.CacheCreation1hTokens > maxSafeInteger || summary.WebSearchCalls > maxSafeInteger || summary.UnknownAttempts > maxSafeInteger {
+	if summary.Requests > maxSafeInteger || summary.SuccessfulRequests > maxSafeInteger || summary.FailedRequests > maxSafeInteger || summary.Attempts > maxSafeInteger || summary.FailedAttempts > maxSafeInteger || summary.InputTokens > maxSafeInteger || summary.OutputTokens > maxSafeInteger || summary.CacheCreationInputTokens > maxSafeInteger || summary.CacheReadInputTokens > maxSafeInteger || summary.CacheCreation5mTokens > maxSafeInteger || summary.CacheCreation1hTokens > maxSafeInteger || summary.WebSearchCalls > maxSafeInteger || summary.UnknownAttempts > maxSafeInteger {
 		return UsageSummary{}, errors.New("usage totals exceed the dashboard-safe integer range")
 	}
 	delta, ok := checkedAdd(currentCost, -recordedCost)

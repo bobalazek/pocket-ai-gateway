@@ -6,6 +6,7 @@ import (
 	"database/sql"
 	"encoding/base64"
 	"errors"
+	"fmt"
 	"io"
 	"net/http"
 	"os"
@@ -117,6 +118,73 @@ func TestRuntimeStatusTracksReadinessComponents(t *testing.T) {
 	status = service.RuntimeStatus(ctx)
 	if status.Ready || status.Checks[0].State != "unavailable" || status.Checks[2].State != "unavailable" || status.Outbox != nil {
 		t.Fatalf("closed system store status = %+v", status)
+	}
+}
+
+func TestAdminStatusAlertsOnSustainedErrorsAndFailedBackup(t *testing.T) {
+	ctx := context.Background()
+	store, err := storage.Open(ctx, filepath.Join(t.TempDir(), "data"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+	service := New(store, providers.New(store.SystemDB(), make([]byte, 32)), "test", func(string) string { return "" })
+	if status := service.AdminStatus(ctx); !status.Ready || status.Alerts == nil || len(status.Alerts) != 0 {
+		t.Fatalf("empty status = %+v", status)
+	}
+	now := time.Now().UTC()
+	started := now.Add(-30 * time.Minute).UnixMilli()
+	if _, err := store.SystemDB().ExecContext(ctx, `INSERT INTO users(id,email,display_name,password_hash,role,status,created_at,updated_at) VALUES('usr_owner','owner@example.test','Owner','hash','owner','active',?,?)`, started, started); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.SystemDB().ExecContext(ctx, `INSERT INTO api_keys(id,owner_user_id,label,state,scopes_json,created_at,updated_at) VALUES('key_owner','usr_owner','Owner key','active','[]',?,?)`, started, started); err != nil {
+		t.Fatal(err)
+	}
+	for index := range 19 {
+		state := "succeeded"
+		if index == 0 {
+			state = "failed"
+		}
+		if _, err := store.SystemDB().ExecContext(ctx, `INSERT INTO requests(id,owner_user_id,key_id,operation,dialect,model_id,state,started_at,finished_at) VALUES(?,'usr_owner','key_owner','chat','openai','model_test',?,?,?)`, fmt.Sprintf("req_%d", index), state, started, started+1); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if status := service.AdminStatus(ctx); len(status.Alerts) != 0 {
+		t.Fatalf("alert fired before minimum sample: %+v", status.Alerts)
+	}
+	if _, err := store.SystemDB().ExecContext(ctx, `INSERT INTO requests(id,owner_user_id,key_id,operation,dialect,model_id,state,started_at,finished_at) VALUES('req_twenty','usr_owner','key_owner','chat','openai','model_test','succeeded',?,?)`, started, started+1); err != nil {
+		t.Fatal(err)
+	}
+	status := service.AdminStatus(ctx)
+	if !status.Ready || len(status.Alerts) != 1 || status.Alerts[0].ID != "high_request_error_rate" || status.Alerts[0].Severity != "warning" {
+		t.Fatalf("high error status = %+v", status)
+	}
+	if _, err := store.SystemDB().ExecContext(ctx, `UPDATE requests SET started_at=? WHERE id='req_0'`, now.Add(-2*time.Hour).UnixMilli()); err != nil {
+		t.Fatal(err)
+	}
+	if status := service.AdminStatus(ctx); len(status.Alerts) != 1 || status.Alerts[0].ID != "high_request_error_rate" {
+		t.Fatalf("recently finished long request was missed: %+v", status.Alerts)
+	}
+	if _, err := store.SystemDB().ExecContext(ctx, `INSERT INTO backup_jobs(id,state,destination,archive_name,started_at) VALUES('backup_failed','failed','local','backup.enc',?)`, started); err != nil {
+		t.Fatal(err)
+	}
+	status = service.AdminStatus(ctx)
+	if len(status.Alerts) != 2 || status.Alerts[1].ID != "latest_backup_failed" {
+		t.Fatalf("failed backup status = %+v", status)
+	}
+	if _, err := store.SystemDB().ExecContext(ctx, `INSERT INTO backup_jobs(id,state,destination,archive_name,started_at) VALUES('backup_running','running','local','backup-running.enc',?)`, started+1); err != nil {
+		t.Fatal(err)
+	}
+	status = service.AdminStatus(ctx)
+	if len(status.Alerts) != 2 || status.Alerts[1].ID != "latest_backup_failed" {
+		t.Fatalf("running backup concealed last failure = %+v", status)
+	}
+	if _, err := store.SystemDB().ExecContext(ctx, `INSERT INTO backup_jobs(id,state,destination,archive_name,started_at) VALUES('backup_recovered','succeeded','local','backup-recovered.enc',?)`, started+2); err != nil {
+		t.Fatal(err)
+	}
+	status = service.AdminStatus(ctx)
+	if len(status.Alerts) != 1 || status.Alerts[0].ID != "high_request_error_rate" {
+		t.Fatalf("recovered backup status = %+v", status)
 	}
 }
 

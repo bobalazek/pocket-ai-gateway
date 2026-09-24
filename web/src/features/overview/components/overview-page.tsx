@@ -13,6 +13,7 @@ export default function OverviewPage() {
   const { data, loading } = useOverview();
   const usage = data.usage;
   const setupIncomplete = data.setup && Object.values(data.setup).some((complete) => !complete);
+  const errorRate = usage && usage.successful_requests + usage.failed_requests ? `${usage.error_rate_percent.toFixed(1)}%` : "—";
   const recentPoints = usage?.points.slice(-7) ?? [];
   const period = usage
     ? `${new Date(usage.from).toLocaleDateString()}–${new Date(usage.to).toLocaleDateString()}`
@@ -35,6 +36,7 @@ export default function OverviewPage() {
         <div className="section-heading"><h2 id="overview-activity-title">Activity</h2><span className="section-period">{loading ? "Loading period…" : period}</span></div>
         <div className="metric-grid overview-metrics">
           <Metric label="Requests" value={loading ? "…" : usage?.requests.toLocaleString() ?? "—"} note="in period" />
+          <Metric label="Error rate" value={loading ? "…" : errorRate} note={usage ? `${usage.failed_requests.toLocaleString()} failed` : "completed requests"} />
           <Metric label="Tokens" value={loading ? "…" : usage ? (usage.input_tokens + usage.output_tokens).toLocaleString() : "—"} note="input + output" />
           <Metric label="Known spend" value={loading ? "…" : usage ? money(usage.known_cost_usd) : "—"} note="priced attempts" />
           <Metric label="Needs review" value={loading ? "…" : usage?.unknown_attempts.toLocaleString() ?? "—"} note="unknown usage" />

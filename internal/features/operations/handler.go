@@ -189,7 +189,7 @@ func (handler *Handler) status(response http.ResponseWriter, request *http.Reque
 	if _, ok := handler.authorize(response, request, false); !ok {
 		return
 	}
-	auth.WriteJSON(response, http.StatusOK, map[string]any{"status": handler.service.RuntimeStatus(request.Context())})
+	auth.WriteJSON(response, http.StatusOK, map[string]any{"status": handler.service.AdminStatus(request.Context())})
 }
 
 func (handler *Handler) authorize(response http.ResponseWriter, request *http.Request, mutation bool) (auth.AuthenticatedSession, bool) {

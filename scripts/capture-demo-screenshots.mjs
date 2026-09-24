@@ -12,18 +12,20 @@ const pages = [
   { name: "analytics", path: "/_/analytics/", heading: "Analytics", ready: "document.querySelectorAll('.analytics-section').length === 8 && document.querySelectorAll('#keys .analytics-rank-chart svg').length >= 2 && document.querySelectorAll('#users .analytics-rank-chart svg').length >= 2 && document.querySelectorAll('#models .analytics-rank-chart svg').length >= 2 && document.querySelectorAll('#providers .analytics-rank-chart svg').length >= 2 && document.querySelectorAll('#operations .analytics-rank-chart svg').length >= 3" },
   { name: "usage", path: "/_/usage/", heading: "Usage and limits", ready: "document.querySelectorAll('.usage-chart-grid svg').length >= 2" },
   { name: "requests", path: "/_/requests/", heading: "Requests", ready: "document.querySelectorAll('.request-table tbody tr').length > 0" },
-  { name: "providers", path: "/_/providers/", heading: "Providers", ready: "document.querySelectorAll('main .resource-list > .panel').length > 0" },
+  { name: "request-errors", path: "/_/requests/?state=failed", heading: "Requests", ready: "document.querySelectorAll('.request-table tbody tr').length > 0 && [...document.querySelectorAll('.request-state')].every((item) => item.dataset.state === 'failed')" },
+  { name: "providers", path: "/_/providers/", heading: "Providers", ready: "document.querySelectorAll('main .resource-list > .panel').length > 0 && document.querySelector('main .resource-list > .panel')?.textContent.includes('Upstream models ·')" },
   { name: "models", path: "/_/models/", heading: "Models", ready: "document.querySelectorAll('main .resource-list > .panel').length > 0" },
   { name: "keys", path: "/_/keys/", heading: "API keys", ready: "document.querySelectorAll('main .resource-list > .resource-row').length > 0" },
   { name: "users", path: "/_/users/", heading: "Users", ready: "document.querySelectorAll('main .resource-list > .resource-row').length > 0" },
   { name: "audit", path: "/_/audit/", heading: "Audit log", ready: "document.querySelectorAll('main .resource-list > .resource-row').length > 0" },
   { name: "settings", path: "/_/settings/", heading: "Settings and recovery", ready: "document.querySelector('main h2')?.textContent === 'Backup schedule'" },
-  { name: "status", path: "/_/status/", heading: "Status", ready: "document.querySelectorAll('.status-list strong[data-state=ready]').length >= 2 && document.querySelector('#operational-status-title') && !document.querySelector('.operational-status [role=status]')" },
+  { name: "status", path: "/_/status/", heading: "Status", ready: "document.querySelectorAll('.status-list strong[data-state=ready]').length >= 2 && document.querySelector('.status-alerts li') && !document.querySelector('.operational-status [role=status]')" },
   { name: "playground", path: "/_/playground/", heading: "Playground", ready: "document.querySelector('form #prompt') && document.querySelector('form #protocol')" },
   { name: "account", path: "/_/account/", heading: "Your profile and sessions.", ready: "document.querySelectorAll('main .resource-list .resource-row').length > 0" },
   { name: "media-jobs", path: "/_/media-jobs/", heading: "Media jobs", ready: "document.querySelector('main .resource-list')?.textContent.includes('No media jobs') || document.querySelectorAll('main .resource-list > .panel').length > 0" },
 ];
 const mobileNames = new Set(["overview", "analytics", "usage", "requests", "status"]);
+const previewNames = new Set(["analytics", "usage", "request-errors", "status"]);
 
 function options(args) {
   if (args.includes("--help")) {
@@ -141,15 +143,23 @@ async function capture({ baseURL, outputDir }) {
       manifest.push({ file: filename, page, viewport_width: width, full_page_height: height, bytes: png.length });
       console.log(`${filename} (${width} × ${height})`);
     };
-    const screenshotSection = async (name, selector) => {
+    const screenshotViewport = async (filename, width, height, page) => {
+      const result = await send("Page.captureScreenshot", { format: "png", fromSurface: true, clip: { x: 0, y: 0, width, height, scale: 1 } });
+      const png = Buffer.from(result.data, "base64");
+      if (png.subarray(0, 8).toString("hex") !== "89504e470d0a1a0a" || png.readUInt32BE(16) !== width || png.readUInt32BE(20) !== height) throw new Error(`${filename}: Chrome returned an incomplete PNG`);
+      await writeFile(join(outputDir, filename), png);
+      manifest.push({ file: filename, page, viewport_width: width, viewport_height: height, bytes: png.length });
+      console.log(`${filename} (${width} × ${height})`);
+    };
+    const screenshotSection = async (name, selector, page = "analytics") => {
       const bounds = await evaluate(`(() => { const rect = document.querySelector(${JSON.stringify(selector)})?.getBoundingClientRect(); return rect && { x: Math.floor(rect.left + scrollX), y: Math.floor(rect.top + scrollY), width: Math.ceil(rect.width), height: Math.ceil(rect.height) }; })()`);
       if (!bounds || bounds.width < 200 || bounds.height < 100 || bounds.height > 5000) throw new Error(`Invalid analytics section: ${selector}`);
       const result = await send("Page.captureScreenshot", { format: "png", captureBeyondViewport: true, fromSurface: true, clip: { ...bounds, scale: 1 } });
       const png = Buffer.from(result.data, "base64");
       if (png.subarray(0, 8).toString("hex") !== "89504e470d0a1a0a" || png.readUInt32BE(16) !== bounds.width || png.readUInt32BE(20) !== bounds.height) throw new Error(`Incomplete analytics section: ${name}`);
-      const filename = `demo-analytics-${name}.png`;
+      const filename = `demo-${page}-${name}.png`;
       await writeFile(join(outputDir, filename), png);
-      manifest.push({ file: filename, page: "analytics", section: name, capture_width: bounds.width, capture_height: bounds.height, bytes: png.length });
+      manifest.push({ file: filename, page, section: name, capture_width: bounds.width, capture_height: bounds.height, bytes: png.length });
       console.log(`${filename} (${bounds.width} × ${bounds.height})`);
     };
 
@@ -157,8 +167,16 @@ async function capture({ baseURL, outputDir }) {
     await send("Runtime.enable");
     await setViewport(1440, 900, false);
     await navigate("/_/login/", "Sign in.", "document.querySelector('form #password')");
-    const login = await evaluate(`fetch('/api/v1/auth/login', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ email: 'demo@example.test', password: ${JSON.stringify(process.env.PAG_DEMO_PASSWORD)} }) }).then((response) => response.status)`);
+    const login = await evaluate(`fetch('/api/v1/auth/login', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ email: 'operator@example.test', password: ${JSON.stringify(process.env.PAG_DEMO_PASSWORD)} }) }).then((response) => response.status)`);
     if (login !== 200) throw new Error(`Demo login failed (${login}); check the temporary password`);
+    const fixture = await evaluate(`Promise.all([
+      fetch('/api/v1/connections').then((response) => response.ok ? response.json() : null),
+      fetch('/api/v1/usage').then((response) => response.ok ? response.json() : null),
+    ]).then(([connections, summary]) => ({ connections: connections?.data, usage: summary?.usage }))`);
+    const names = new Set(["Local fast lane", "Local balanced lane", "Local reasoning lane"]);
+    if (fixture.connections?.length !== 3 || fixture.connections.some((item) => !names.delete(item.name) || new URL(item.base_url).hostname !== "127.0.0.1" || item.preset !== "custom") || names.size || fixture.usage?.requests !== 124 || fixture.usage.successful_requests !== 112 || fixture.usage.failed_requests !== 12) {
+      throw new Error("Refusing to capture: target is not the disposable loopback-only fixture");
+    }
     await mkdir(outputDir, { recursive: true });
 
     for (const page of pages) {
@@ -168,8 +186,10 @@ async function capture({ baseURL, outputDir }) {
         await sleep(200);
       }
       await screenshot(`demo-page-${page.name}.png`, 1440, page.name);
+      if (previewNames.has(page.name)) await screenshotViewport(`demo-preview-${page.name}.png`, 1440, 900, page.name);
       if (page.name === "analytics") {
         for (const [name, selector] of [["traffic", "#traffic"], ["api-keys", "#keys"], ["users", "#users"], ["models", "#models"], ["providers", "#providers"], ["operations", "#operations"]]) await screenshotSection(name, selector);
+        await screenshotSection("failures", "#traffic .analytics-chart-card:nth-child(2)");
         const drillDown = await evaluate(`(async () => {
           const details = document.querySelector('#keys .analytics-table-disclosure');
           details.open = true;
@@ -208,7 +228,31 @@ async function capture({ baseURL, outputDir }) {
         await navigate(detailPath.pathname + detailPath.search, "Requests", "document.querySelector('#request-detail-heading') && document.querySelector('[aria-label=\"Request detail\"] .facts')");
         await screenshot("demo-page-request-detail.png", 1440, "request-detail");
       }
+      if (page.name === "request-errors") {
+        const href = await evaluate("document.querySelector('main a[href*=request_id]')?.getAttribute('href')");
+        if (!href) throw new Error("Filtered failed requests have no detail link");
+        const detailPath = new URL(href, baseURL + page.path);
+        await navigate(detailPath.pathname + detailPath.search, "Requests", "document.querySelector('#request-detail-heading') && document.querySelector('[aria-label=\"Request detail\"] .facts')");
+        await screenshot("demo-page-failed-request.png", 1440, "failed-request");
+      }
+      if (page.name === "providers") await screenshotSection("connection", "main .resource-list > .panel:first-child", "providers");
+      if (page.name === "providers") {
+        for (const preset of ["openai", "replicate"]) {
+          await evaluate(`(() => { const field = document.querySelector('#preset'); field.value = ${JSON.stringify(preset)}; field.dispatchEvent(new Event('change', { bubbles: true })); })()`);
+          await waitFor(() => evaluate(`document.querySelector('#base_url')?.value === ${JSON.stringify(preset === "openai" ? "https://api.openai.com/v1" : "https://api.replicate.com/v1")}`), 2000, `${preset} preset base URL`);
+          await screenshotSection(`preset-${preset}`, "main > .panel", "providers");
+        }
+      }
+      if (page.name === "models") await screenshotSection("route", "main .resource-list > .panel:first-child", "models");
+      if (page.name === "status") await screenshotSection("alerts", ".status-alerts", "status");
     }
+
+    await setViewport(1440, 700, false);
+    await navigate("/_/", "Overview", "document.querySelectorAll('.activity-list li').length > 0");
+    await evaluate("document.querySelector('.account-summary').click()");
+    const accountPosition = await waitFor(() => evaluate("(() => { const menu = document.querySelector('.account-popover'); if (!menu) return null; const trigger = document.querySelector('.account-summary').getBoundingClientRect(); const bounds = menu.getBoundingClientRect(); return { triggerBottom: trigger.bottom, menuTop: bounds.top, menuBottom: bounds.bottom }; })()"), 2000, "desktop account menu");
+    if (accountPosition.triggerBottom > 701 || accountPosition.triggerBottom < 650 || accountPosition.menuTop < 0 || accountPosition.menuBottom > 700) throw new Error("Desktop account menu is not anchored within a short viewport");
+    await screenshotViewport("demo-desktop-account-menu.png", 1440, 700, "account-menu");
 
     await setViewport(390, 844, true);
     for (const page of pages.filter((item) => mobileNames.has(item.name))) {
