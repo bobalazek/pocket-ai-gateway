@@ -4,7 +4,7 @@ import { ChartContainer } from "@/components/ui/chart";
 import type { UsageBreakdownRow, UsagePoint } from "@/features/usage/types/usage.types";
 import { formatChartUSD, formatChartUSDAxis } from "@/features/usage/utils/usage.utils";
 
-export type RankMetric = "requests" | "tokens" | "spend" | "failures" | "failed_attempts" | "p95" | "tools" | "cache_reads" | "unknown";
+export type RankMetric = "requests" | "tokens" | "spend" | "failures" | "failed_attempts" | "p95" | "first_byte" | "tools" | "cache_reads" | "unknown";
 
 export function rankValue(row: UsageBreakdownRow, metric: RankMetric) {
   if (metric === "tokens") return row.input_tokens + row.output_tokens;
@@ -12,6 +12,7 @@ export function rankValue(row: UsageBreakdownRow, metric: RankMetric) {
   if (metric === "failures") return row.failed_requests;
   if (metric === "failed_attempts") return row.failed_attempts;
   if (metric === "p95") return row.p95_gateway_duration_ms ?? 0;
+  if (metric === "first_byte") return row.p95_first_byte_ms ?? 0;
   if (metric === "tools") return row.response_tool_calls;
   if (metric === "cache_reads") return row.cache_read_input_tokens;
   if (metric === "unknown") return row.unknown_attempts;
@@ -20,12 +21,12 @@ export function rankValue(row: UsageBreakdownRow, metric: RankMetric) {
 
 export function rankFormat(value: number, metric: RankMetric) {
   if (metric === "spend") return formatChartUSD(value);
-  if (metric === "p95") return `${Math.round(value).toLocaleString()} ms`;
+  if (metric === "p95" || metric === "first_byte") return `${Math.round(value).toLocaleString()} ms`;
   return value.toLocaleString();
 }
 
 export function RankedChart({ rows, metric, label }: { rows: UsageBreakdownRow[]; metric: RankMetric; label: string }) {
-  const data = rows.filter((row) => metric !== "p95" || row.finished_requests > 0)
+  const data = rows.filter((row) => (metric !== "p95" || row.finished_requests > 0) && (metric !== "first_byte" || row.p95_first_byte_ms !== null))
     .map((row) => {
       const name = row.label.split(" · ")[0];
       return { ...row, value: rankValue(row, metric), shortLabel: name.length > 18 ? `${name.slice(0, 17)}…` : name };
@@ -38,7 +39,7 @@ export function RankedChart({ rows, metric, label }: { rows: UsageBreakdownRow[]
     <ChartContainer label={label} className="analytics-rank-chart">
       <BarChart responsive width="100%" height="100%" data={data} layout="vertical" margin={{ left: 4, right: 12 }}>
         <CartesianGrid horizontal={false} />
-        <XAxis type="number" tickFormatter={(value: number) => metric === "spend" ? formatChartUSDAxis(value) : metric === "p95" ? `${value}ms` : value.toLocaleString()} />
+        <XAxis type="number" tickFormatter={(value: number) => metric === "spend" ? formatChartUSDAxis(value) : metric === "p95" || metric === "first_byte" ? `${value}ms` : value.toLocaleString()} />
         <YAxis type="category" dataKey="shortLabel" width={126} tickLine={false} />
         <Tooltip formatter={(value) => rankFormat(Number(value), metric)} labelFormatter={(_, payload) => String(payload?.[0]?.payload?.label ?? "")} />
         <Bar dataKey="value" name={label} fill="var(--accent)" radius={[0, 4, 4, 0]} isAnimationActive={false} />

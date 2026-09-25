@@ -31,6 +31,8 @@ type BreakdownRow struct {
 	FinishedRequests         int64   `json:"finished_requests"`
 	AvgGatewayDurationMS     *int64  `json:"avg_gateway_duration_ms"`
 	P95GatewayDurationMS     *int64  `json:"p95_gateway_duration_ms"`
+	AvgFirstByteMS           *int64  `json:"avg_first_byte_ms"`
+	P95FirstByteMS           *int64  `json:"p95_first_byte_ms"`
 }
 
 type Breakdown struct {
@@ -50,6 +52,7 @@ func (service *Service) Breakdown(ctx context.Context, actor auth.User, query Us
 	requestColumn := map[string]string{
 		"user": "r.owner_user_id", "key": "r.key_id", "model": "r.model_id", "connection": "a.connection_id",
 		"dialect": "r.dialect", "operation": "r.operation", "state": "r.state",
+		"mode": "CASE WHEN r.streaming = 1 THEN 'streaming' ELSE 'synchronous' END",
 	}[dimension]
 	if requestColumn == "" {
 		return Breakdown{}, errors.New("invalid breakdown dimension")
@@ -62,10 +65,11 @@ func (service *Service) Breakdown(ctx context.Context, actor auth.User, query Us
 		sort = "requests"
 	}
 	order := map[string]string{
-		"requests":    "COALESCE(request_totals.requests, 0) DESC",
-		"known_cost":  "COALESCE(attempt_totals.known_cost_nanos, 0) DESC",
-		"tokens":      "(COALESCE(attempt_totals.input_tokens, 0) + COALESCE(attempt_totals.output_tokens, 0)) DESC",
-		"p95_latency": "(duration_totals.p95_ms IS NULL) ASC, duration_totals.p95_ms DESC",
+		"requests":       "COALESCE(request_totals.requests, 0) DESC",
+		"known_cost":     "COALESCE(attempt_totals.known_cost_nanos, 0) DESC",
+		"tokens":         "(COALESCE(attempt_totals.input_tokens, 0) + COALESCE(attempt_totals.output_tokens, 0)) DESC",
+		"p95_latency":    "(duration_totals.p95_ms IS NULL) ASC, duration_totals.p95_ms DESC",
+		"p95_first_byte": "(first_byte_totals.p95_ms IS NULL) ASC, first_byte_totals.p95_ms DESC",
 	}[sort]
 	if order == "" {
 		return Breakdown{}, errors.New("invalid breakdown sort")
@@ -128,14 +132,18 @@ func (service *Service) Breakdown(ctx context.Context, actor auth.User, query Us
 		label = `COALESCE((SELECT c.name FROM provider_connections c WHERE c.id = groups.id), groups.id)`
 	case "dialect", "operation":
 		label = `CASE WHEN groups.id = '' THEN 'Retained history' ELSE groups.id END`
+	case "mode":
+		label = `CASE groups.id WHEN 'streaming' THEN 'Streaming' ELSE 'Synchronous' END`
 	}
 	statement := `WITH scoped_requests AS (
 		SELECT ` + requestColumn + ` AS id, r.id AS request_id, r.state AS request_state,
-			r.started_at AS request_started_at, r.finished_at AS request_finished_at
+			r.started_at AS request_started_at, r.finished_at AS request_finished_at,
+			(SELECT MIN(fa.first_byte_at) FROM attempts fa WHERE fa.request_id = r.id AND fa.state = 'succeeded') AS request_first_byte_at
 		FROM requests r LEFT JOIN attempts a ON a.request_id = r.id
 		WHERE ` + strings.Join(requestWhere, " AND ") + `
 	), request_rows AS (
-		SELECT id, request_id, MAX(request_state) AS state, MIN(request_started_at) AS started_at, MAX(request_finished_at) AS finished_at
+		SELECT id, request_id, MAX(request_state) AS state, MIN(request_started_at) AS started_at, MAX(request_finished_at) AS finished_at,
+			MIN(request_first_byte_at) AS first_byte_at
 		FROM scoped_requests GROUP BY id, request_id
 	), request_totals AS (
 		SELECT id, COUNT(*) AS requests, SUM(state = 'succeeded') AS successful_requests, SUM(state = 'failed') AS failed_requests
@@ -167,6 +175,15 @@ func (service *Service) Breakdown(ctx context.Context, actor auth.User, query Us
 		SELECT id, COUNT(*) AS finished_requests, CAST(ROUND(AVG(duration_ms)) AS INTEGER) AS avg_ms,
 			MAX(CASE WHEN rank = (sample_count * 95 + 99) / 100 THEN duration_ms END) AS p95_ms
 		FROM duration_ranked GROUP BY id
+	), first_byte_ranked AS (
+		SELECT id, first_byte_at - started_at AS first_byte_ms,
+			ROW_NUMBER() OVER (PARTITION BY id ORDER BY first_byte_at - started_at) AS rank,
+			COUNT(*) OVER (PARTITION BY id) AS sample_count
+		FROM request_rows WHERE first_byte_at IS NOT NULL AND first_byte_at >= started_at
+	), first_byte_totals AS (
+		SELECT id, CAST(ROUND(AVG(first_byte_ms)) AS INTEGER) AS avg_ms,
+			MAX(CASE WHEN rank = (sample_count * 95 + 99) / 100 THEN first_byte_ms END) AS p95_ms
+		FROM first_byte_ranked GROUP BY id
 	), groups AS (
 		SELECT id FROM request_totals UNION SELECT id FROM attempt_totals
 	)
@@ -177,10 +194,12 @@ func (service *Service) Breakdown(ctx context.Context, actor auth.User, query Us
 		COALESCE(attempt_totals.cache_creation_input_tokens, 0), COALESCE(attempt_totals.cache_read_input_tokens, 0),
 		COALESCE(attempt_totals.web_search_calls, 0), COALESCE(attempt_totals.response_tool_calls, 0),
 		COALESCE(attempt_totals.known_cost_nanos, 0), COALESCE(attempt_totals.unknown_attempts, 0),
-		COALESCE(duration_totals.finished_requests, 0), duration_totals.avg_ms, duration_totals.p95_ms
+		COALESCE(duration_totals.finished_requests, 0), duration_totals.avg_ms, duration_totals.p95_ms,
+		first_byte_totals.avg_ms, first_byte_totals.p95_ms
 	FROM groups LEFT JOIN request_totals ON request_totals.id = groups.id
 	LEFT JOIN attempt_totals ON attempt_totals.id = groups.id
 	LEFT JOIN duration_totals ON duration_totals.id = groups.id
+	LEFT JOIN first_byte_totals ON first_byte_totals.id = groups.id
 	ORDER BY ` + order + `, groups.id ASC LIMIT ? OFFSET ?`
 	args := append(requestArgs, attemptArgs...)
 	args = append(args, limit+1, offset)
@@ -193,10 +212,10 @@ func (service *Service) Breakdown(ctx context.Context, actor auth.User, query Us
 	for rows.Next() {
 		var row BreakdownRow
 		var cost int64
-		var avg, p95 sql.NullInt64
+		var avg, p95, avgFirstByte, p95FirstByte sql.NullInt64
 		if err := rows.Scan(&row.ID, &row.Label, &row.Requests, &row.SuccessfulRequests, &row.FailedRequests,
 			&row.Attempts, &row.FailedAttempts, &row.InputTokens, &row.OutputTokens, &row.CacheCreationInputTokens, &row.CacheReadInputTokens,
-			&row.WebSearchCalls, &row.ResponseToolCalls, &cost, &row.UnknownAttempts, &row.FinishedRequests, &avg, &p95); err != nil {
+			&row.WebSearchCalls, &row.ResponseToolCalls, &cost, &row.UnknownAttempts, &row.FinishedRequests, &avg, &p95, &avgFirstByte, &p95FirstByte); err != nil {
 			return Breakdown{}, err
 		}
 		for _, value := range []int64{row.Requests, row.SuccessfulRequests, row.FailedRequests, row.Attempts, row.FailedAttempts, row.InputTokens,
@@ -210,6 +229,8 @@ func (service *Service) Breakdown(ctx context.Context, actor auth.User, query Us
 		row.ErrorRatePercent = errorRatePercent(row.FailedRequests, row.SuccessfulRequests)
 		row.AvgGatewayDurationMS = optionalInt64(avg)
 		row.P95GatewayDurationMS = optionalInt64(p95)
+		row.AvgFirstByteMS = optionalInt64(avgFirstByte)
+		row.P95FirstByteMS = optionalInt64(p95FirstByte)
 		result.Data = append(result.Data, row)
 	}
 	if err := rows.Err(); err != nil {

@@ -1,6 +1,7 @@
 package gateway
 
 import (
+	"database/sql"
 	"encoding/json"
 	"errors"
 	"io"
@@ -539,6 +540,11 @@ func TestNativeChatStreamRequestsUsageForAccounting(t *testing.T) {
 		}
 		if status != "provider_reported" || input != 3 || output != 1 {
 			t.Fatalf("options %q: usage = %s %d/%d", test.options, status, input, output)
+		}
+		var streaming int
+		var firstByte sql.NullInt64
+		if err := store.SystemDB().QueryRowContext(ctx, "SELECT r.streaming,a.first_byte_at FROM requests r JOIN attempts a ON a.request_id=r.id WHERE r.id=?", requestID).Scan(&streaming, &firstByte); err != nil || streaming != 1 || !firstByte.Valid {
+			t.Fatalf("options %q: streaming=%d first byte=%v, %v", test.options, streaming, firstByte, err)
 		}
 	}
 	for _, options := range upstreamOptions {

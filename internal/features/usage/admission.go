@@ -47,6 +47,7 @@ type AdmissionInput struct {
 	SnapshotPriceOnly      bool
 	BodyBytes              int64
 	BatchItems             int64
+	Streaming              bool
 	EstimatedInputTokens   int64
 	EstimatedOutputTokens  int64
 	EnforceInputBound      bool
@@ -253,7 +254,7 @@ func (service *Service) Admit(ctx context.Context, input AdmissionInput) (Admiss
 		}
 	}
 	if firstAttempt {
-		_, err = tx.ExecContext(ctx, "INSERT INTO requests (id, owner_user_id, key_id, operation, dialect, model_id, state, started_at) VALUES (?, ?, ?, ?, ?, ?, 'reserved', ?)", requestID, ownerID, input.KeyID, input.Operation, input.Dialect, input.ModelID, effective)
+		_, err = tx.ExecContext(ctx, "INSERT INTO requests (id, owner_user_id, key_id, operation, dialect, model_id, state, started_at, streaming) VALUES (?, ?, ?, ?, ?, ?, 'reserved', ?, ?)", requestID, ownerID, input.KeyID, input.Operation, input.Dialect, input.ModelID, effective, input.Streaming)
 		if err != nil {
 			return Admission{}, err
 		}

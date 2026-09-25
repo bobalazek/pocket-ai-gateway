@@ -11,9 +11,10 @@ type RankingKey = `${UsageBreakdownDimension}:${UsageBreakdownSort}`;
 const rankingQueries: [UsageBreakdownDimension, UsageBreakdownSort][] = [
   ["key", "requests"], ["key", "known_cost"], ["key", "tokens"], ["key", "p95_latency"],
   ["user", "requests"], ["user", "known_cost"],
-  ["model", "requests"], ["model", "known_cost"], ["model", "p95_latency"],
+  ["model", "requests"], ["model", "known_cost"], ["model", "p95_latency"], ["model", "p95_first_byte"],
   ["connection", "requests"], ["connection", "known_cost"], ["connection", "p95_latency"],
-  ["dialect", "requests"], ["operation", "requests"], ["state", "requests"],
+  ["dialect", "requests"], ["operation", "requests"], ["operation", "p95_latency"], ["state", "requests"],
+  ["mode", "requests"], ["mode", "p95_latency"], ["mode", "p95_first_byte"],
 ];
 const rankingKey = (dimension: UsageBreakdownDimension, sort: UsageBreakdownSort): RankingKey => `${dimension}:${sort}`;
 

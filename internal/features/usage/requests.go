@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
+	"errors"
 	"time"
 
 	"github.com/bobalazek/pocket-ai-gateway/internal/features/auth"
@@ -51,6 +52,9 @@ type RequestAttempt struct {
 	RecordedPrice            *RequestPrice       `json:"recorded_price"`
 	RestatedPrice            *RequestPrice       `json:"restated_price"`
 	StartedAt                string              `json:"started_at"`
+	FinishedAt               *string             `json:"finished_at"`
+	DurationMS               *int64              `json:"duration_ms"`
+	FirstByteMS              *int64              `json:"first_byte_ms"`
 }
 
 type RequestRecord struct {
@@ -63,6 +67,9 @@ type RequestRecord struct {
 	State       string           `json:"state"`
 	StartedAt   string           `json:"started_at"`
 	FinishedAt  *string          `json:"finished_at"`
+	Streaming   bool             `json:"streaming"`
+	DurationMS  *int64           `json:"duration_ms"`
+	FirstByteMS *int64           `json:"first_byte_ms"`
 	Attempts    []RequestAttempt `json:"attempts"`
 }
 
@@ -103,6 +110,14 @@ func (service *Service) ListRequests(ctx context.Context, actor auth.User, query
 			args = append(args, filter.value)
 		}
 	}
+	switch query.Mode {
+	case "":
+	case "streaming", "synchronous":
+		where += " AND streaming=?"
+		args = append(args, query.Mode == "streaming")
+	default:
+		return nil, "", errors.New("mode must be streaming or synchronous")
+	}
 	if query.ConnectionID != "" {
 		where += " AND EXISTS (SELECT 1 FROM attempts WHERE attempts.request_id = requests.id AND attempts.connection_id = ?)"
 		args = append(args, query.ConnectionID)
@@ -116,7 +131,7 @@ func (service *Service) ListRequests(ctx context.Context, actor auth.User, query
 		args = append(args, before, before, beforeID)
 	}
 	args = append(args, 51)
-	rows, err := tx.QueryContext(ctx, `SELECT id,owner_user_id,key_id,operation,dialect,model_id,state,started_at,finished_at FROM requests WHERE `+where+` ORDER BY started_at DESC,id DESC LIMIT ?`, args...)
+	rows, err := tx.QueryContext(ctx, `SELECT id,owner_user_id,key_id,operation,dialect,model_id,state,started_at,finished_at,streaming FROM requests WHERE `+where+` ORDER BY started_at DESC,id DESC LIMIT ?`, args...)
 	if err != nil {
 		return nil, "", err
 	}
@@ -125,7 +140,7 @@ func (service *Service) ListRequests(ctx context.Context, actor auth.User, query
 		var item RequestRecord
 		var started int64
 		var finished sql.NullInt64
-		if err := rows.Scan(&item.ID, &item.OwnerUserID, &item.KeyID, &item.Operation, &item.Dialect, &item.ModelID, &item.State, &started, &finished); err != nil {
+		if err := rows.Scan(&item.ID, &item.OwnerUserID, &item.KeyID, &item.Operation, &item.Dialect, &item.ModelID, &item.State, &started, &finished, &item.Streaming); err != nil {
 			rows.Close()
 			return nil, "", err
 		}
@@ -134,6 +149,7 @@ func (service *Service) ListRequests(ctx context.Context, actor auth.User, query
 		if finished.Valid {
 			value := timeString(finished.Int64)
 			item.FinishedAt = &value
+			item.DurationMS = elapsedMS(started, finished.Int64)
 		}
 		items = append(items, item)
 	}
@@ -152,7 +168,7 @@ func (service *Service) ListRequests(ctx context.Context, actor auth.User, query
 	}
 	for index := range items {
 		attemptRows, err := tx.QueryContext(ctx, `SELECT
-			a.id,a.ordinal,a.connection_id,a.model_id,a.upstream_model_id,a.target_dialect,a.target_operation,a.translation_applied,a.request_tool_count,a.web_search_max_calls,a.web_search_call_count,a.response_tool_call_count,a.tool_call_status,a.selection_reason,a.rejected_candidates_json,a.state,a.usage_status,a.input_tokens,a.output_tokens,a.cache_creation_input_tokens,a.cache_read_input_tokens,a.cache_creation_5m_input_tokens,a.cache_creation_1h_input_tokens,a.estimated_cost_nanos,a.as_recorded_cost_nanos,assessment.amount_nanos,COALESCE(a.restated_cost_nanos,a.as_recorded_cost_nanos),a.started_at,
+			a.id,a.ordinal,a.connection_id,a.model_id,a.upstream_model_id,a.target_dialect,a.target_operation,a.translation_applied,a.request_tool_count,a.web_search_max_calls,a.web_search_call_count,a.response_tool_call_count,a.tool_call_status,a.selection_reason,a.rejected_candidates_json,a.state,a.usage_status,a.input_tokens,a.output_tokens,a.cache_creation_input_tokens,a.cache_read_input_tokens,a.cache_creation_5m_input_tokens,a.cache_creation_1h_input_tokens,a.estimated_cost_nanos,a.as_recorded_cost_nanos,assessment.amount_nanos,COALESCE(a.restated_cost_nanos,a.as_recorded_cost_nanos),a.started_at,a.finished_at,a.first_byte_at,
 			recorded.id,recorded.source,recorded.input_nanos_per_million,recorded.output_nanos_per_million,recorded.cache_read_nanos_per_million,recorded.web_search_nanos_per_call,recorded.effective_from,recorded.effective_to,
 			restated.id,restated.source,restated.input_nanos_per_million,restated.output_nanos_per_million,restated.cache_read_nanos_per_million,restated.web_search_nanos_per_call,restated.effective_from,restated.effective_to
 			FROM attempts a
@@ -168,12 +184,13 @@ func (service *Service) ListRequests(ctx context.Context, actor auth.User, query
 			var inputTokens, outputTokens, cacheCreation, cacheRead, cache5m, cache1h sql.NullInt64
 			var estimatedCost, recordedCost, restatedCost, effectiveCost sql.NullInt64
 			var started int64
+			var attemptFinished, firstByte sql.NullInt64
 			var rejected string
 			var webSearchMax, webSearchCount sql.NullInt64
 			var recordedID, recordedSource, restatedID, restatedSource sql.NullString
 			var recordedInput, recordedOutput, recordedCacheRead, recordedWebSearch, recordedFrom, recordedTo sql.NullInt64
 			var restatedInput, restatedOutput, restatedCacheRead, restatedWebSearch, restatedFrom, restatedTo sql.NullInt64
-			if err := attemptRows.Scan(&attempt.ID, &attempt.Ordinal, &attempt.ConnectionID, &attempt.ModelID, &attempt.UpstreamID, &attempt.TargetDialect, &attempt.TargetOperation, &attempt.TranslationApplied, &attempt.RequestToolCount, &webSearchMax, &webSearchCount, &attempt.ResponseToolCalls, &attempt.ToolCallStatus, &attempt.SelectionReason, &rejected, &attempt.State, &attempt.UsageStatus, &inputTokens, &outputTokens, &cacheCreation, &cacheRead, &cache5m, &cache1h, &estimatedCost, &recordedCost, &restatedCost, &effectiveCost, &started, &recordedID, &recordedSource, &recordedInput, &recordedOutput, &recordedCacheRead, &recordedWebSearch, &recordedFrom, &recordedTo, &restatedID, &restatedSource, &restatedInput, &restatedOutput, &restatedCacheRead, &restatedWebSearch, &restatedFrom, &restatedTo); err != nil {
+			if err := attemptRows.Scan(&attempt.ID, &attempt.Ordinal, &attempt.ConnectionID, &attempt.ModelID, &attempt.UpstreamID, &attempt.TargetDialect, &attempt.TargetOperation, &attempt.TranslationApplied, &attempt.RequestToolCount, &webSearchMax, &webSearchCount, &attempt.ResponseToolCalls, &attempt.ToolCallStatus, &attempt.SelectionReason, &rejected, &attempt.State, &attempt.UsageStatus, &inputTokens, &outputTokens, &cacheCreation, &cacheRead, &cache5m, &cache1h, &estimatedCost, &recordedCost, &restatedCost, &effectiveCost, &started, &attemptFinished, &firstByte, &recordedID, &recordedSource, &recordedInput, &recordedOutput, &recordedCacheRead, &recordedWebSearch, &recordedFrom, &recordedTo, &restatedID, &restatedSource, &restatedInput, &restatedOutput, &restatedCacheRead, &restatedWebSearch, &restatedFrom, &restatedTo); err != nil {
 				attemptRows.Close()
 				return nil, "", err
 			}
@@ -196,6 +213,19 @@ func (service *Service) ListRequests(ctx context.Context, actor auth.User, query
 			attempt.RecordedPrice = requestPrice(recordedID, recordedSource, recordedInput, recordedOutput, recordedCacheRead, recordedWebSearch, recordedFrom, recordedTo)
 			attempt.RestatedPrice = requestPrice(restatedID, restatedSource, restatedInput, restatedOutput, restatedCacheRead, restatedWebSearch, restatedFrom, restatedTo)
 			attempt.StartedAt = timeString(started)
+			if attemptFinished.Valid {
+				value := timeString(attemptFinished.Int64)
+				attempt.FinishedAt = &value
+				attempt.DurationMS = elapsedMS(started, attemptFinished.Int64)
+			}
+			if firstByte.Valid {
+				attempt.FirstByteMS = elapsedMS(started, firstByte.Int64)
+				// Time to first byte is only meaningful for the attempt that answered the client.
+				if attempt.State == "succeeded" {
+					requestStarted, _ := time.Parse(time.RFC3339Nano, items[index].StartedAt)
+					items[index].FirstByteMS = elapsedMS(requestStarted.UnixMilli(), firstByte.Int64)
+				}
+			}
 			items[index].Attempts = append(items[index].Attempts, attempt)
 		}
 		if err := attemptRows.Err(); err != nil {
@@ -207,6 +237,14 @@ func (service *Service) ListRequests(ctx context.Context, actor auth.User, query
 		}
 	}
 	return items, next, nil
+}
+
+func elapsedMS(from, to int64) *int64 {
+	if to < from {
+		return nil
+	}
+	value := to - from
+	return &value
 }
 
 func optionalInt64(value sql.NullInt64) *int64 {

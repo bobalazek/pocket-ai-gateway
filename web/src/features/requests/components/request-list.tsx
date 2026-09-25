@@ -2,7 +2,7 @@ import type { MouseEvent } from "react";
 
 import { Button, buttonVariants } from "@/components/ui/button";
 import type { GatewayRequest, RequestFilters } from "@/features/requests/types/requests.types";
-import { requestListFilters, requestSearch } from "@/features/requests/utils/requests.utils";
+import { formatDuration, requestListFilters, requestSearch } from "@/features/requests/utils/requests.utils";
 
 export function RequestList({ items, filters, next, onNavigate, onOpenDetail }: { items: GatewayRequest[]; filters: RequestFilters; next: string; onNavigate: (filters: RequestFilters) => void; onOpenDetail: (id: string) => void }) {
   return (
@@ -14,7 +14,7 @@ export function RequestList({ items, filters, next, onNavigate, onOpenDetail }: 
           <div className="table-wrap request-table-wrap" role="region" aria-label="Scrollable request history" tabIndex={0}>
             <table className="request-table">
               <caption className="sr-only">Request history</caption>
-              <thead><tr><th scope="col">Model</th><th scope="col">State</th><th scope="col">Started</th><th scope="col">Tokens</th><th scope="col">Cost</th><th scope="col">Provider</th><th scope="col"><span className="sr-only">Details</span></th></tr></thead>
+              <thead><tr><th scope="col">Model</th><th scope="col">State</th><th scope="col">Started</th><th scope="col">Duration</th><th scope="col">Tokens</th><th scope="col">Cost</th><th scope="col">Provider</th><th scope="col"><span className="sr-only">Details</span></th></tr></thead>
               <tbody>{items.map((item) => <RequestRow key={item.id} item={item} filters={filters} onOpenDetail={onOpenDetail} />)}</tbody>
             </table>
           </div>
@@ -45,6 +45,7 @@ function RequestRow({ item, filters, onOpenDetail }: { item: GatewayRequest; fil
       <td className="request-model-cell" data-label="Model"><strong>{item.model_id}</strong><small>{item.dialect} · {item.operation}</small><code>{item.id}</code>{item.attempts.length > 1 && <small>{item.attempts.length} attempts</small>}</td>
       <td data-label="State"><span className="request-state" data-state={item.state}>{item.state}</span></td>
       <td data-label="Started"><time dateTime={item.started_at}>{new Date(item.started_at).toLocaleString()}</time></td>
+      <td data-label="Duration">{formatDuration(item.duration_ms)}<small>{item.streaming ? "Streaming" : "Synchronous"}{item.first_byte_ms !== null && ` · first byte ${formatDuration(item.first_byte_ms)}`}</small></td>
       <td data-label="Tokens">{tokens}</td>
       <td data-label="Cost">{latest?.cost_usd == null ? "Unknown" : `$${latest.cost_usd}`}</td>
       <td className="request-provider-cell" data-label="Provider">{latest?.connection_id ? <code>{latest.connection_id}</code> : "Unknown"}</td>

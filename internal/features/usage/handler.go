@@ -46,7 +46,7 @@ func (handler *Handler) requests(response http.ResponseWriter, request *http.Req
 	items, next, err := handler.service.ListRequests(request.Context(), current.User, UsageQuery{
 		UserID: query.Get("user_id"), KeyID: query.Get("key_id"), ModelID: query.Get("model_id"),
 		ConnectionID: query.Get("connection_id"), From: query.Get("from"), To: query.Get("to"),
-		Dialect: query.Get("dialect"), Operation: query.Get("operation"), State: query.Get("state"),
+		Dialect: query.Get("dialect"), Operation: query.Get("operation"), State: query.Get("state"), Mode: query.Get("mode"),
 		Cursor: query.Get("cursor"), RequestID: query.Get("request_id"),
 	})
 	if err != nil {

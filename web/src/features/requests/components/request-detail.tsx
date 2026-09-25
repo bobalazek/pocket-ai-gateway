@@ -2,6 +2,7 @@ import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { RequestAttemptDetails } from "@/features/requests/components/request-attempt";
 import type { GatewayRequest } from "@/features/requests/types/requests.types";
+import { formatDuration } from "@/features/requests/utils/requests.utils";
 
 export function RequestDetail({ item, loading, error, onClose }: { item?: GatewayRequest; loading: boolean; error?: string; onClose: () => void }) {
   return (
@@ -26,6 +27,9 @@ export function RequestDetail({ item, loading, error, onClose }: { item?: Gatewa
             <div><dt>User</dt><dd>{item.owner_user_id}</dd></div>
             <div><dt>API key</dt><dd>{item.key_id}</dd></div>
             <div><dt>Attempts</dt><dd>{item.attempts.length}</dd></div>
+            <div><dt>Response mode</dt><dd>{item.streaming ? "Streaming" : "Synchronous"}</dd></div>
+            <div><dt>Duration</dt><dd>{formatDuration(item.duration_ms)}</dd></div>
+            <div><dt>Time to first byte</dt><dd>{formatDuration(item.first_byte_ms)}</dd></div>
           </dl>
           {item.attempts.map((attempt) => <RequestAttemptDetails key={attempt.id} attempt={attempt} clientDialect={item.dialect} />)}
           <p className="help-text">Request content was not captured.</p>

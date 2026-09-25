@@ -9,13 +9,14 @@ export type PriceVersion = PriceTerms & WeeklyPriceWindow & { id: string; cache_
 export type OutboxStatus = { pending_events: number; reserved_events: number; pending_bytes: number; oldest_event_at: string | null; full: boolean };
 export type EffectiveLimit = { policy_id: string; scope_kind: string; metric: string; algorithm: string; period: string; limit_units: number; limit_usd?: string; consumed_units: number; consumed_usd?: string; reserved_units: number; reserved_usd?: string; remaining_units: number; remaining_usd?: string; resets_at: string | null };
 export type UsageFilters = { from?: string; to?: string; user_id?: string; key_id?: string; model_id?: string; connection_id?: string };
-export type UsageBreakdownDimension = "key" | "user" | "model" | "connection" | "dialect" | "operation" | "state";
-export type UsageBreakdownSort = "requests" | "known_cost" | "tokens" | "p95_latency";
+export type UsageBreakdownDimension = "key" | "user" | "model" | "connection" | "dialect" | "operation" | "state" | "mode";
+export type UsageBreakdownSort = "requests" | "known_cost" | "tokens" | "p95_latency" | "p95_first_byte";
 export type UsageBreakdownRow = {
   id: string; label: string; requests: number; successful_requests: number; failed_requests: number; error_rate_percent: number; attempts: number; failed_attempts: number;
   input_tokens: number; output_tokens: number; cache_creation_input_tokens: number; cache_read_input_tokens: number;
   web_search_calls: number; response_tool_calls: number; known_cost_usd: string; unknown_attempts: number;
   finished_requests: number; avg_gateway_duration_ms: number | null; p95_gateway_duration_ms: number | null;
+  avg_first_byte_ms: number | null; p95_first_byte_ms: number | null;
 };
 export type UsageBreakdown = { dimension: UsageBreakdownDimension; sort: UsageBreakdownSort; from: string; to: string; data: UsageBreakdownRow[]; has_more: boolean; next_offset: number | null };
 export type PricePreview = PriceTerms & WeeklyPriceWindow & { cache_read_usd_per_million: string | null; web_search_usd_per_call: string | null; effective_to: string };

@@ -27,6 +27,13 @@ export function RequestFilterForm({ filters, onSubmit }: { filters: RequestFilte
             <option>openai</option><option>responses</option><option>anthropic</option><option>gemini</option><option>systemone</option>
           </select>
         </div>
+        <div className="field">
+          <Label htmlFor="mode">Response mode</Label>
+          <select id="mode" name="mode" className="select" defaultValue={filters.mode ?? ""}>
+            <option value="">All</option>
+            <option value="streaming">Streaming</option><option value="synchronous">Synchronous</option>
+          </select>
+        </div>
         <Button>Apply</Button>
         <details className="request-advanced" open={Boolean(filters.connection_id || filters.operation || filters.state || filters.from || filters.to)}>
           <summary>Advanced filters</summary>

@@ -11,6 +11,9 @@ const request = {
   operation: "chat/completions",
   state: "succeeded",
   started_at: "2026-09-24T12:00:00Z",
+  streaming: true,
+  duration_ms: 4200,
+  first_byte_ms: 180,
   attempts: [
     { id: "att_1", connection_id: "old_connection", input_tokens: 20, output_tokens: 10, cost_usd: "0.02" },
     { id: "att_2", connection_id: "new_connection", input_tokens: 3, output_tokens: 5, cost_usd: "0.000031" },
@@ -22,6 +25,8 @@ describe("RequestList", () => {
     const html = renderToStaticMarkup(<RequestList items={[request]} filters={{ model_id: "assistant", cursor: "next" }} next="" onNavigate={vi.fn()} onOpenDetail={vi.fn()} />);
 
     expect(html).toContain("1 request on this page");
+    expect(html).toContain("4.20 s");
+    expect(html).toContain("Streaming · first byte 180 ms");
     expect(html).toContain("2 attempts");
     expect(html).toContain('<td data-label="Tokens">8</td>');
     expect(html).toContain('<td data-label="Cost">$0.000031</td>');

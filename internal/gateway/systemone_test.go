@@ -91,8 +91,13 @@ func TestSystemOneDecisionsForwardNativelyWithAccounting(t *testing.T) {
 	if seenPath != "/v1/systemone" || seenAuth != "Bearer provider-secret" || string(seenBody["model"]) != `"jev-latest"` {
 		t.Fatalf("upstream path=%s auth=%q model=%s", seenPath, seenAuth, seenBody["model"])
 	}
-	if state, status, input, output := attempt(response.Header.Get(pocketAIRequestIDHeader)); state != "succeeded" || status != "provider_reported" || input != 296 || output != 20 {
+	requestID := response.Header.Get(pocketAIRequestIDHeader)
+	if state, status, input, output := attempt(requestID); state != "succeeded" || status != "provider_reported" || input != 296 || output != 20 {
 		t.Fatalf("accounting = %s %s %d/%d", state, status, input, output)
+	}
+	var streaming, firstByte int64
+	if err := store.SystemDB().QueryRowContext(ctx, "SELECT r.streaming,COALESCE(a.first_byte_at,0) FROM requests r JOIN attempts a ON a.request_id=r.id WHERE r.id=?", requestID).Scan(&streaming, &firstByte); err != nil || streaming != 0 || firstByte == 0 {
+		t.Fatalf("decision timing streaming=%d first byte=%d, %v", streaming, firstByte, err)
 	}
 
 	response, body = call(http.MethodPost, "/api/systemone/v1/systemone", strings.Replace(strings.Replace(systemOneRequest, "%s", model.ID, 1), "Help!", "no usage", 1))

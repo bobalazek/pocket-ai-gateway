@@ -206,3 +206,73 @@ func TestBreakdownPagesWithoutClaimingGlobalTotals(t *testing.T) {
 		t.Fatalf("second page: %#v, %v", second, err)
 	}
 }
+
+func TestTimingSeparatesStreamingAndFirstByte(t *testing.T) {
+	ctx, service, owner, keyID, store := testService(t)
+	defer store.Close()
+	now := time.Date(2026, 9, 25, 12, 0, 0, 0, time.UTC)
+	service.now = func() time.Time { return now }
+	start := now.Add(-time.Minute).UnixMilli()
+	for _, item := range []struct {
+		id        string
+		streaming int
+		finished  int64
+	}{{"req_stream", 1, start + 4000}, {"req_sync", 0, start + 900}} {
+		if _, err := store.SystemDB().ExecContext(ctx, `INSERT INTO requests (id,owner_user_id,key_id,operation,dialect,model_id,state,started_at,finished_at,streaming) VALUES (?,?,?,'chat/completions','openai','model_test','succeeded',?,?,?)`, item.id, owner.ID, keyID, start, item.finished, item.streaming); err != nil {
+			t.Fatal(err)
+		}
+	}
+	for _, item := range []struct {
+		id, request, state string
+		ordinal            int
+		started, firstByte int64
+	}{
+		{"att_stream_failed", "req_stream", "failed", 1, start, start + 100},
+		{"att_stream_ok", "req_stream", "succeeded", 2, start + 500, start + 750},
+		{"att_sync_ok", "req_sync", "succeeded", 1, start, start + 880},
+	} {
+		if _, err := store.SystemDB().ExecContext(ctx, `INSERT INTO attempts (id,request_id,ordinal,connection_id,model_id,state,usage_status,input_tokens,output_tokens,started_at,finished_at,first_byte_at) VALUES (?,?,?,'conn_first','model_test',?,'provider_reported',1,1,?,?,?)`, item.id, item.request, item.ordinal, item.state, item.started, item.started+1000, item.firstByte); err != nil {
+			t.Fatal(err)
+		}
+	}
+	query := UsageQuery{UserID: owner.ID, From: now.Add(-time.Hour).Format(time.RFC3339), To: now.Format(time.RFC3339)}
+	modes, err := service.Breakdown(ctx, owner, query, "mode", "", 20, 0)
+	if err != nil || len(modes.Data) != 2 {
+		t.Fatalf("mode breakdown = %#v, %v", modes.Data, err)
+	}
+	byMode := map[string]BreakdownRow{}
+	for _, row := range modes.Data {
+		byMode[row.ID] = row
+	}
+	stream, sync := byMode["streaming"], byMode["synchronous"]
+	if stream.Label != "Streaming" || stream.Requests != 1 || stream.P95GatewayDurationMS == nil || *stream.P95GatewayDurationMS != 4000 || stream.P95FirstByteMS == nil || *stream.P95FirstByteMS != 750 {
+		t.Fatalf("streaming row = %#v", stream)
+	}
+	if sync.Label != "Synchronous" || sync.Requests != 1 || sync.AvgFirstByteMS == nil || *sync.AvgFirstByteMS != 880 {
+		t.Fatalf("synchronous row = %#v", sync)
+	}
+	requests, _, err := service.ListRequests(ctx, owner, query)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, record := range requests {
+		if record.ID != "req_stream" {
+			continue
+		}
+		if !record.Streaming || record.DurationMS == nil || *record.DurationMS != 4000 || record.FirstByteMS == nil || *record.FirstByteMS != 750 || len(record.Attempts) != 2 {
+			t.Fatalf("streaming request = %#v", record)
+		}
+		if first := record.Attempts[0]; first.FirstByteMS == nil || *first.FirstByteMS != 100 || first.DurationMS == nil || *first.DurationMS != 1000 {
+			t.Fatalf("failed attempt timing = %#v", first)
+		}
+		synchronous, _, err := service.ListRequests(ctx, owner, UsageQuery{UserID: owner.ID, From: query.From, To: query.To, Mode: "synchronous"})
+		if err != nil || len(synchronous) != 1 || synchronous[0].ID != "req_sync" {
+			t.Fatalf("synchronous filter = %#v, %v", synchronous, err)
+		}
+		if _, _, err := service.ListRequests(ctx, owner, UsageQuery{UserID: owner.ID, Mode: "batch"}); err == nil {
+			t.Fatal("unknown mode accepted")
+		}
+		return
+	}
+	t.Fatal("streaming request missing from history")
+}

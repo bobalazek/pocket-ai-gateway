@@ -1,7 +1,7 @@
 import type { UsageBreakdownDimension, UsageFilters, UsageSummary } from "@/features/usage/types/usage.types";
 
 const fields: Record<UsageBreakdownDimension, string> = {
-  key: "key_id", user: "user_id", model: "model_id", connection: "connection_id", dialect: "dialect", operation: "operation", state: "state",
+  key: "key_id", user: "user_id", model: "model_id", connection: "connection_id", dialect: "dialect", operation: "operation", state: "state", mode: "mode",
 };
 
 export function analyticsRequestHref(filters: UsageFilters, usage: Pick<UsageSummary, "from" | "to">, dimension?: UsageBreakdownDimension, id?: string) {
