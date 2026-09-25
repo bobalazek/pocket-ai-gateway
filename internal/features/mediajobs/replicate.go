@@ -184,7 +184,7 @@ func safeClient(timeout time.Duration, allowPrivate bool) *http.Client {
 			return nil, err
 		}
 		for _, ip := range ips {
-			if allowPrivate || ip.IsGlobalUnicast() && !ip.IsPrivate() {
+			if allowPrivate || providers.PublicAddress(ip) {
 				return dialer.DialContext(ctx, network, net.JoinHostPort(ip.String(), port))
 			}
 		}

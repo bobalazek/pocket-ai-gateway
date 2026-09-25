@@ -33,6 +33,8 @@ type Handler struct {
 	publicOrigin   string
 	nextBackground int
 	masterKey      []byte
+	pendingMu      sync.Mutex
+	pending        map[string]usage.SettlementInput
 }
 
 func New(database *sql.DB, keyService *keys.Service, providerService *providers.Service, usageService *usage.Service, publicOrigin ...string) *Handler {

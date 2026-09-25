@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"net"
+	"net/netip"
 	"net/url"
 	"path"
 	"sort"
@@ -378,6 +379,10 @@ func (service *Service) PutCredential(ctx context.Context, actor auth.User, id, 
 	if err = requireManager(ctx, tx, &actor); err != nil {
 		return err
 	}
+	// External references read host environment variables and files, which can hold owner-only secrets.
+	if externalRef != "" && actor.Role != "owner" {
+		return ErrDenied
+	}
 	if _, err = tx.ExecContext(ctx, `INSERT INTO provider_credentials (connection_id,ciphertext,nonce,external_ref,updated_at) VALUES (?,?,?,?,?) ON CONFLICT(connection_id) DO UPDATE SET ciphertext=excluded.ciphertext,nonce=excluded.nonce,external_ref=excluded.external_ref,updated_at=excluded.updated_at`, id, ciphertext, nonce, nullableString(externalRef), time.Now().UnixMilli()); err != nil {
 		return err
 	}
@@ -630,13 +635,34 @@ func (service *Service) TargetIsCurrent(ctx context.Context, target Target) bool
 	return err == nil && exists
 }
 
+// BeginDispatch holds configuration writes until the caller has sent its upstream request.
+// Callers must release as soon as the request is written, not when the response ends:
+// a waiting writer blocks every new dispatch. The returned release is idempotent.
 func (service *Service) BeginDispatch(ctx context.Context, target Target) (func(), bool) {
 	service.dispatch.RLock()
 	if !service.TargetIsCurrent(ctx, target) {
 		service.dispatch.RUnlock()
 		return func() {}, false
 	}
-	return service.dispatch.RUnlock, true
+	return sync.OnceFunc(service.dispatch.RUnlock), true
+}
+
+// Shared (CGNAT, including Tailscale) and benchmarking ranges are global unicast but not the public internet.
+var nonPublicPrefixes = []netip.Prefix{netip.MustParsePrefix("100.64.0.0/10"), netip.MustParsePrefix("198.18.0.0/15")}
+
+// PublicAddress reports whether a provider destination may be dialed without allow_private_network.
+func PublicAddress(ip net.IP) bool {
+	address, ok := netip.AddrFromSlice(ip)
+	if !ok || !ip.IsGlobalUnicast() || ip.IsPrivate() {
+		return false
+	}
+	address = address.Unmap()
+	for _, prefix := range nonPublicPrefixes {
+		if prefix.Contains(address) {
+			return false
+		}
+	}
+	return true
 }
 
 func validateConnection(input ConnectionInput) (ConnectionInput, error) {

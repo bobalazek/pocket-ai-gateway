@@ -442,6 +442,10 @@ func (handler *Handler) forwardAuthorized(response http.ResponseWriter, request 
 		overallTimeout += time.Duration(int64(candidate.Target().TimeoutMS)*factor) * time.Millisecond
 	}
 	overallTimeout = min(max(overallTimeout, time.Second), 10*time.Minute)
+	if stream {
+		// Stream attempts are bounded by header and idle timeouts; allow the full request cap for output.
+		overallTimeout = 10 * time.Minute
+	}
 	sharedContext, cancelShared := context.WithTimeout(request.Context(), overallTimeout)
 	defer cancelShared()
 	request = request.Clone(sharedContext)
@@ -451,6 +455,7 @@ func (handler *Handler) forwardAuthorized(response http.ResponseWriter, request 
 		target := routeTarget.Target()
 		native := providers.NativeTarget(dialect, target.Adapter)
 		targetPath, targetBody := upstreamPath, body
+		stripStreamUsage := false
 		var targetEnvelope map[string]json.RawMessage
 		_ = json.Unmarshal(body, &targetEnvelope)
 		if multipart, ok := multipartRequest(request); native && ok {
@@ -467,6 +472,7 @@ func (handler *Handler) forwardAuthorized(response http.ResponseWriter, request 
 			}
 		} else if native {
 			targetEnvelope["model"], _ = json.Marshal(target.UpstreamID)
+			stripStreamUsage = requestStreamUsage(targetEnvelope, stream && attached == nil && (upstreamPath == "chat/completions" || upstreamPath == "completions"))
 			if dialect == "responses" && storeResponse {
 				targetEnvelope["store"] = []byte("false")
 			} else if storedChat != nil {
@@ -523,7 +529,18 @@ func (handler *Handler) forwardAuthorized(response http.ResponseWriter, request 
 			result, raw, copyErr = handler.dispatchResponseFileSearch(attemptWriter, request, target, targetBody, publicID, principal.KeyID, fileSearch, releaseDispatch)
 			semanticResponseError = copyErr != nil
 		} else if native {
-			result, raw, copyErr = handler.dispatch(attemptWriter, request, target, targetPath, targetBody, stream, dialect, publicID, (anthropicWebSearch.enabled || anthropicWebFetch.enabled) && stream, int(imageStreamInput.partialImages), releaseDispatch)
+			dispatchWriter := http.ResponseWriter(attemptWriter)
+			var usageFilter *usageChunkFilter
+			if stripStreamUsage {
+				usageFilter = &usageChunkFilter{ResponseWriter: attemptWriter}
+				dispatchWriter = usageFilter
+			}
+			result, raw, copyErr = handler.dispatch(dispatchWriter, request, target, targetPath, targetBody, stream, dialect, publicID, (anthropicWebSearch.enabled || anthropicWebFetch.enabled) && stream, int(imageStreamInput.partialImages), releaseDispatch)
+			if usageFilter != nil {
+				if finishErr := usageFilter.Finish(); copyErr == nil {
+					copyErr = finishErr
+				}
+			}
 			semanticResponseError = errors.Is(copyErr, errAnthropicStreamInvalid) || errors.Is(copyErr, protocol.ErrInvalidOpenAICompletion) || errors.Is(copyErr, protocol.ErrInvalidOpenAIImageStream)
 		} else {
 			result, raw, copyErr = handler.dispatchTranslated(attemptWriter, request, target, targetPath, targetBody, dialect, publicID, stream, releaseDispatch)

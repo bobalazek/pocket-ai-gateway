@@ -488,3 +488,81 @@ func mustMarshalTest(value any) string {
 func keysConnectionInput(name, baseURL string) providers.ConnectionInput {
 	return providers.ConnectionInput{Name: name, Adapter: "openai", BaseURL: baseURL, Enabled: true, AllowPrivateNetwork: true, TimeoutMS: 5000}
 }
+
+func TestNativeChatStreamRequestsUsageForAccounting(t *testing.T) {
+	var upstreamOptions []string
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var body struct {
+			StreamOptions json.RawMessage `json:"stream_options"`
+		}
+		_ = json.NewDecoder(r.Body).Decode(&body)
+		upstreamOptions = append(upstreamOptions, string(body.StreamOptions))
+		w.Header().Set("Content-Type", "text/event-stream")
+		io.WriteString(w, "data: {\"choices\":[{\"index\":0,\"delta\":{\"content\":\"Hi\"},\"finish_reason\":\"stop\"}],\"usage\":null}\n\n")
+		io.WriteString(w, "data: {\"choices\":[],\"usage\":{\"prompt_tokens\":3,\"completion_tokens\":1,\"total_tokens\":4}}\n\ndata: [DONE]\n\n")
+	}))
+	defer upstream.Close()
+	ctx, store, owner, keyService, providerService, usageService := gatewayFixture(t)
+	defer store.Close()
+	connection, model := publishModel(t, ctx, providerService, owner, "openai", upstream.URL+"/v1", "up-model", []string{"chat"})
+	_, secret, err := keyService.Create(ctx, owner.ID, keys.Input{Label: "stream", Scopes: []string{"chat:generate"}, ModelPatterns: []string{model.ID}, ConnectionIDs: []string{connection.ID}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	mux := http.NewServeMux()
+	New(store.SystemDB(), keyService, providerService, usageService).Register(mux)
+	server := httptest.NewServer(mux)
+	defer server.Close()
+
+	for _, test := range []struct {
+		options   string
+		wantUsage bool
+	}{{"", false}, {`,"stream_options":{"include_usage":true}`, true}} {
+		request, _ := http.NewRequest(http.MethodPost, server.URL+"/api/openai/v1/chat/completions", strings.NewReader(`{"model":"`+model.ID+`","stream":true,"max_tokens":8,"messages":[{"role":"user","content":"Hi"}]`+test.options+`}`))
+		request.Header.Set("Authorization", "Bearer "+secret)
+		response, err := http.DefaultClient.Do(request)
+		if err != nil {
+			t.Fatal(err)
+		}
+		body, _ := io.ReadAll(response.Body)
+		response.Body.Close()
+		if got := strings.Contains(string(body), `"prompt_tokens"`); got != test.wantUsage || !strings.Contains(string(body), "[DONE]") {
+			t.Fatalf("options %q: client body = %s", test.options, body)
+		}
+		requestID := response.Header.Get(pocketAIRequestIDHeader)
+		var status string
+		var input, output int64
+		for deadline := time.Now().Add(2 * time.Second); time.Now().Before(deadline); time.Sleep(20 * time.Millisecond) {
+			if store.SystemDB().QueryRowContext(ctx, "SELECT usage_status,input_tokens,output_tokens FROM attempts WHERE request_id=?", requestID).Scan(&status, &input, &output) == nil && status != "" {
+				break
+			}
+		}
+		if status != "provider_reported" || input != 3 || output != 1 {
+			t.Fatalf("options %q: usage = %s %d/%d", test.options, status, input, output)
+		}
+	}
+	for _, options := range upstreamOptions {
+		if options != `{"include_usage":true}` {
+			t.Fatalf("upstream stream_options = %s", options)
+		}
+	}
+}
+
+func TestChatStreamObserverRequiresCleanDone(t *testing.T) {
+	chunk := "data: {\"choices\":[{\"index\":0,\"delta\":{\"content\":\"Hi\"}}]}\n\n"
+	for source, wantErr := range map[string]bool{
+		chunk + "data: [DONE]\n\n": false,
+		chunk + "data:[DONE]":      false,
+		chunk:                      true,
+		chunk + "data: {\"id\":\"x\",\"error\":{\"message\":\"overloaded\"},\"choices\":[]}\n\ndata: [DONE]\n\n": true,
+		"data: {\"choices\":[{\"delta\":{\"content\":\"\\\"error\\\"\"}}],\"error\":null}\n\ndata: [DONE]\n\n":   false,
+	} {
+		observer := &chatStreamObserver{}
+		for index := range source {
+			_, _ = observer.Write([]byte{source[index]})
+		}
+		if err := observer.result(); (err != nil) != wantErr || err != nil && !errors.Is(err, errUpstreamResponseInterrupted) {
+			t.Fatalf("source %q: error = %v", source, err)
+		}
+	}
+}

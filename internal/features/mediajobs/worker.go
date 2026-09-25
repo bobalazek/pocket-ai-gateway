@@ -3,6 +3,7 @@ package mediajobs
 import (
 	"context"
 	"encoding/json"
+	"net/http/httptrace"
 	"strings"
 	"time"
 
@@ -128,14 +129,16 @@ func (service *Service) submit(ctx context.Context, job workerJob) {
 		return
 	}
 	var prediction providerPrediction
+	// Release configuration writes once the create request is sent, not after the provider responds.
+	createCtx := httptrace.WithClientTrace(ctx, &httptrace.ClientTrace{WroteRequest: func(httptrace.WroteRequestInfo) { release() }})
 	if job.Provider == "together" {
-		prediction, err = createTogetherVideo(ctx, target, job.input)
+		prediction, err = createTogetherVideo(createCtx, target, job.input)
 	} else if job.Provider == "gemini" {
-		prediction, err = createGeminiVideo(ctx, target, job.input)
+		prediction, err = createGeminiVideo(createCtx, target, job.input)
 	} else if job.Provider == "custom" {
-		prediction, err = createCustomMediaJob(ctx, target, job.input)
+		prediction, err = createCustomMediaJob(createCtx, target, job.input)
 	} else {
-		prediction, err = createReplicatePrediction(ctx, target, job.input)
+		prediction, err = createReplicatePrediction(createCtx, target, job.input)
 	}
 	release()
 	if err != nil {

@@ -164,6 +164,7 @@ func (handler *Handler) serveGeminiLiveClient(request *http.Request, client *web
 			sendGeminiLiveError(client, "UNAVAILABLE", "Provider session setup failed")
 			return
 		}
+		releaseDispatch()
 		handler.relayGeminiLiveSession(request, client, upstream, target, admission, started, releaseDispatch)
 		return
 	}
