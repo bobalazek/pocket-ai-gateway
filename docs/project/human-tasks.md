@@ -6,8 +6,8 @@ Resolved choices belong in [decisions](decisions/README.md). Implementation work
 
 - [x] Accept public exposure of the existing commit-author email — accepted by the project owner on 2026-09-25; no history rewrite.
 - [x] Make the repository public and enable GitHub private vulnerability reporting — done on 2026-09-25; the Verify workflow was re-enabled for pushes and pull requests.
-- [ ] Configure the external Ed25519 release-signing secret and distribute its public verification key — Owner: maintainer — Unblocks: signed public update manifests. Disposable keys used by local tests are never release keys.
-- [ ] Grant the release workflow artifact/container publication access and verify repository attestation settings — Owner: maintainer — Unblocks: publishing verified release artifacts.
+- [x] Configure the Ed25519 release-signing secret and publish its public key — done on 2026-09-25. Keep the seed backup in a password manager, not on disk.
+- [x] Release workflow publication and attestation — verified by publishing `v0.1.0-alpha.1` on 2026-09-25.
 - [ ] After the first GHCR image push, set the package to public and verify an anonymous pull — Owner: maintainer — Unblocks: public container installation. GitHub creates new container packages as private by default.
 
 ## Optional real-service certification

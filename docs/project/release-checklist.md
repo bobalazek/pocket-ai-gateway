@@ -25,12 +25,12 @@
 
 ## Before publishing a tag
 
-- [ ] Select the final committed candidate and rerun the local verification, Compose recovery, and Linux update gates on its release artifacts. The current working-tree verification does not attest a future tag.
+- [ ] Before the first stable (non-alpha) release, rerun the local verification, Compose recovery, and Linux update gates on its release artifacts. The current working-tree verification does not attest a future tag.
 - [ ] Record the candidate's source revision, environment, and performance results in [benchmark](benchmark.md); address any unmet performance target before claiming it. Publish exact tagged-artifact hashes in the release's `SHA256SUMS` and signed manifest, then link that immutable evidence from [compatibility](compatibility.md) after publication.
 - [x] The confidential vulnerability-reporting route named in `SECURITY.md` is enabled.
-- [ ] Configure the external Ed25519 signing secret and distribute its public key; verify the final `release-manifest.json` and detached signature. Local test keys are not release trust keys.
-- [ ] Confirm repository publication/attestation permissions, then publish `SHA256SUMS`, the signed update manifest, SPDX SBOM, GitHub artifact attestation, release notes, and container provenance.
-- [ ] After the first GHCR image push, make its package public and verify an unauthenticated image pull before advertising the container. Publishing the source repository does not make a new container package public.
+- [x] The Ed25519 signing secret is configured and its public key is published in `SECURITY.md`. For `v0.1.0-alpha.1`, an anonymous download verified `SHA256SUMS`, the signed `release-manifest.json`, both Linux binaries, and the GitHub build attestation; the arm64 binary reported its version in a Linux container.
+- [x] [`v0.1.0-alpha.1`](https://github.com/bobalazek/pocket-ai-gateway/releases/tag/v0.1.0-alpha.1) was published on 2026-09-25 as a pre-release. It includes `SHA256SUMS`, the signed update manifest, SPDX SBOM, GitHub artifact attestation, release notes, and a container image with provenance. The release job ran the full `verify.sh` gate on GitHub runners.
+- [ ] The first GHCR image is pushed and private. Make its package public and verify an unauthenticated image pull before advertising the container. Publishing the source repository does not make a new container package public.
 
 No workflow is triggered by this checklist. Verify runs quick mode on pushes and pull requests; tag publication and release credentials are maintainer actions in [human tasks](human-tasks.md).
 
