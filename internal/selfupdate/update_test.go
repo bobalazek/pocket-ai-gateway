@@ -211,3 +211,23 @@ func checksum(value []byte) string {
 	sum := sha256.Sum256(value)
 	return hex.EncodeToString(sum[:])
 }
+
+func TestReleaseVersionsFollowSemVerPrecedence(t *testing.T) {
+	ordered := []string{"v1.0.0-alpha", "v1.0.0-alpha.1", "v1.0.0-alpha.beta", "v1.0.0-beta", "v1.0.0-beta.2", "v1.0.0-beta.11", "v1.0.0-rc.1", "v1.0.0", "v1.0.1", "v1.1.0"}
+	for index := 1; index < len(ordered); index++ {
+		if order, err := compareReleaseVersions(ordered[index-1], ordered[index]); err != nil || order != -1 {
+			t.Fatalf("%s vs %s = %d, %v", ordered[index-1], ordered[index], order, err)
+		}
+		if order, err := compareReleaseVersions(ordered[index], ordered[index-1]); err != nil || order != 1 {
+			t.Fatalf("%s vs %s = %d, %v", ordered[index], ordered[index-1], order, err)
+		}
+	}
+	if order, err := compareReleaseVersions("v0.1.0-alpha.1", "v0.1.0-alpha.1"); err != nil || order != 0 {
+		t.Fatalf("equal pre-releases = %d, %v", order, err)
+	}
+	for _, invalid := range []string{"1.0.0", "v1.0", "v01.0.0", "v1.0.0-", "v1.0.0-alpha..1", "v1.0.0-01", "v1.0.0-alpha_1", "v1.0.0+build"} {
+		if ValidReleaseVersion(invalid) {
+			t.Fatalf("%q accepted", invalid)
+		}
+	}
+}

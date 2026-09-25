@@ -2,6 +2,7 @@ package selfupdate
 
 import (
 	"bytes"
+	"cmp"
 	"context"
 	"crypto/ed25519"
 	"encoding/base64"
@@ -236,35 +237,79 @@ func compareReleaseVersions(current, target string) (int, error) {
 	if err != nil {
 		return 0, fmt.Errorf("target version %q is invalid", target)
 	}
-	for index := range left {
-		if left[index] < right[index] {
-			return -1, nil
-		}
-		if left[index] > right[index] {
-			return 1, nil
+	for index := range left.core {
+		if left.core[index] != right.core[index] {
+			return cmp.Compare(left.core[index], right.core[index]), nil
 		}
 	}
-	return 0, nil
+	// SemVer precedence: a pre-release sorts before its release, then identifiers compare in order.
+	if len(left.pre) == 0 || len(right.pre) == 0 {
+		return cmp.Compare(len(right.pre), len(left.pre)), nil
+	}
+	for index := range min(len(left.pre), len(right.pre)) {
+		if order := comparePrereleaseIdentifier(left.pre[index], right.pre[index]); order != 0 {
+			return order, nil
+		}
+	}
+	return cmp.Compare(len(left.pre), len(right.pre)), nil
 }
 
-func releaseVersion(value string) ([3]uint64, error) {
-	var result [3]uint64
-	if !strings.HasPrefix(value, "v") || strings.ContainsAny(value, "+-") {
-		return result, errors.New("release version must use vMAJOR.MINOR.PATCH")
+func comparePrereleaseIdentifier(left, right string) int {
+	leftNumber, leftErr := strconv.ParseUint(left, 10, 64)
+	rightNumber, rightErr := strconv.ParseUint(right, 10, 64)
+	switch {
+	case leftErr == nil && rightErr == nil:
+		return cmp.Compare(leftNumber, rightNumber)
+	case leftErr == nil:
+		return -1
+	case rightErr == nil:
+		return 1
 	}
-	parts := strings.Split(strings.TrimPrefix(value, "v"), ".")
-	if len(parts) != len(result) {
-		return result, errors.New("release version must use vMAJOR.MINOR.PATCH")
+	return strings.Compare(left, right)
+}
+
+type parsedReleaseVersion struct {
+	core [3]uint64
+	pre  []string
+}
+
+// releaseVersion parses vMAJOR.MINOR.PATCH with an optional SemVer pre-release such as -alpha.1.
+// Build metadata is rejected so each tag maps to exactly one release.
+func releaseVersion(value string) (parsedReleaseVersion, error) {
+	var result parsedReleaseVersion
+	if !strings.HasPrefix(value, "v") || strings.Contains(value, "+") {
+		return result, errors.New("release version must use vMAJOR.MINOR.PATCH or vMAJOR.MINOR.PATCH-PRERELEASE")
+	}
+	core, prerelease, hasPrerelease := strings.Cut(strings.TrimPrefix(value, "v"), "-")
+	parts := strings.Split(core, ".")
+	if len(parts) != len(result.core) {
+		return result, errors.New("release version must use vMAJOR.MINOR.PATCH or vMAJOR.MINOR.PATCH-PRERELEASE")
 	}
 	for index, part := range parts {
-		if part == "" || (len(part) > 1 && part[0] == '0') {
+		if !validNumericIdentifier(part) {
 			return result, errors.New("release version contains an invalid number")
 		}
 		number, err := strconv.ParseUint(part, 10, 64)
 		if err != nil {
 			return result, errors.New("release version contains an invalid number")
 		}
-		result[index] = number
+		result.core[index] = number
+	}
+	if !hasPrerelease {
+		return result, nil
+	}
+	for _, identifier := range strings.Split(prerelease, ".") {
+		if identifier == "" || strings.Trim(identifier, "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz-") != "" {
+			return result, errors.New("release version contains an invalid pre-release identifier")
+		}
+		if strings.Trim(identifier, "0123456789") == "" && !validNumericIdentifier(identifier) {
+			return result, errors.New("release version contains an invalid pre-release identifier")
+		}
+		result.pre = append(result.pre, identifier)
 	}
 	return result, nil
+}
+
+func validNumericIdentifier(value string) bool {
+	return value != "" && strings.Trim(value, "0123456789") == "" && (len(value) == 1 || value[0] != '0')
 }
