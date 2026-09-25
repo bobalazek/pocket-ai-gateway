@@ -1,9 +1,9 @@
 # syntax=docker/dockerfile:1.7
 # Build stages run natively; only the Go compiler targets the image platform.
-FROM --platform=$BUILDPLATFORM node:22-bookworm-slim AS dashboard
+FROM --platform=$BUILDPLATFORM node:26-bookworm-slim AS dashboard
 ENV NEXT_TELEMETRY_DISABLED=1
 WORKDIR /src
-RUN corepack enable && corepack prepare pnpm@10.30.3 --activate
+RUN npm install --global pnpm@10.30.3
 COPY web/package.json web/pnpm-lock.yaml ./web/
 RUN pnpm --dir web install --frozen-lockfile
 COPY web ./web

@@ -95,7 +95,7 @@ The release signing key is listed in [SECURITY.md](SECURITY.md). Container image
 
 ## Run one executable
 
-To build from source, install Go 1.27.1, Node.js 22 or newer, and pnpm 10.30.3, then run:
+To build from source, install Go 1.27.1, Node.js 26, and pnpm 10.30.3, then run:
 
 ```sh
 ./scripts/build.sh

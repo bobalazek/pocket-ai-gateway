@@ -4,7 +4,7 @@ Thanks for helping improve Pocket AI Gateway.
 
 ## Development
 
-Install Go 1.27.1, Node.js 22 or newer, and pnpm 10.30.3. Then run:
+Install Go 1.27.1, Node.js 26, and pnpm 10.30.3. Then run:
 
 ```sh
 pnpm --dir web install --frozen-lockfile
