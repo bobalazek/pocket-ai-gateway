@@ -1,242 +1,132 @@
 {
   "source": "Disposable synthetic demo",
-  "captured_at": "2026-09-24T16:04:15.071Z",
+  "captured_at": "2026-09-25T18:03:38.762Z",
   "screenshots": [
     {
       "file": "demo-page-overview.png",
       "page": "overview",
       "viewport_width": 1440,
       "full_page_height": 1013,
-      "bytes": 131806
+      "bytes": 131315
     },
     {
       "file": "demo-page-analytics.png",
       "page": "analytics",
       "viewport_width": 1440,
-      "full_page_height": 7727,
-      "bytes": 628489
-    },
-    {
-      "file": "demo-preview-analytics.png",
-      "page": "analytics",
-      "viewport_width": 1440,
-      "viewport_height": 900,
-      "bytes": 105823
-    },
-    {
-      "file": "demo-analytics-traffic.png",
-      "page": "analytics",
-      "section": "traffic",
-      "capture_width": 1092,
-      "capture_height": 1602,
-      "bytes": 116688
-    },
-    {
-      "file": "demo-analytics-api-keys.png",
-      "page": "analytics",
-      "section": "api-keys",
-      "capture_width": 1092,
-      "capture_height": 1541,
-      "bytes": 122310
-    },
-    {
-      "file": "demo-analytics-users.png",
-      "page": "analytics",
-      "section": "users",
-      "capture_width": 1092,
-      "capture_height": 1078,
-      "bytes": 68328
-    },
-    {
-      "file": "demo-analytics-models.png",
-      "page": "analytics",
-      "section": "models",
-      "capture_width": 1092,
-      "capture_height": 1078,
-      "bytes": 70718
-    },
-    {
-      "file": "demo-analytics-providers.png",
-      "page": "analytics",
-      "section": "providers",
-      "capture_width": 1092,
-      "capture_height": 1098,
-      "bytes": 85285
-    },
-    {
-      "file": "demo-analytics-operations.png",
-      "page": "analytics",
-      "section": "operations",
-      "capture_width": 1092,
-      "capture_height": 635,
-      "bytes": 70576
-    },
-    {
-      "file": "demo-analytics-failures.png",
-      "page": "analytics",
-      "section": "failures",
-      "capture_width": 538,
-      "capture_height": 427,
-      "bytes": 16533
+      "full_page_height": 9787,
+      "bytes": 735866
     },
     {
       "file": "demo-page-usage.png",
       "page": "usage",
       "viewport_width": 1440,
       "full_page_height": 7174,
-      "bytes": 540093
-    },
-    {
-      "file": "demo-preview-usage.png",
-      "page": "usage",
-      "viewport_width": 1440,
-      "viewport_height": 900,
-      "bytes": 104156
+      "bytes": 538125
     },
     {
       "file": "demo-page-requests.png",
       "page": "requests",
       "viewport_width": 1440,
-      "full_page_height": 5059,
-      "bytes": 859985
+      "full_page_height": 5954,
+      "bytes": 925294
     },
     {
       "file": "demo-page-request-detail.png",
       "page": "request-detail",
       "viewport_width": 1440,
-      "full_page_height": 982,
-      "bytes": 126882
+      "full_page_height": 1093,
+      "bytes": 137283
     },
     {
       "file": "demo-page-request-errors.png",
       "page": "request-errors",
       "viewport_width": 1440,
-      "full_page_height": 1862,
-      "bytes": 254924
-    },
-    {
-      "file": "demo-preview-request-errors.png",
-      "page": "request-errors",
-      "viewport_width": 1440,
-      "viewport_height": 900,
-      "bytes": 108161
+      "full_page_height": 1918,
+      "bytes": 260682
     },
     {
       "file": "demo-page-failed-request.png",
       "page": "failed-request",
       "viewport_width": 1440,
-      "full_page_height": 958,
-      "bytes": 122840
+      "full_page_height": 1070,
+      "bytes": 132514
     },
     {
       "file": "demo-page-providers.png",
       "page": "providers",
       "viewport_width": 1440,
       "full_page_height": 1924,
-      "bytes": 166491
+      "bytes": 167031
     },
     {
-      "file": "demo-providers-connection.png",
-      "page": "providers",
-      "section": "connection",
-      "capture_width": 1092,
-      "capture_height": 354,
-      "bytes": 26099
+      "file": "demo-page-providers-preset-openai.png",
+      "page": "providers-preset-openai",
+      "viewport_width": 1440,
+      "full_page_height": 2007,
+      "bytes": 185064
     },
     {
-      "file": "demo-providers-preset-openai.png",
-      "page": "providers",
-      "section": "preset-openai",
-      "capture_width": 1092,
-      "capture_height": 500,
-      "bytes": 43295
-    },
-    {
-      "file": "demo-providers-preset-replicate.png",
-      "page": "providers",
-      "section": "preset-replicate",
-      "capture_width": 1092,
-      "capture_height": 480,
-      "bytes": 33001
+      "file": "demo-page-providers-preset-replicate.png",
+      "page": "providers-preset-replicate",
+      "viewport_width": 1440,
+      "full_page_height": 1987,
+      "bytes": 174304
     },
     {
       "file": "demo-page-models.png",
       "page": "models",
       "viewport_width": 1440,
       "full_page_height": 2778,
-      "bytes": 232759
-    },
-    {
-      "file": "demo-models-route.png",
-      "page": "models",
-      "section": "route",
-      "capture_width": 1092,
-      "capture_height": 774,
-      "bytes": 52963
+      "bytes": 232732
     },
     {
       "file": "demo-page-keys.png",
       "page": "keys",
       "viewport_width": 1440,
-      "full_page_height": 1361,
-      "bytes": 161990
+      "full_page_height": 1428,
+      "bytes": 170754
     },
     {
       "file": "demo-page-users.png",
       "page": "users",
       "viewport_width": 1440,
-      "full_page_height": 1701,
-      "bytes": 175668
+      "full_page_height": 1767,
+      "bytes": 184372
     },
     {
       "file": "demo-page-audit.png",
       "page": "audit",
       "viewport_width": 1440,
       "full_page_height": 3896,
-      "bytes": 412173
+      "bytes": 406656
     },
     {
       "file": "demo-page-settings.png",
       "page": "settings",
       "viewport_width": 1440,
       "full_page_height": 1781,
-      "bytes": 219046
+      "bytes": 218810
     },
     {
       "file": "demo-page-status.png",
       "page": "status",
       "viewport_width": 1440,
       "full_page_height": 1228,
-      "bytes": 132621
-    },
-    {
-      "file": "demo-preview-status.png",
-      "page": "status",
-      "viewport_width": 1440,
-      "viewport_height": 900,
-      "bytes": 109818
-    },
-    {
-      "file": "demo-status-alerts.png",
-      "page": "status",
-      "section": "alerts",
-      "capture_width": 1042,
-      "capture_height": 162,
-      "bytes": 15525
+      "bytes": 132877
     },
     {
       "file": "demo-page-playground.png",
       "page": "playground",
       "viewport_width": 1440,
       "full_page_height": 900,
-      "bytes": 62946
+      "bytes": 62947
     },
     {
       "file": "demo-page-account.png",
       "page": "account",
       "viewport_width": 1440,
       "full_page_height": 965,
-      "bytes": 103808
+      "bytes": 101355
     },
     {
       "file": "demo-page-media-jobs.png",
@@ -246,46 +136,39 @@
       "bytes": 54353
     },
     {
-      "file": "demo-desktop-account-menu.png",
-      "page": "account-menu",
-      "viewport_width": 1440,
-      "viewport_height": 700,
-      "bytes": 111899
-    },
-    {
       "file": "demo-mobile-overview.png",
       "page": "overview",
       "viewport_width": 390,
       "full_page_height": 1843,
-      "bytes": 101373
+      "bytes": 99332
     },
     {
       "file": "demo-mobile-analytics.png",
       "page": "analytics",
       "viewport_width": 390,
-      "full_page_height": 15081,
-      "bytes": 613483
+      "full_page_height": 17698,
+      "bytes": 742127
     },
     {
       "file": "demo-mobile-usage.png",
       "page": "usage",
       "viewport_width": 390,
-      "full_page_height": 10512,
-      "bytes": 450722
+      "full_page_height": 10560,
+      "bytes": 452681
     },
     {
       "file": "demo-mobile-requests.png",
       "page": "requests",
       "viewport_width": 390,
-      "full_page_height": 18307,
-      "bytes": 1031878
+      "full_page_height": 21880,
+      "bytes": 1211020
     },
     {
       "file": "demo-mobile-status.png",
       "page": "status",
       "viewport_width": 390,
       "full_page_height": 1566,
-      "bytes": 98131
+      "bytes": 98180
     }
   ]
 }

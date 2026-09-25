@@ -66,17 +66,17 @@ These screens use synthetic traffic in a disposable local instance. No real prov
 
 | Analytics | Failed requests |
 | --- | --- |
-| [![Analytics with request volume, failed requests, spend, and error rate](docs/images/demo-preview-analytics.png)](docs/images/demo-page-analytics.png) | [![Request history filtered to failed requests](docs/images/demo-preview-request-errors.png)](docs/images/demo-page-request-errors.png) |
+| [![Full analytics page with traffic, spend, latency, and response-mode charts](docs/images/demo-page-analytics.png)](docs/images/demo-page-analytics.png) | [![Full request history filtered to failed requests](docs/images/demo-page-request-errors.png)](docs/images/demo-page-request-errors.png) |
 
-| Provider connection | Model routing |
+| Providers | Models and routing |
 | --- | --- |
-| [![Provider base URL and upstream models under one connection](docs/images/demo-providers-connection.png)](docs/images/demo-page-providers.png) | [![Public model with routing strategy and upstream targets](docs/images/demo-models-route.png)](docs/images/demo-page-models.png) |
+| [![Full providers page with connection base URLs and upstream models](docs/images/demo-page-providers.png)](docs/images/demo-page-providers.png) | [![Full models page with public models, routing strategies, and targets](docs/images/demo-page-models.png)](docs/images/demo-page-models.png) |
 
 | Usage | Status and alerts |
 | --- | --- |
-| [![Usage totals, token chart, and known spend](docs/images/demo-preview-usage.png)](docs/images/demo-page-usage.png) | [![Runtime checks and local high-error alert](docs/images/demo-preview-status.png)](docs/images/demo-page-status.png) |
+| [![Full usage page with totals, token chart, limits, and prices](docs/images/demo-page-usage.png)](docs/images/demo-page-usage.png) | [![Full status page with runtime checks and a local high-error alert](docs/images/demo-page-status.png)](docs/images/demo-page-status.png) |
 
-[OpenAI](docs/images/demo-providers-preset-openai.png) and [Replicate](docs/images/demo-providers-preset-replicate.png) preset previews show their base URLs and supported operations; selecting a preset does not connect or call its provider.
+The [OpenAI](docs/images/demo-page-providers-preset-openai.png) and [Replicate](docs/images/demo-page-providers-preset-replicate.png) preset pages show the base URL and supported operations each preset fills in; selecting a preset does not connect or call its provider.
 
 ## Download a release
 
