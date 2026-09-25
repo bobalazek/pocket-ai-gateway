@@ -20,7 +20,7 @@ import (
 )
 
 func main() {
-	version := flag.String("version", "", "release version in vMAJOR.MINOR.PATCH form")
+	version := flag.String("version", "", "release version in vMAJOR.MINOR.PATCH or vMAJOR.MINOR.PATCH-PRERELEASE form")
 	baseURL := flag.String("base-url", "", "HTTPS release download root")
 	directory := flag.String("directory", "dist/release", "release artifact directory")
 	printPublicKey := flag.Bool("print-public-key", false, "print the public key for the configured signing key and exit")
@@ -45,7 +45,7 @@ func main() {
 		return
 	}
 	if !selfupdate.ValidReleaseVersion(*version) {
-		fail(errors.New("version must use vMAJOR.MINOR.PATCH"))
+		fail(errors.New("version must use vMAJOR.MINOR.PATCH or vMAJOR.MINOR.PATCH-PRERELEASE"))
 	}
 	parsed, err := url.Parse(*baseURL)
 	if err != nil || parsed.Scheme != "https" || parsed.Host == "" || parsed.User != nil || parsed.RawQuery != "" || parsed.Fragment != "" {
@@ -97,7 +97,7 @@ func signingKey(value string) (ed25519.PrivateKey, error) {
 
 func verifyRelease(directory, version, encodedPublicKey string) error {
 	if !selfupdate.ValidReleaseVersion(version) {
-		return errors.New("version must use vMAJOR.MINOR.PATCH")
+		return errors.New("version must use vMAJOR.MINOR.PATCH or vMAJOR.MINOR.PATCH-PRERELEASE")
 	}
 	publicKey, err := base64.StdEncoding.DecodeString(strings.TrimSpace(encodedPublicKey))
 	if err != nil || len(publicKey) != ed25519.PublicKeySize {
