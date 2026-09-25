@@ -84,7 +84,7 @@ This table assigns each requirement to delivery phases. Phase 1 provides only th
 
 ## Verification strategy
 
-One local command runs formatting, static analysis, automated tests, frontend type checks/build, race checks, and an embedded-binary smoke test. The manual-only GitHub Verify workflow invokes quick mode without race or copied-binary smoke checks; releases run the full gate. Bounded fuzz, vulnerability, and live-provider jobs add release coverage where documented.
+One local command runs formatting, static analysis, automated tests, frontend type checks/build, race checks, and an embedded-binary smoke test. The GitHub Verify workflow runs on pushes to `master`, pull requests, and manual dispatch in quick mode without race or copied-binary smoke checks; releases run the full gate. Bounded fuzz, vulnerability, and live-provider jobs add release coverage where documented.
 
 | Layer | Evidence required |
 | --- | --- |
@@ -113,7 +113,7 @@ Checked source revision `a4ab1a2` with Go 1.27.1 on macOS arm64 and the producti
 - Added a [disposable demo and screenshots](../guides/demo.md) with three synthetic users/providers/models/keys and 124 requests over seven days. Seed, sign-in, accounting/projection totals, operator-data isolation, and cleanup are tested. Populated data exposed a zero-sized usage chart; explicit chart dimensions fixed it, verified at 360/768/1280 widths.
 - Recorded the [local performance baseline](../project/benchmark.md): 3,000 JSON requests at 49.975 requests/second, 1,550 complete streams reaching 50 concurrent upstream requests, and 605 management reads, with zero errors and all 4,550 inference requests settled. JSON added p95 was 12.63 ms, initial idle RSS 27.36 MiB, startup maximum 38.81 ms, and management p95 during streaming 8.31 ms. Exact artifact/host and sampled loaded memory are recorded; Linux release measurements, goroutine counts, and long-duration stability remain explicit gates. The short harness race check and vet passed.
 - The [release checklist](../project/release-checklist.md) now separates local evidence, final artifact/publication gates, real-service certification, and future API/remote-storage implementation. The operator skill and `llms.txt` already existed; they are linked from the documentation index rather than duplicated.
-- Final checks passed on the uncommitted `codex/local-verification` worktree based on `a4ab1a2`: the complete quick verification gate (format/generated-code/OpenAPI/notices, vet/staticcheck, all Go tests, embedded dashboard and Linux amd64 builds, TypeScript, 73 frontend/SDK tests), the rebuilt copied-binary smoke, and the rebuilt production Docker Compose backup/restore/restart journey. The demo race test passed in 11.594 seconds; the changed updater's race suite passed separately, while the unchanged full race package set is recorded in the preceding pass. Independent updater and demo/chart reviews found no actionable issues. Changed Markdown file links and diff whitespace checks passed. No GitHub jobs, real provider calls, commits, or pushes were made.
+- Final checks passed on uncommitted changes based on `a4ab1a2`: the complete quick verification gate (format/generated-code/OpenAPI/notices, vet/staticcheck, all Go tests, embedded dashboard and Linux amd64 builds, TypeScript, 73 frontend/SDK tests), the rebuilt copied-binary smoke, and the rebuilt production Docker Compose backup/restore/restart journey. The demo race test passed in 11.594 seconds; the changed updater's race suite passed separately, while the unchanged full race package set is recorded in the preceding pass. Independent updater and demo/chart reviews found no actionable issues. Changed Markdown file links and diff whitespace checks passed. No GitHub jobs, real provider calls, commits, or pushes were made.
 
 ### Linux resource checks — 2026-09-22
 
@@ -154,6 +154,28 @@ The local quick verification gate passed: formatting, generated/OpenAPI/notices 
 The dashboard now uses authoritative request outcomes for failure counts and error rates. Local status alerts cover an unavailable store, failed backup, and a high rate of recently **completed** failed requests; the completion-time query has an index and a regression for requests that started outside the hour. The disposable example contains 124 requests, including 12 final failures and six of 31 completed requests failing in the latest hour. Provider cards show each connection's base URL and upstream models, while the Replicate guide explains how many differing models share one connection. The account menu is pinned to the bottom of the desktop sidebar.
 
 The final local quick gate passed formatting, generation/OpenAPI/notices checks, vet/staticcheck, all Go tests, dashboard and Linux amd64 builds, TypeScript, and 86 frontend/SDK tests. Focused operations/example race tests, the rebuilt standalone-binary smoke, Docker Compose configuration, design-pattern scan, documentation links, and diff whitespace checks also passed. All 39 browser captures were regenerated from a fingerprinted loopback-only fixture: 22 full pages, 12 close-ups, and five viewport previews. The capture checked loaded figures, failed-request history, alerts, mobile overflow, preset forms, and the account menu at 1440 × 700. Independent code and documentation reviews found no unresolved issue. No GitHub workflow or real AI-provider call was used; live provider certification and final tagged-artifact checks remain separate release gates.
+
+### Public release review and System One decisions — 2026-09-25
+
+Independent security, correctness, and documentation reviews of `3584559` found issues that are now fixed with regression tests that fail on the previous code:
+
+- Configuration writes no longer wait behind slow upstream responses or open Realtime/Live sessions; the dispatch lock is released once the upstream request is written or the WebSocket session is established.
+- Native OpenAI Chat and Completions streams request usage upstream and hide the extra chunk from clients that did not ask for it.
+- Anthropic streams that report `error` or end without `message_stop` record a failed attempt.
+- Stream `timeout_ms` bounds idle gaps instead of total length.
+- Upstream 400/409/422/429 keep their status, including `Retry-After`, while Gemini's invalid-provider-key 400 remains a 502.
+- Admins can no longer point credentials at host environment variables or files.
+- Malformed anonymous logins no longer trigger an instance-wide lockout.
+- Provider dials also reject the 100.64.0.0/10 and 198.18.0.0/15 ranges.
+- Native OpenAI Chat streams with an error chunk or without `[DONE]` record a failed attempt.
+- Transiently failed settlements are retried by the background worker.
+- Shutdown cancels and waits up to five seconds for remaining requests, including hijacked WebSocket sessions, before the stores close.
+
+Public documentation dropped personal and process notes and six management routes that do not exist. The release workflow now has per-job permissions, a 90-minute artifact job, pre-release tags kept off `latest`, and native cross-compilation in the Dockerfile. Verify runs on pushes and pull requests.
+
+[ADR-064](../project/decisions/2026-09-25-system-one-decision-models.md) adds `/api/systemone/v1` for TypeSafe Jev and self-hosted Laya typed decisions, plus an OpenAPI document, model-list and embedding schemas for the other roots, and a [client skill](../../skills/pocket-ai-gateway/SKILL.md).
+
+After the final changes, the full `./scripts/verify.sh` passed in 12 minutes 10 seconds on macOS arm64 with Go 1.27.1. That covers all 13 race packages (gateway 658.0 seconds under the new 30-minute limit), the copied-binary smoke, and 86 frontend and official-SDK tests. A linux/amd64 image cross-built from arm64 ran `version`, and `./scripts/compose-e2e.sh` passed. No GitHub workflow, commit, push, or live Jev, Laya, or other provider call was made.
 
 Implement one bounded work item at a time in this repository. Update its status and evidence after checks pass. Review financial/security/data-loss boundaries before declaring the containing phase complete. Do not generate all future directories, tables, interfaces, or placeholder endpoints upfront.
 

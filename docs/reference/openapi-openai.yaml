@@ -4,12 +4,21 @@ servers: [{ url: /api/openai/v1 }]
 security: [{ bearerAuth: [] }]
 paths:
   /models:
-    get: { operationId: listOpenAIModels, responses: { "200": { description: Authorized public models }, default: { description: OpenAI-compatible error } } }
+    get:
+      operationId: listOpenAIModels
+      description: Lists public models this API key may call through at least one enabled route target that supports an OpenAI-compatible operation. Model IDs are gateway aliases, not upstream model names.
+      responses:
+        "200": { description: Authorized public models, content: { application/json: { schema: { $ref: "#/components/schemas/ModelList" } } } }
+        "401": { description: Missing or invalid API key, content: { application/json: { schema: { $ref: "#/components/schemas/Error" } } } }
+        default: { description: OpenAI-compatible error, content: { application/json: { schema: { $ref: "#/components/schemas/Error" } } } }
   /models/{id}:
     get:
       operationId: getOpenAIModel
       parameters: [{ name: id, in: path, required: true, schema: { type: string } }]
-      responses: { "200": { description: Authorized public model }, "404": { description: Model unavailable }, default: { description: OpenAI-compatible error } }
+      responses:
+        "200": { description: Authorized public model, content: { application/json: { schema: { $ref: "#/components/schemas/Model" } } } }
+        "404": { description: Model unavailable to this key, content: { application/json: { schema: { $ref: "#/components/schemas/Error" } } } }
+        default: { description: OpenAI-compatible error, content: { application/json: { schema: { $ref: "#/components/schemas/Error" } } } }
   /chat/completions:
     get:
       operationId: listChatCompletions
@@ -729,8 +738,13 @@ paths:
   /embeddings:
     post:
       operationId: createEmbedding
-      requestBody: { required: true, content: { application/json: { schema: { type: object, required: [model, input], additionalProperties: true } } } }
-      responses: { "200": { description: Native embedding response }, default: { description: OpenAI-compatible error } }
+      description: Requires `embeddings:generate` and an embeddings-capable public model. Embedding routes use one fixed target so every vector comes from the same vector space. OpenAI and OpenAI-compatible targets are native; Gemini targets are translated to `embedContent` or `batchEmbedContents` and returned in this shape.
+      requestBody: { required: true, content: { application/json: { schema: { $ref: "#/components/schemas/EmbeddingCreateRequest" } } } }
+      responses:
+        "200": { description: Embedding list with provider-reported usage, content: { application/json: { schema: { $ref: "#/components/schemas/EmbeddingList" } } } }
+        "400": { description: Invalid input, content: { application/json: { schema: { $ref: "#/components/schemas/Error" } } } }
+        "429": { description: Gateway limit or provider rate limit, content: { application/json: { schema: { $ref: "#/components/schemas/Error" } } } }
+        default: { description: OpenAI-compatible error, content: { application/json: { schema: { $ref: "#/components/schemas/Error" } } } }
   /moderations:
     post:
       operationId: createModeration
@@ -739,6 +753,67 @@ paths:
       responses: { "200": { description: Native OpenAI moderation response }, default: { description: OpenAI-compatible error } }
 components:
   schemas:
+    Error:
+      type: object
+      required: [error]
+      properties:
+        error:
+          type: object
+          required: [message]
+          properties:
+            message: { type: string }
+            type: { type: [string, "null"] }
+            code: { type: [string, "null"] }
+            param: { type: [string, "null"] }
+    Model:
+      type: object
+      required: [id, object, created, owned_by]
+      properties:
+        id: { type: string, description: Public model ID published by the gateway operator }
+        object: { const: model }
+        created: { type: integer, description: Always 0; the gateway does not expose upstream creation times }
+        owned_by: { const: pocket-ai-gateway }
+    ModelList:
+      type: object
+      required: [object, data]
+      properties:
+        object: { const: list }
+        data: { type: array, items: { $ref: "#/components/schemas/Model" } }
+    EmbeddingCreateRequest:
+      type: object
+      required: [model, input]
+      additionalProperties: true
+      properties:
+        model: { type: string, minLength: 1, description: Public embeddings model ID }
+        input:
+          oneOf:
+            - { type: string, minLength: 1 }
+            - { type: array, minItems: 1, maxItems: 2048, items: { type: string, minLength: 1 } }
+            - { type: array, minItems: 1, items: { type: integer, minimum: 0 }, description: One token-ID array }
+            - { type: array, minItems: 1, maxItems: 2048, items: { type: array, minItems: 1, items: { type: integer, minimum: 0 } } }
+        dimensions: { type: integer, minimum: 1 }
+        encoding_format: { type: string, enum: [float, base64], default: float }
+        user: { type: string }
+    EmbeddingList:
+      type: object
+      required: [object, data, model]
+      properties:
+        object: { const: list }
+        model: { type: string }
+        data:
+          type: array
+          items:
+            type: object
+            required: [object, index, embedding]
+            properties:
+              object: { const: embedding }
+              index: { type: integer, minimum: 0 }
+              embedding: { oneOf: [{ type: array, items: { type: number } }, { type: string, contentEncoding: base64 }] }
+        usage:
+          type: object
+          properties:
+            prompt_tokens: { type: integer, minimum: 0 }
+            total_tokens: { type: integer, minimum: 0 }
     CompletionCreateRequest:
       type: object
       additionalProperties: false

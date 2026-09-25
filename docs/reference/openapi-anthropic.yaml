@@ -4,12 +4,21 @@ servers: [{ url: /api/anthropic/v1 }]
 security: [{ apiKey: [] }]
 paths:
   /models:
-    get: { operationId: listAnthropicModels, parameters: [{ $ref: "#/components/parameters/Version" }], responses: { "200": { description: Authorized public models }, default: { description: Anthropic-compatible error } } }
+    get:
+      operationId: listAnthropicModels
+      description: Lists public models this API key may call through a route target that supports an Anthropic-compatible operation. All models are returned in one page.
+      parameters: [{ $ref: "#/components/parameters/Version" }]
+      responses:
+        "200": { description: Authorized public models, content: { application/json: { schema: { $ref: "#/components/schemas/ModelList" } } } }
+        default: { description: Anthropic-compatible error }
   /models/{id}:
     get:
       operationId: getAnthropicModel
       parameters: [{ name: id, in: path, required: true, schema: { type: string } }, { $ref: "#/components/parameters/Version" }]
-      responses: { "200": { description: Authorized public model }, "404": { description: Model unavailable }, default: { description: Anthropic-compatible error } }
+      responses:
+        "200": { description: Authorized public model, content: { application/json: { schema: { $ref: "#/components/schemas/ModelInfo" } } } }
+        "404": { description: Model unavailable to this key }
+        default: { description: Anthropic-compatible error }
   /files:
     post:
       operationId: uploadAnthropicFile
@@ -232,6 +241,22 @@ paths:
       responses: { "200": { description: Native token count }, default: { description: Anthropic-compatible error } }
 components:
   schemas:
+    ModelInfo:
+      type: object
+      required: [id, type, display_name, created_at]
+      properties:
+        id: { type: string, description: Public model ID published by the gateway operator }
+        type: { const: model }
+        display_name: { type: string }
+        created_at: { type: string, format: date-time, description: Always the Unix epoch; upstream release dates are not exposed }
+    ModelList:
+      type: object
+      required: [data, has_more, first_id, last_id]
+      properties:
+        data: { type: array, items: { $ref: "#/components/schemas/ModelInfo" } }
+        has_more: { const: false }
+        first_id: { type: string }
+        last_id: { type: string }
     FileMetadata:
       type: object
       additionalProperties: false

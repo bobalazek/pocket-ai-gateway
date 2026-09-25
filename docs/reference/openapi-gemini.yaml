@@ -89,12 +89,20 @@ paths:
         "200": { description: Native completed or incomplete Interaction with the public model alias and provider usage }
         default: { description: Gemini-compatible error }
   /models:
-    get: { operationId: listGeminiModels, responses: { "200": { description: Authorized public models }, default: { description: Gemini-compatible error } } }
+    get:
+      operationId: listGeminiModels
+      description: Lists public models this API key may call through a route target that supports a Gemini-compatible operation.
+      responses:
+        "200": { description: Authorized public models, content: { application/json: { schema: { type: object, required: [models], properties: { models: { type: array, items: { $ref: "#/components/schemas/Model" } } } } } } }
+        default: { description: Gemini-compatible error, content: { application/json: { schema: { $ref: "#/components/schemas/Error" } } } }
   /models/{model}:
     get:
       operationId: getGeminiModel
-      parameters: [{ name: model, in: path, required: true, schema: { type: string } }]
-      responses: { "200": { description: Authorized public model }, "404": { description: Model unavailable }, default: { description: Gemini-compatible error } }
+      parameters: [{ name: model, in: path, required: true, description: Public model ID, with or without the models/ prefix, schema: { type: string } }]
+      responses:
+        "200": { description: Authorized public model, content: { application/json: { schema: { $ref: "#/components/schemas/Model" } } } }
+        "404": { description: Model unavailable to this key, content: { application/json: { schema: { $ref: "#/components/schemas/Error" } } } }
+        default: { description: Gemini-compatible error, content: { application/json: { schema: { $ref: "#/components/schemas/Error" } } } }
   /models/{model}:{action}:
     post:
       operationId: runGeminiModelAction
@@ -105,5 +113,27 @@ paths:
       requestBody: { required: true, content: { application/json: { schema: { type: object, additionalProperties: true } } } }
       responses: { "200": { description: Native JSON or text/event-stream response }, default: { description: Gemini-compatible error } }
 components:
+  schemas:
+    Model:
+      type: object
+      required: [name, displayName, supportedGenerationMethods]
+      properties:
+        name: { type: string, pattern: "^models/", description: models/ plus the public model ID }
+        displayName: { type: string }
+        description: { type: string }
+        supportedGenerationMethods:
+          type: array
+          items: { type: string, enum: [generateContent, countTokens, embedContent, interactions, BidiGenerateContent] }
+    Error:
+      type: object
+      required: [error]
+      properties:
+        error:
+          type: object
+          required: [code, message, status]
+          properties:
+            code: { type: integer }
+            message: { type: string }
+            status: { type: string, examples: [INVALID_ARGUMENT, RESOURCE_EXHAUSTED, NOT_FOUND] }
   securitySchemes:
     apiKey: { type: apiKey, in: header, name: x-goog-api-key }
