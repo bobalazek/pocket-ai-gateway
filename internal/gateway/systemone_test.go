@@ -165,3 +165,24 @@ func TestSystemOneRequiresDecisionCapability(t *testing.T) {
 		t.Fatalf("chat-only model = %d %s", response.StatusCode, body)
 	}
 }
+
+func TestSystemOneUpstreamErrorShapes(t *testing.T) {
+	for raw, want := range map[string][2]string{
+		`{"detail":{"error_type":"authentication_error","message":"bad key"}}`:          {"authentication_error", "bad key"},
+		`{"detail":"too many options"}`:                                                 {"validation_error", "too many options"},
+		`{"detail":[{"loc":["body","state"],"msg":"field required","type":"missing"}]}`: {"validation_error", "field required"},
+		`{"error_type":"rate_limit_error","message":"slow down"}`:                       {"rate_limit_error", "slow down"},
+		`{"error":{"code":422,"message":"score needs two levels"}}`:                     {"validation_error", "score needs two levels"},
+	} {
+		kind, message, ok := systemOneUpstreamError([]byte(raw), http.StatusUnprocessableEntity)
+		if want[0] == "rate_limit_error" {
+			kind, message, ok = systemOneUpstreamError([]byte(raw), http.StatusTooManyRequests)
+		}
+		if !ok || kind != want[0] || message != want[1] {
+			t.Fatalf("%s = %q %q %v", raw, kind, message, ok)
+		}
+	}
+	if _, _, ok := systemOneUpstreamError([]byte(`{"detail":null}`), http.StatusBadRequest); ok {
+		t.Fatal("empty detail accepted")
+	}
+}

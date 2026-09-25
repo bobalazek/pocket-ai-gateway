@@ -110,30 +110,40 @@ func (handler *Handler) systemOneModels(w http.ResponseWriter, r *http.Request) 
 	writeJSON(w, map[string]any{"models": data})
 }
 
-// systemOneUpstreamError extracts a safe message from Jev ({"detail":{"error_type","message"}})
-// or Laya/FastAPI ({"detail":"message"}) error bodies.
+// systemOneUpstreamError extracts a safe message from the error shapes System One servers use:
+// Jev {"detail":{"error_type","message"}}, FastAPI {"detail":"..."} or {"detail":[{"msg"}]},
+// Vercel {"error_type","message"}, and OpenJev's helper {"error":{"code","message"}}.
 func systemOneUpstreamError(raw []byte, status int) (string, string, bool) {
 	var envelope struct {
-		Detail json.RawMessage `json:"detail"`
+		Detail    json.RawMessage `json:"detail"`
+		Error     json.RawMessage `json:"error"`
+		ErrorType json.RawMessage `json:"error_type"`
+		Message   json.RawMessage `json:"message"`
 	}
-	if json.Unmarshal(raw, &envelope) != nil || len(envelope.Detail) == 0 {
+	if json.Unmarshal(raw, &envelope) != nil {
 		return "", "", false
-	}
-	if message, ok := upstreamErrorText(envelope.Detail); ok && message != "" {
-		return systemOneErrorType(status), message, true
 	}
 	var detail struct {
 		ErrorType json.RawMessage `json:"error_type"`
 		Message   json.RawMessage `json:"message"`
+		Msg       json.RawMessage `json:"msg"`
 	}
-	if json.Unmarshal(envelope.Detail, &detail) != nil {
-		return "", "", false
+	var list []json.RawMessage
+	kindRaw, messageRaw := envelope.ErrorType, envelope.Message
+	if message, ok := upstreamErrorText(envelope.Detail); ok && message != "" {
+		messageRaw, _ = json.Marshal(message)
+	} else if json.Unmarshal(envelope.Detail, &detail) == nil && len(envelope.Detail) > 0 {
+		kindRaw, messageRaw = detail.ErrorType, detail.Message
+	} else if json.Unmarshal(envelope.Detail, &list) == nil && len(list) > 0 && json.Unmarshal(list[0], &detail) == nil {
+		messageRaw = detail.Msg
+	} else if json.Unmarshal(envelope.Error, &detail) == nil && len(envelope.Error) > 0 {
+		messageRaw = detail.Message
 	}
-	message, messageOK := upstreamErrorText(detail.Message)
-	kind, kindOK := upstreamErrorText(detail.ErrorType)
+	message, messageOK := upstreamErrorText(messageRaw)
 	if !messageOK || message == "" {
 		return "", "", false
 	}
+	kind, kindOK := upstreamErrorText(kindRaw)
 	if !kindOK || kind == "" {
 		kind = systemOneErrorType(status)
 	}
