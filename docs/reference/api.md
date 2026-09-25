@@ -109,13 +109,14 @@ Official schema references: [OpenAI Chat](https://developers.openai.com/api/refe
 
 ## SDK base URLs and authentication
 
-| Client | Intended base URL configuration | Gateway credential |
+| Client | Base URL configuration | Gateway credential |
 | --- | --- | --- |
 | OpenAI SDK | http://127.0.0.1:8080/api/openai/v1 | Authorization: Bearer gateway key |
 | Anthropic SDK | http://127.0.0.1:8080/api/anthropic; SDK appends /v1/messages | x-api-key gateway key; supported anthropic-version |
 | Google Gen AI SDK | Root http://127.0.0.1:8080/api/gemini with API version v1beta | x-goog-api-key gateway key |
+| TypeSafe SDK (System One) | http://127.0.0.1:8080/api/systemone (`TYPESAFE_BASE_URL`) | Authorization: Bearer gateway key |
 
-Pin SDK versions and assert the final emitted URL in tests; option names/version-appending behavior are documented against those versions. Browser sessions and management tokens never authorize these inference routes.
+Pin SDK versions and assert the final emitted URL in tests; option names/version-appending behavior are documented against those versions. Browser sessions never authorize these inference routes.
 
 Support native authentication forms within their namespace. If Gemini SDK/REST compatibility accepts a key query parameter, strip/redact it before every access log, trace, error, and capture; prefer the header in all examples. Reject duplicate/conflicting credentials. A protocol/version header mismatch returns that namespace's error, never switches codecs.
 

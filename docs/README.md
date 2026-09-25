@@ -1,6 +1,6 @@
 # Project documentation
 
-Updated September 24, 2026. Phase files separate recorded implementation evidence from intended product behavior.
+Updated September 25, 2026. Phase files separate recorded implementation evidence from intended product behavior.
 
 | Document | Purpose |
 | --- | --- |
@@ -27,7 +27,6 @@ Updated September 24, 2026. Phase files separate recorded implementation evidenc
 | [Client skill](../skills/pocket-ai-gateway/SKILL.md) | Agent guidance for calling a gateway with OpenAI, Anthropic, Gemini, or System One clients |
 | [Operator skill](../skills/pocket-ai-gateway-ops/SKILL.md) | Agent guidance for health, usage, and recovery questions |
 | [Roadmap](plan/README.md) | Backend phases, matching frontend work, dependencies, and release gates |
-| [First implementation task](plan/tasks/phase-1-foundation.md) | Bounded starting task and its verification contract |
 | [Human tasks](project/human-tasks.md) | Remaining user decisions and release prerequisites |
 
 Read PRD → decisions → architecture → plan first. Use the relevant contract before implementing a feature. The PRD owns scope, dated decision records own architectural choices, the data model owns table structure, and the API contract owns wire behavior. Resolve contradictions with a new dated decision rather than rewriting history.

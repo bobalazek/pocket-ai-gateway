@@ -2,7 +2,7 @@
 
 Root: /api/v1/auth · Backend: internal/features/auth · Frontend: web/src/features/auth · Requirement: IAM-01, SEC-01
 
-Phase 2 implements owner bootstrap, activation/recovery, login/logout, password and profile changes, session listing/revocation, persistent login throttling, CSRF, origin checks, and offline owner recovery. User administration and application keys remain separate features.
+Implements owner bootstrap, activation/recovery, login/logout, password and profile changes, session listing/revocation, persistent login throttling, CSRF, origin checks, and offline owner recovery. User administration and application keys remain separate features.
 
 | Operation | Behavior |
 | --- | --- |
@@ -28,6 +28,6 @@ Response contains safe user fields and CSRF/session metadata where needed; sessi
 
 User lifecycle controls and recovery-code issuance are under /api/v1/admin/users. Admin/member authorization is checked on the server. An invalid login does not disclose whether a user exists. No default password, public signup, or required SMTP service.
 
-Tests: double setup claim, invalid/expired activation, login throttling, fixation/rotation, CSRF and origin rejection, logout, session expiry, password reset/suspension revocation, last-owner guard, multiple admins, and member isolation. Explicitly prove a browser session or management token cannot call inference, and an inference key cannot manage users/settings.
+Tests: double setup claim, invalid/expired activation, login throttling, fixation/rotation, CSRF and origin rejection, logout, session expiry, password reset/suspension revocation, last-owner guard, multiple admins, and member isolation. Explicitly prove a browser session cannot call inference, and an inference key cannot manage users/settings.
 
 UX: an unclaimed first visit routes to owner setup. Signed-out users route to login, while activation and recovery codes use `/_/activate/`. The persistent account entry opens profile, password, session, and logout controls. Credentials stay in server cookies or form memory and are never written to browser storage.

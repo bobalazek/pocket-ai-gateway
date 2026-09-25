@@ -19,5 +19,7 @@ recovery-code
 /.impeccable/review/
 *.tsbuildinfo
 
-# Local editor/OS files
+# Local editor/OS files and developer tooling
 .DS_Store
+/.codegraph/
+/.worktrees/

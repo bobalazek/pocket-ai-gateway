@@ -1,6 +1,6 @@
 # Data model and accounting invariants
 
-Logical schema for implementation. Phases 1–2 migrations cover the local stores, identity/session lifecycle, API keys, and audit events; later rows below remain planned. Governed by ADR-001, ADR-003, ADR-004, and ADR-005 in [decisions](../project/decisions/README.md).
+Logical model and accounting invariants. The embedded SQL migrations in `internal/storage/migrations` are the authoritative schema; where this document and a migration differ, the migration wins. Governed by ADR-001, ADR-003, ADR-004, and ADR-005 in [decisions](../project/decisions/README.md).
 
 ## Conventions
 

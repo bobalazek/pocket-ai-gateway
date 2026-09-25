@@ -1,6 +1,6 @@
 # Architecture
 
-Status: Phase 1 foundation implemented; later feature architecture remains the selected design. See [decision register](../project/decisions/README.md).
+How the current gateway is built. The [decision register](../project/decisions/README.md) records why.
 
 ## Runtime
 
@@ -9,7 +9,7 @@ Use a Go modular monolith. One process owns two storage connections, admission s
 ~~~mermaid
 flowchart LR
     Browser[Dashboard] --> Management[Management API]
-    Client[OpenAI / Anthropic / Gemini client] --> Protocol[Protocol namespaces]
+    Client[OpenAI / Anthropic / Gemini / System One client] --> Protocol[Protocol namespaces]
     Protocol --> Gateway[Shared gateway admission and execution]
     Gateway --> Routing[Authorized target selection]
     Routing --> Adapters[Provider adapters]
@@ -27,58 +27,57 @@ The diagram describes responsibilities, not independently deployed services. The
 
 ## Stack and reuse
 
-| Concern | Initial choice | Why / introduction rule |
+| Concern | Choice | Why / introduction rule |
 | --- | --- | --- |
 | Server/router | Go net/http and ServeMux | Required routes do not need a framework |
 | Logs | log/slog | Structured logs without another runtime system |
 | CLI | flag.FlagSet per implemented command | Add a CLI framework only if nested command/help handling becomes cumbersome |
-| Storage | database/sql + reviewed local SQLite | Local authority in v0.1; optional remote libSQL/Turso drivers require future certification |
+| Storage | database/sql + pure-Go SQLite (modernc) | Local SQLite is the only live authority; remote libSQL/Turso is not implemented ([ADR-051](../project/decisions/2026-09-16-close-v01-with-local-sqlite.md)) |
 | SQL | sqlc-generated typed queries from explicit SQL | Precise transactions with less scan boilerplate; no GORM/auto-migrate |
 | Migrations | Embedded ordered SQL/checksums per store | Transactional per store; paired recovery, no cross-store atomicity claim |
-| Passwords | Argon2id from a maintained Go crypto package | Human-password hashing must not be invented |
-| Sessions | Maintained Go server-session package with reviewed SQLite store | Evaluate one small library in phase 2; no JWT refresh-token subsystem |
+| Passwords | Argon2id from golang.org/x/crypto | Human-password hashing must not be invented |
+| Sessions | Server-side sessions in the system store | Random tokens stored only as SHA-256, idle and absolute expiry, revocation by revision; no JWT refresh tokens |
 | Provider secret encryption | Standard Go AEAD, versioned envelope | Random nonces, authenticated connection/secret identity |
-| Backup encryption | Maintained established encrypted archive format/library | No custom archive cipher or KDF format |
-| Locking | Small maintained cross-platform OS-lock implementation | No PID-file-only locking |
+| Backup encryption | Standard-library AES-256-GCM in authenticated chunks | Separate 32-byte random backup key (base64), so no password KDF; fixed restore file names prevent path traversal |
+| Locking | gofrs/flock on the data directory | One gateway process per data directory; no PID-file-only locking |
 | Dashboard | Next.js App Router + strict TypeScript | Recommended static export for the Go-only production runtime |
 | UI behavior | Accessible primitives, minimal locally owned components | Reuse proven dialog/menu behavior; do not build a component framework |
 | Styling | Tailwind with semantic tokens | Define only tokens/components used by shipped screens |
 | Browser routes/data | Prebuilt Next.js screen routes, query-string record IDs, one `pocketAIGatewayAdmin` facade over feature-local clients | Centralize same-origin credentials, CSRF, cancellation, safe errors, and retry policy; add query caching only when needed |
-| API schema | OpenAPI for /api/v1/ | Generate a typed client once the first management slice is stable |
+| API schema | One OpenAPI document per surface in `docs/reference` | The dashboard uses hand-written typed feature clients; `verify.sh` validates the management spec |
 | Testing | Go testing/httptest; focused browser tests | Native harness for transport, persistence, and concurrency |
 
 Go embeds asset files at build time; modernc provides a pure-Go SQLite implementation. Node/build tooling belongs to development and releases. [Go embed](https://pkg.go.dev/embed), [modernc SQLite](https://pkg.go.dev/modernc.org/sqlite)
 
-The owner selected Next.js. Use output: export, basePath /_, and browser-fetched authenticated data for the single-runtime build. Go serves the exported pages/assets; dynamic APIs stay in Go. Request-time SSR/server actions would require a separate runtime decision. [Next.js static exports](https://nextjs.org/docs/app/guides/static-exports)
+The dashboard is a Next.js static export (`output: export`, basePath `/_`) that fetches authenticated data in the browser. Go serves the exported pages/assets; dynamic APIs stay in Go. Request-time SSR/server actions would require a separate runtime decision. [Next.js static exports](https://nextjs.org/docs/app/guides/static-exports)
 
-Resolve currently supported dependency versions from official registries at implementation time, commit lockfiles/checksums, and audit licenses. Do not copy dated version numbers from the planning brief. Release artifacts must include their actual Go, driver, and SQLite engine versions.
+Dependencies are pinned in `go.mod`/`go.sum` and `web/pnpm-lock.yaml`. `verify.sh` regenerates `THIRD_PARTY_NOTICES.md` and fails if it drifts. Release artifacts report their Go, driver, and SQLite engine versions.
 
 ## Feature-oriented repository shape
 
 Create directories when their first real behavior is implemented, not as empty scaffolding.
 
 ~~~text
-cmd/pocket-ai-gateway/main.go
+cmd/pocket-ai-gateway/   CLI entry point: serve, snapshot, restore, backup, restore-backup, update, owner-reset, version
 internal/
-  app/          construction, lifecycle, process configuration
-  server/       listener, global middleware, route registration
-  gateway/      compatibility routes, request/attempt lifecycle, admission, retries
+  app/          construction, lifecycle, process configuration, shutdown
+  server/       route registration, security headers, dashboard assets, health
+  gateway/      compatibility routes, request/attempt lifecycle, dispatch, gateway-owned resources
   protocol/     pure cross-protocol request, response, and SSE translation
+  credentials/  password hashing, tokens, verifiers
+  selfupdate/   signed release manifest verification and binary replacement
+  integration/  pinned official-SDK test server
   features/
-    auth/           setup, login/logout, sessions, activation, recovery
-    users/          profiles, roles, suspension, user grants
-    keys/           key lifecycle, grants, rotation
-    providers/      provider catalog and connection configuration
-    models/         public models, targets, capabilities, catalog refresh
-    routing/        strategies, target eligibility, route preview
-    limits/         configurable key/user/instance/connection policies
-    usage/          reservations, ledger, price versions, historical repricing
-    requests/       rich history, event projections, captures
-    operations/     local/S3 backup, restore, import/export, diagnostics
-  storage/      system/data migrations, sqlc queries, backend connectors, outbox
-web/            Next.js source and embedded out/ production assets
-api/            management OpenAPI document
-testdata/       sanitized deterministic protocol fixtures
+    auth/        setup, login/logout, sessions, activation, recovery, scopes
+    users/       profiles, roles, suspension, user grants
+    keys/        key lifecycle, grants, rotation
+    providers/   presets, connections, credentials, models, routing, catalog refresh
+    usage/       policies, admission, reservations, settlement, prices, analytics
+    operations/  backups (local/S3), restore, import/export, retention, status
+    mediajobs/   durable asynchronous media jobs
+  storage/      system/data migrations, sqlc queries, snapshots, encrypted archives, locking
+web/            Next.js source; out/ is embedded into the binary
+scripts/        build, verify, smoke, packaging, release manifest, demo, benchmark
 docs/
 ~~~
 
@@ -86,7 +85,7 @@ Module boundaries are ownership boundaries. Merge a package if it becomes a triv
 
 The gateway owns compatibility routes because they share one authenticated admission, routing, retry, and accounting path. Pure cross-protocol conversion lives in the leaf `internal/protocol` package and cannot import gateway, storage, identity, or provider configuration. Add a protocol-specific package only when it can own independently testable behavior without exposing gateway internals or introducing facade interfaces.
 
-Gateway-owned resource APIs live under /api/v1/: /models, /providers, /connections, /keys, /requests, /usage, and /me; privileged instance management lives under /api/v1/admin/. Compatibility APIs live only under /api/openai/v1/, /api/anthropic/v1/, and /api/gemini/v1beta/. Paths determine wire format; routing selects the provider independently.
+Gateway-owned resource APIs live under /api/v1/: /models, /providers, /connections, /keys, /requests, /usage, and /me; privileged instance management lives under /api/v1/admin/. Compatibility APIs live only under /api/openai/v1/, /api/anthropic/v1/, /api/gemini/v1beta/, and /api/systemone/v1/. Paths determine wire format; routing selects the provider independently.
 
 Feature-local SQL queries and generated methods stay near the feature; storage owns driver setup, per-store migration execution, and transaction primitives. Dashboard source is likewise organized by feature under `web/src/features`, with thin Next.js page entries. Feature hooks call the namespaced `pocketAIGatewayAdmin` facade, which is the only module allowed to compose feature clients.
 
@@ -95,11 +94,12 @@ Feature-local SQL queries and generated methods stay near the feature; storage o
 | app | Startup, process lock, cancellation, worker shutdown | Constructs concrete modules; no business decisions |
 | auth/users/keys | Login/session/recovery, account lifecycle, grants and key secrets | System storage; no provider dispatch |
 | gateway | One inference execution path and request/attempt states | Identity, routing, accounting, protocol, providers; sole retry owner |
-| limits/usage | Policy state, reservations, ledger settlement and repricing | System transactions; no protocol response shaping |
-| routing | Eligible target order, scoring, circuit/latency observations | Immutable config + current policy facts; cannot override authorization |
-| protocol/providers | Pure wire conversion; provider catalog, connection configuration, and routing facts | Cannot mint grants, decide retries, or bypass accounting |
+| usage | Policy state, reservations, ledger settlement, pricing, and repricing | System transactions; no protocol response shaping |
+| providers | Presets, connections, credentials, models, routing, circuit/latency observations | Cannot mint grants, override authorization, decide retries, or bypass accounting |
+| protocol | Pure wire conversion | Imports no gateway, storage, identity, or provider configuration |
 | storage | Transaction boundaries, migrations, SQL and snapshots | No provider calls inside database transactions |
-| operations | Backups, restore/import, retention jobs | Storage and local filesystem; owner-only mutation paths |
+| operations | Backups, restore/import, retention jobs, status | Storage and local filesystem; owner-only mutation paths |
+| mediajobs | Durable asynchronous media jobs | Shared admission and accounting; provider polling with bounded backoff |
 | feature HTTP handlers/web | Validated actions, response rendering, UI | Call shared services; never read stored credentials for display |
 
 ## Request flow
@@ -120,15 +120,15 @@ If state cannot be persisted before dispatch, return a service error without cal
 
 ## Storage and concurrency
 
-One gateway writer owns the instance. Phase 1 uses one connection per local store to prevent accidental in-process writer contention. When concurrent feature reads exist, add a separate small bounded read pool while retaining one short write path, foreign keys, and a busy timeout on every connection. System transactions atomically contain identity/config revisions, admission, reservations, usage, and event-outbox records. Data-store projections are delivered idempotently; rich logging never becomes the only accounting source.
+One gateway writer owns the instance. Each local store uses a single connection to prevent in-process writer contention; a small bounded read pool can be added if reads contend, keeping one short write path, foreign keys, and a busy timeout on every connection. System transactions atomically contain identity/config revisions, admission, reservations, usage, and event-outbox records. Data-store projections are delivered idempotently; rich logging never becomes the only accounting source.
 
 Optional remote libSQL/Turso backends require their own transaction/migration/backup certification and single-writer authority. No eventual-sync copy or automatic local fallback may authorize live spending. Remote outages/uncertain commits are handled conservatively. See the [data model](data-model.md) for the outbox, remote commit, and fencing rules.
 
-For v0.1, local SQLite remains the only live authority. See [ADR-014](../project/decisions/2026-09-15-v01-local-sqlite-authority.md).
+Local SQLite is the only live authority. See [ADR-014](../project/decisions/2026-09-15-v01-local-sqlite-authority.md).
 
 WAL supports readers alongside a single writer and requires a local filesystem. Keep automatic checkpoints initially, monitor WAL growth, and avoid long read transactions. Do not copy a live DB without its consistency protocol. [SQLite WAL](https://www.sqlite.org/wal.html)
 
-The SQLite WAL documentation records a corruption fix in 3.51.3 and selected backports. Phase 1 must verify the bundled engine includes that fix or a later corrected release; checking only the Go module version is insufficient. [SQLite WAL-reset notice](https://www.sqlite.org/wal.html#walreset)
+The SQLite WAL documentation records a corruption fix in 3.51.3. The bundled engine (SQLite 3.53.4 through modernc v1.58.0) includes it; the server logs its engine version at startup. [SQLite WAL-reset notice](https://www.sqlite.org/wal.html#walreset)
 
 Concurrency leases are coordinated with admission and released on every terminal path. On process restart, old-epoch leases are cleared only after all prior requests are classified as interrupted. Durable request/token/cost counters remain. An administrator lowering a limit below current use prevents new work rather than rewriting history or cancelling completed usage.
 
@@ -148,7 +148,7 @@ Filter first: operation → user/key grants → published/enabled target → fea
 | Lowest estimated cost | Compare a common request/output-bound cost estimate; unknown prices excluded |
 | Lowest observed latency | Compare operation-specific aged EWMA measurements, using first token for streams and total time for non-streaming requests |
 
-Initial latency defaults to evaluate with mocks: at least 10 successful samples, a 15-minute freshness horizon, EWMA alpha 0.2, and at most 5% exploration of eligible candidates. Cold/stale pools use configured priority. These are tuning proposals, not measured optimums. Exploration uses real authorized traffic; no automatic paid probes.
+Lowest-latency routing needs at least 10 successful samples within a 15-minute freshness horizon, uses an EWMA with alpha 0.2, and explores other eligible candidates on about 5% of requests. Cold or stale pools use configured priority. These are fixed defaults, not measured optimums. Exploration uses real authorized traffic; no automatic paid probes.
 
 Track failure rate separately from speed. Three consecutive retryable failures open a 30-second target circuit; successful traffic clears it. Rate-limit Retry-After and connection authentication faults have distinct handling. Cap weights/time arithmetic and test deterministic seeded sampling. Record strategy/config revision, observation age, selected score, cold-start/exploration status, and all attempts.
 
@@ -166,4 +166,4 @@ Config edits use optimistic concurrency: stale revision returns 409 with reload 
 
 Embedded-asset, local-store, locking, migration, accounting, protocol, translation, routing, and catalog-refresh behavior is covered by deterministic local tests. Remote stores, S3 recovery, and release artifacts require their separate operational certification.
 
-Phase 1 evidence is recorded in its phase specification. No provider compatibility guarantee, remote-driver certification, release benchmark, or security audit is claimed yet.
+Verification evidence is recorded in the [plan](../plan/README.md), [benchmark](../project/benchmark.md), and [release checklist](../project/release-checklist.md). No live-provider certification, remote-driver certification, or third-party security audit is claimed.
