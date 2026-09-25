@@ -101,6 +101,16 @@ Base URL: `/api/gemini/v1beta`.
 | Tuning, permissions, and corpora | Pending | Administrative/resource APIs need separate authorization and lifecycle design |
 | Thought signatures | Pending across translated paths | No opaque signature is stripped or fabricated |
 
+## System One namespace
+
+Base URL: `/api/systemone/v1`. See [System One decisions](../features/systemone-compatible.md).
+
+| Resource or operation | Status | Boundary |
+| --- | --- | --- |
+| `POST /systemone` | Implemented, native only | `noul`, `choice`, and `score` questions pass through to TypeSafe Jev or Laya targets; no translation or streaming |
+| `GET /models` | Implemented, gateway-owned | Jev-shaped list of visible public decision models |
+| Cloudflare Workers AI `typesafe/jev` | Not supported | Uses Cloudflare's own API rather than System One |
+
 ## Implemented shared field families
 
 The compatibility suite covers the common field families below on each eligible native or translated route:

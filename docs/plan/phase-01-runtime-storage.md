@@ -18,8 +18,6 @@ Frontend: structural shell under /_/, first-run owner setup, minimal safe readin
 
 **Blast radius:** all future persistent state and release artifacts. Do not add speculative providers or business tables here.
 
-Start with [F1.1 bounded task](tasks/phase-1-foundation.md); expand F1.2–F1.4 against its actual code.
-
 ## Evidence
 
 Completed September 14, 2026 on macOS arm64 with Go 1.27.1, Node.js 22.22.1, pnpm 10.30.3, and bundled SQLite 3.53.4.

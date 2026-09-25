@@ -71,8 +71,6 @@ Each record states status/source, context, decision, and consequences. A recomme
 | ADR-063 | [Local reliability signals](2026-09-24-local-reliability-signals.md) | Delegated error-rate and admin-alert contract |
 | ADR-064 | [System One decision models](2026-09-25-system-one-decision-models.md) | Owner-requested; fourth protocol root for Jev and Laya |
 
-Historical: [initial proposal](2026-09-14-initial-proposal.md), superseded by the records above where they differ. Its A/P/D/M identifiers are historical references only; current documents use ADR IDs.
-
 ## New-entry template
 
 ~~~markdown
