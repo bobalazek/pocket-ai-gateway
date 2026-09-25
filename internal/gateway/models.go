@@ -28,7 +28,7 @@ func (handler *Handler) geminiAction(response http.ResponseWriter, request *http
 func (handler *Handler) authenticate(response http.ResponseWriter, request *http.Request, dialect string) (keys.Principal, bool) {
 	var token string
 	switch dialect {
-	case "openai", "responses", "responses_compact":
+	case "openai", "responses", "responses_compact", "systemone":
 		if len(request.Header.Values("Authorization")) != 1 {
 			handler.writeError(response, dialect, http.StatusUnauthorized, "authentication_error", "Provide one API key")
 			return keys.Principal{}, false
@@ -93,7 +93,7 @@ func (handler *Handler) allowedModels(response http.ResponseWriter, request *htt
 }
 
 func modelVisibleInDialect(dialect string, model providers.PublicModel, target providers.Target) bool {
-	if hasCapability(model.Capabilities, "chat:generate") && hasCapability(target.UpstreamCapabilities, "chat:generate") {
+	if dialect != "systemone" && hasCapability(model.Capabilities, "chat:generate") && hasCapability(target.UpstreamCapabilities, "chat:generate") {
 		operation := map[string]string{"openai": "chat/completions", "openai_compatible": "chat/completions", "anthropic": "messages", "gemini": "generateContent"}[target.Adapter]
 		return providers.PresetSupports(target.Preset, operation)
 	}
@@ -104,6 +104,7 @@ func modelVisibleInDialect(dialect string, model providers.PublicModel, target p
 		"openai":    {{"completions:generate", "completions"}, {"embeddings:generate", "embeddings"}, {"moderations:classify", "moderations"}, {"tokens:count", "responses/input_tokens"}, {"images:generate", "images/generations"}, {"images:edit", "images/edits"}, {"images:variation", "images/variations"}, {"audio:speech", "audio/speech"}, {"audio:transcribe", "audio/transcriptions"}, {"audio:translate", "audio/translations"}, {"realtime:connect", "realtime"}, {"realtime:connect", "live"}},
 		"anthropic": {{"tokens:count", "messages/count_tokens"}},
 		"gemini":    {{"embeddings:generate", "embedContent"}, {"tokens:count", "countTokens"}, {"interactions:generate", "interactions"}},
+		"systemone": {{"decisions:generate", "systemone"}},
 	}[dialect]
 	for _, candidate := range operations {
 		if hasCapability(model.Capabilities, candidate.scope) && hasCapability(target.UpstreamCapabilities, candidate.scope) && providers.PresetSupports(target.Preset, candidate.operation) {

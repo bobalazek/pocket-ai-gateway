@@ -245,6 +245,14 @@ func (handler *Handler) forwardAuthorized(response http.ResponseWriter, request 
 			return
 		}
 	}
+	systemOneQuestions := int64(0)
+	if upstreamPath == "systemone" {
+		systemOneQuestions, err = validateSystemOne(envelope)
+		if err != nil {
+			handler.writeError(response, dialect, http.StatusUnprocessableEntity, "validation_error", err.Error())
+			return
+		}
+	}
 	stream := false
 	_ = json.Unmarshal(envelope["stream"], &stream)
 	if upstreamPath == "audio/speech" {
@@ -304,6 +312,8 @@ func (handler *Handler) forwardAuthorized(response http.ResponseWriter, request 
 		if openAIBatch && openAIBatchItems > batchItems {
 			batchItems = openAIBatchItems
 		}
+	} else if upstreamPath == "systemone" {
+		batchItems = systemOneQuestions
 	} else if upstreamPath == "moderations" {
 		batchItems = jsonCardinality(envelope["input"])
 		if openAIBatch && openAIBatchItems > batchItems {
@@ -708,7 +718,8 @@ func (handler *Handler) forwardAuthorized(response http.ResponseWriter, request 
 			cacheCreation5mTokens, cacheCreation1hTokens = nil, nil
 		}
 		estimatedUsage := false
-		if success && upstreamPath == "moderations" && inputTokens == nil && outputTokens == nil {
+		// Moderations and self-hosted System One servers may omit usage; account a conservative estimate.
+		if success && (upstreamPath == "moderations" || upstreamPath == "systemone") && inputTokens == nil && outputTokens == nil {
 			input, zero := inputEstimate, int64(0)
 			inputTokens, outputTokens, estimatedUsage = &input, &zero, true
 		}

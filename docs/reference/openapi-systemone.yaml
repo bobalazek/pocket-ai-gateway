@@ -1,0 +1,125 @@
+openapi: 3.1.0
+info:
+  title: Pocket AI Gateway System One API
+  version: 0.1.0
+  description: Typed decisions from System One models such as TypeSafe Jev and self-hosted Laya. Requests pass through to a native System One target; answers are returned unchanged.
+servers: [{ url: /api/systemone/v1 }]
+security: [{ bearerAuth: [] }]
+paths:
+  /models:
+    get:
+      operationId: listSystemOneModels
+      description: Lists public models this key may call with `decisions:generate`. Requires the `models:read` scope. `name` is the gateway's public model ID.
+      responses:
+        "200": { description: Authorized public models, content: { application/json: { schema: { $ref: "#/components/schemas/ModelList" } } } }
+        default: { description: System One error, content: { application/json: { schema: { $ref: "#/components/schemas/Error" } } } }
+  /systemone:
+    post:
+      operationId: createDecision
+      description: Requires `decisions:generate` and a public model with the Typed decisions capability. The gateway validates the question structure, applies limits (each question counts as one batch item), rewrites `model` to the selected upstream model, and records provider usage. Streaming and translation to other formats are not supported. Every admitted response carries `X-Pocket-AI-Request-ID`.
+      requestBody: { required: true, content: { application/json: { schema: { $ref: "#/components/schemas/DecisionRequest" } } } }
+      responses:
+        "200": { description: Native answers from the provider, content: { application/json: { schema: { $ref: "#/components/schemas/DecisionResponse" } } } }
+        "401": { description: Missing or invalid gateway API key, content: { application/json: { schema: { $ref: "#/components/schemas/Error" } } } }
+        "404": { description: Model unavailable to this key, content: { application/json: { schema: { $ref: "#/components/schemas/Error" } } } }
+        "422": { description: Invalid question structure, rejected locally or by the provider, content: { application/json: { schema: { $ref: "#/components/schemas/Error" } } } }
+        "429": { description: Gateway limit or provider rate limit, content: { application/json: { schema: { $ref: "#/components/schemas/Error" } } } }
+        "502": { description: Provider failure, content: { application/json: { schema: { $ref: "#/components/schemas/Error" } } } }
+components:
+  securitySchemes:
+    bearerAuth: { type: http, scheme: bearer }
+  schemas:
+    Structured:
+      description: Free-form context; a string, object, or array.
+      oneOf: [{ type: string }, { type: object }, { type: array }]
+    DecisionRequest:
+      type: object
+      required: [model, state, questions]
+      additionalProperties: true
+      properties:
+        model: { type: string, description: Public model ID }
+        state: { $ref: "#/components/schemas/Structured" }
+        questions:
+          type: object
+          minProperties: 1
+          maxProperties: 64
+          description: Caller-chosen question IDs (1-128 bytes). IDs are not sent to the underlying model as content.
+          additionalProperties: { $ref: "#/components/schemas/Question" }
+    Question:
+      oneOf:
+        - type: object
+          required: [type, instructions]
+          properties:
+            type: { const: noul }
+            instructions: { $ref: "#/components/schemas/Structured" }
+            criteria:
+              type: object
+              additionalProperties: false
+              properties: { "true": { $ref: "#/components/schemas/Structured" }, "false": { $ref: "#/components/schemas/Structured" } }
+        - type: object
+          required: [type, instructions, criteria]
+          properties:
+            type: { const: choice }
+            instructions: { $ref: "#/components/schemas/Structured" }
+            criteria: { type: object, minProperties: 1, maxProperties: 255, description: Option ID to description (string, object, array, or null) }
+        - type: object
+          required: [type, instructions, criteria]
+          properties:
+            type: { const: score }
+            instructions: { $ref: "#/components/schemas/Structured" }
+            criteria: { type: array, minItems: 2, maxItems: 10, description: Ordered rubric levels, lowest first, items: { $ref: "#/components/schemas/Structured" } }
+    DecisionResponse:
+      type: object
+      required: [model, answers]
+      properties:
+        model: { type: string, description: Provider model that answered, such as jev-1.13.0 }
+        answers: { type: object, additionalProperties: { $ref: "#/components/schemas/Answer" } }
+        usage:
+          type: object
+          description: Provider-reported tokens. Laya omits usage; the gateway then records an estimate.
+          properties:
+            input_tokens: { type: [integer, "null"] }
+            output_tokens: { type: [integer, "null"] }
+    Answer:
+      oneOf:
+        - type: object
+          required: [type, noul]
+          properties: { type: { const: noul }, noul: { type: number, minimum: 0, maximum: 1, description: Probability of true } }
+        - type: object
+          required: [type, choice, probabilities, confidence]
+          properties:
+            type: { const: choice }
+            choice: { type: string }
+            probabilities: { type: object, additionalProperties: { type: number } }
+            confidence: { type: number }
+        - type: object
+          required: [type, score, probabilities, confidence]
+          properties:
+            type: { const: score }
+            score: { type: number, description: Expected level index }
+            legend: { type: object }
+            probabilities: { type: object, additionalProperties: { type: number } }
+            confidence: { type: number }
+    ModelList:
+      type: object
+      required: [models]
+      properties:
+        models:
+          type: array
+          items:
+            type: object
+            required: [name]
+            properties:
+              name: { type: string }
+              description: { type: string }
+              release_date: { type: "null", description: Upstream release dates are not exposed }
+    Error:
+      type: object
+      required: [detail]
+      properties:
+        detail:
+          type: object
+          required: [error_type, message]
+          properties:
+            error_type: { type: string, examples: [validation_error, authentication_error, rate_limit_error, model_not_found] }
+            message: { type: string }

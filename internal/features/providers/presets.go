@@ -39,6 +39,8 @@ var presets = []Preset{
 	{ID: "perplexity", Label: "Perplexity", Adapter: "openai_compatible", BaseURL: "https://api.perplexity.ai/v1", CredentialRequired: true, Operations: []string{"chat/completions", "responses", "embeddings"}, DocumentationURL: "https://docs.perplexity.ai/docs/agent-api/openai-compatibility", ReviewedAt: "2026-09-16"},
 	{ID: "azure-openai", Label: "Azure OpenAI", Adapter: "openai_compatible", BaseURLRequired: true, BaseURLExample: "https://your-resource.openai.azure.com/openai/v1", CredentialRequired: true, Authentication: "API key, or a rotating Microsoft Entra bearer-token reference", Operations: []string{"chat/completions", "responses"}, DocumentationURL: "https://learn.microsoft.com/en-us/azure/foundry/openai/api-version-lifecycle", ReviewedAt: "2026-09-16"},
 	{ID: "bedrock", Label: "Amazon Bedrock", Adapter: "openai_compatible", BaseURLRequired: true, BaseURLExample: "https://bedrock-runtime.us-east-1.amazonaws.com/openai/v1", CredentialRequired: true, Authentication: "Amazon Bedrock bearer API key", Operations: []string{"chat/completions", "responses"}, DocumentationURL: "https://docs.aws.amazon.com/bedrock/latest/userguide/apis.html", ReviewedAt: "2026-09-16"},
+	{ID: "typesafe", Label: "TypeSafe (Jev)", Adapter: "openai_compatible", BaseURL: "https://api.typesafe.ai/v1", CredentialRequired: true, Operations: []string{"systemone"}, DocumentationURL: "https://docs.typesafe.ai/api.md", ReviewedAt: "2026-09-25"},
+	{ID: "laya", Label: "Laya (self-hosted)", Adapter: "openai_compatible", BaseURL: "http://127.0.0.1:8000/v1", PrivateNetwork: true, Authentication: "Optional bearer key set with LAYA_API_KEY", Operations: []string{"systemone"}, DocumentationURL: "https://github.com/NandhaKishorM/laya", ReviewedAt: "2026-09-25"},
 	{ID: "vertex", Label: "Google Vertex AI", Adapter: "openai_compatible", BaseURLRequired: true, BaseURLExample: "https://us-central1-aiplatform.googleapis.com/v1/projects/your-project/locations/us-central1/endpoints/openapi", CredentialRequired: true, Authentication: "Rotating Google Cloud bearer-token reference", Operations: []string{"chat/completions"}, DocumentationURL: "https://cloud.google.com/vertex-ai/generative-ai/docs/start/openai", ReviewedAt: "2026-09-16"},
 }
 
@@ -133,7 +135,7 @@ func PresetSupportsCapabilities(presetID string, capabilities []string) bool {
 			return false
 		}
 		supported := false
-		for _, operation := range []string{"chat/completions", "completions", "messages", "generateContent", "responses", "responses/compact", "responses/input_tokens", "embeddings", "embedContent", "batchEmbedContents", "moderations", "images/generations", "images/edits", "images/variations", "audio/speech", "audio/transcriptions", "audio/translations", "messages/count_tokens", "countTokens", "interactions", "realtime", "live", "BidiGenerateContent", "predictions", "videos", "predictLongRunning"} {
+		for _, operation := range []string{"chat/completions", "completions", "messages", "generateContent", "responses", "responses/compact", "responses/input_tokens", "embeddings", "embedContent", "batchEmbedContents", "moderations", "images/generations", "images/edits", "images/variations", "audio/speech", "audio/transcriptions", "audio/translations", "messages/count_tokens", "countTokens", "interactions", "realtime", "live", "BidiGenerateContent", "predictions", "videos", "predictLongRunning", "systemone"} {
 			if operationCapability(operation) == capability && PresetSupports(presetID, operation) {
 				supported = true
 				break
@@ -184,6 +186,8 @@ func operationCapability(operation string) string {
 		return "embeddings"
 	case "moderations":
 		return "moderations"
+	case "systemone":
+		return "decisions"
 	case "images/generations":
 		return "images"
 	case "images/edits":

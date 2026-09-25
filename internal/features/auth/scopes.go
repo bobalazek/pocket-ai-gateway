@@ -16,6 +16,7 @@ var inferenceScopes = []InferenceScope{
 	{ID: "responses:file_search", Policy: "OpenAI Responses file search also requires responses:generate."},
 	{ID: "embeddings:generate"},
 	{ID: "moderations:classify"},
+	{ID: "decisions:generate", Policy: "Typed System One decisions, such as TypeSafe Jev or self-hosted Laya."},
 	{ID: "images:generate"},
 	{ID: "images:edit"},
 	{ID: "images:variation"},

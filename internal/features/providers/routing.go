@@ -178,6 +178,8 @@ func PreviewRouteEligibility(operation string, streaming bool) func(Target) (boo
 		dialect = "responses"
 	case "responses/compact":
 		dialect = "responses_compact"
+	case "systemone":
+		dialect = "systemone"
 	}
 	opaqueMedia := capability == "images" || capability == "image_edit" || capability == "image_variation" || strings.HasPrefix(capability, "audio_")
 	input := StaticEligibilityInput{Dialect: dialect, Capability: capability, Operation: operation, Streaming: streaming, OpaqueMedia: opaqueMedia, ImageStreaming: (operation == "images/generations" || operation == "images/edits") && streaming}
@@ -197,7 +199,7 @@ func PreviewRouteEligibility(operation string, streaming bool) func(Target) (boo
 }
 
 func NativeTarget(dialect, adapter string) bool {
-	return dialect == adapter || dialect == "openai" && adapter == "openai_compatible" || (dialect == "responses" || dialect == "responses_compact") && (adapter == "openai" || adapter == "openai_compatible")
+	return dialect == adapter || (dialect == "openai" || dialect == "systemone") && adapter == "openai_compatible" || (dialect == "responses" || dialect == "responses_compact") && (adapter == "openai" || adapter == "openai_compatible")
 }
 
 type RouteTargetInput struct {

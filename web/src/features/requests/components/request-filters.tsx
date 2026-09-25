@@ -24,7 +24,7 @@ export function RequestFilterForm({ filters, onSubmit }: { filters: RequestFilte
           <Label htmlFor="dialect">Protocol</Label>
           <select id="dialect" name="dialect" className="select" defaultValue={filters.dialect ?? ""}>
             <option value="">All</option>
-            <option>openai</option><option>responses</option><option>anthropic</option><option>gemini</option>
+            <option>openai</option><option>responses</option><option>anthropic</option><option>gemini</option><option>systemone</option>
           </select>
         </div>
         <Button>Apply</Button>

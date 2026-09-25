@@ -31,6 +31,8 @@ func (handler *Handler) writeError(w http.ResponseWriter, dialect string, status
 		_ = json.NewEncoder(w).Encode(map[string]any{"type": "error", "error": map[string]string{"type": code, "message": message}, "request_id": nil})
 	case "gemini":
 		_ = json.NewEncoder(w).Encode(map[string]any{"error": map[string]any{"code": status, "message": message, "status": geminiErrorStatus(status)}})
+	case "systemone":
+		_ = json.NewEncoder(w).Encode(map[string]any{"detail": map[string]string{"error_type": code, "message": message}})
 	default:
 		_ = json.NewEncoder(w).Encode(map[string]any{"error": map[string]any{"message": message, "type": "invalid_request_error", "code": code}})
 	}
@@ -74,6 +76,9 @@ func (handler *Handler) writeUpstreamClientError(w http.ResponseWriter, dialect 
 		return true
 	}
 	code := "upstream_rejected"
+	if dialect == "systemone" {
+		code = systemOneErrorType(status)
+	}
 	if dialect == "anthropic" {
 		code = "invalid_request_error"
 		if status == http.StatusTooManyRequests {
@@ -91,6 +96,17 @@ func upstreamCredentialError(raw []byte) bool {
 }
 
 func writeNativeUpstreamError(w http.ResponseWriter, dialect string, status int, raw []byte) bool {
+	if dialect == "systemone" {
+		kind, message, ok := systemOneUpstreamError(raw, status)
+		if !ok || !upstreamClientStatus(status) {
+			return false
+		}
+		w.Header().Set("Content-Type", "application/json")
+		w.Header().Set("Cache-Control", "no-store")
+		w.WriteHeader(status)
+		_ = json.NewEncoder(w).Encode(map[string]any{"detail": map[string]string{"error_type": kind, "message": message}})
+		return true
+	}
 	var envelope struct {
 		Error map[string]json.RawMessage `json:"error"`
 	}

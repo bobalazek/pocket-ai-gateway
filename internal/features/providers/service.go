@@ -28,7 +28,7 @@ var adapters = map[string][]string{
 	"openai":            {"chat", "completions", "web_search", "embeddings", "moderations", "count_tokens", "images", "image_edit", "image_variation", "audio_speech", "audio_transcription", "audio_translation", "realtime"},
 	"anthropic":         {"chat", "web_search", "web_search_dynamic", "web_search_response_inclusion", "web_fetch", "web_fetch_dynamic", "web_fetch_cache_bypass", "web_fetch_response_inclusion", "count_tokens", "prompt_cache"},
 	"gemini":            {"chat", "count_tokens", "embeddings", "interactions", "realtime", "media_jobs"},
-	"openai_compatible": {"chat", "completions", "embeddings", "moderations", "count_tokens", "images", "image_edit", "image_variation", "audio_speech", "audio_transcription", "audio_translation", "media_jobs"},
+	"openai_compatible": {"chat", "completions", "embeddings", "moderations", "count_tokens", "images", "image_edit", "image_variation", "audio_speech", "audio_transcription", "audio_translation", "media_jobs", "decisions"},
 }
 
 var adapterLabels = map[string]string{
@@ -45,6 +45,7 @@ var capabilityLabels = map[string]string{
 	"chat":                          "Chat",
 	"completions":                   "Legacy completions",
 	"count_tokens":                  "Token counting",
+	"decisions":                     "Typed decisions (System One)",
 	"embeddings":                    "Embeddings",
 	"image_edit":                    "Image editing",
 	"image_variation":               "Image variation",
@@ -69,6 +70,7 @@ var scopeCapabilities = map[string]string{
 	"audio:translate":       "audio_translation",
 	"chat:generate":         "chat",
 	"completions:generate":  "completions",
+	"decisions:generate":    "decisions",
 	"embeddings:generate":   "embeddings",
 	"images:edit":           "image_edit",
 	"images:generate":       "images",
