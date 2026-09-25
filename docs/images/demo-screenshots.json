@@ -1,132 +1,132 @@
 {
   "source": "Disposable synthetic demo",
-  "captured_at": "2026-09-25T18:03:38.762Z",
+  "captured_at": "2026-09-25T20:45:03.153Z",
   "screenshots": [
     {
       "file": "demo-page-overview.png",
       "page": "overview",
       "viewport_width": 1440,
       "full_page_height": 1013,
-      "bytes": 131315
+      "bytes": 131851
     },
     {
       "file": "demo-page-analytics.png",
       "page": "analytics",
       "viewport_width": 1440,
       "full_page_height": 9787,
-      "bytes": 735866
+      "bytes": 732299
     },
     {
       "file": "demo-page-usage.png",
       "page": "usage",
       "viewport_width": 1440,
       "full_page_height": 7174,
-      "bytes": 538125
+      "bytes": 538719
     },
     {
       "file": "demo-page-requests.png",
       "page": "requests",
       "viewport_width": 1440,
       "full_page_height": 5954,
-      "bytes": 925294
+      "bytes": 930478
     },
     {
       "file": "demo-page-request-detail.png",
       "page": "request-detail",
       "viewport_width": 1440,
       "full_page_height": 1093,
-      "bytes": 137283
+      "bytes": 138216
     },
     {
       "file": "demo-page-request-errors.png",
       "page": "request-errors",
       "viewport_width": 1440,
       "full_page_height": 1918,
-      "bytes": 260682
+      "bytes": 262041
     },
     {
       "file": "demo-page-failed-request.png",
       "page": "failed-request",
       "viewport_width": 1440,
       "full_page_height": 1070,
-      "bytes": 132514
+      "bytes": 132691
     },
     {
       "file": "demo-page-providers.png",
       "page": "providers",
       "viewport_width": 1440,
-      "full_page_height": 1924,
-      "bytes": 167031
+      "full_page_height": 1895,
+      "bytes": 172803
     },
     {
       "file": "demo-page-providers-preset-openai.png",
       "page": "providers-preset-openai",
       "viewport_width": 1440,
-      "full_page_height": 2007,
-      "bytes": 185064
+      "full_page_height": 1978,
+      "bytes": 192022
     },
     {
       "file": "demo-page-providers-preset-replicate.png",
       "page": "providers-preset-replicate",
       "viewport_width": 1440,
-      "full_page_height": 1987,
-      "bytes": 174304
+      "full_page_height": 1958,
+      "bytes": 182280
     },
     {
       "file": "demo-page-models.png",
       "page": "models",
       "viewport_width": 1440,
       "full_page_height": 2778,
-      "bytes": 232732
+      "bytes": 235167
     },
     {
       "file": "demo-page-keys.png",
       "page": "keys",
       "viewport_width": 1440,
       "full_page_height": 1428,
-      "bytes": 170754
+      "bytes": 169785
     },
     {
       "file": "demo-page-users.png",
       "page": "users",
       "viewport_width": 1440,
       "full_page_height": 1767,
-      "bytes": 184372
+      "bytes": 183289
     },
     {
       "file": "demo-page-audit.png",
       "page": "audit",
       "viewport_width": 1440,
       "full_page_height": 3896,
-      "bytes": 406656
+      "bytes": 414146
     },
     {
       "file": "demo-page-settings.png",
       "page": "settings",
       "viewport_width": 1440,
       "full_page_height": 1781,
-      "bytes": 218810
+      "bytes": 218784
     },
     {
       "file": "demo-page-status.png",
       "page": "status",
       "viewport_width": 1440,
       "full_page_height": 1228,
-      "bytes": 132877
+      "bytes": 133149
     },
     {
       "file": "demo-page-playground.png",
       "page": "playground",
       "viewport_width": 1440,
       "full_page_height": 900,
-      "bytes": 62947
+      "bytes": 63277
     },
     {
       "file": "demo-page-account.png",
       "page": "account",
       "viewport_width": 1440,
       "full_page_height": 965,
-      "bytes": 101355
+      "bytes": 103416
     },
     {
       "file": "demo-page-media-jobs.png",
@@ -140,35 +140,35 @@
       "page": "overview",
       "viewport_width": 390,
       "full_page_height": 1843,
-      "bytes": 99332
+      "bytes": 100719
     },
     {
       "file": "demo-mobile-analytics.png",
       "page": "analytics",
       "viewport_width": 390,
       "full_page_height": 17698,
-      "bytes": 742127
+      "bytes": 740965
     },
     {
       "file": "demo-mobile-usage.png",
       "page": "usage",
       "viewport_width": 390,
-      "full_page_height": 10560,
-      "bytes": 452681
+      "full_page_height": 10608,
+      "bytes": 453429
     },
     {
       "file": "demo-mobile-requests.png",
       "page": "requests",
       "viewport_width": 390,
       "full_page_height": 21880,
-      "bytes": 1211020
+      "bytes": 1215808
     },
     {
       "file": "demo-mobile-status.png",
       "page": "status",
       "viewport_width": 390,
       "full_page_height": 1566,
-      "bytes": 98180
+      "bytes": 98202
     }
   ]
 }
