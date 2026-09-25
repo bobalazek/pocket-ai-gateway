@@ -2,7 +2,9 @@
 
 All notable changes will be documented here. The project follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and intends to use semantic versioning after the first tagged release.
 
-## Unreleased
+## [0.1.0-alpha.1] - 2026-09-25
+
+First public alpha. See the warning in the README before relying on it.
 
 ### Added
 

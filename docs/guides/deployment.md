@@ -188,6 +188,14 @@ The gateway refuses unsupported newer database schemas. Do not run two versions 
 
 ### Optional standalone self-update
 
+Official releases are signed with this Ed25519 public key, also listed in [SECURITY.md](../../SECURITY.md):
+
+```text
+w2329hn3CSzqZ3GQHwPmTwBcDD+41lFEJi71n//ST+k=
+```
+
+Self-update follows GitHub's latest stable release, so pre-release tags such as `v0.1.0-alpha.1` are installed manually or with an explicit `--manifest-url` for that tag's `release-manifest.json`.
+
 Self-update is for release binaries installed in a directory writable by the service account. Root-owned `/usr/local/bin` installations keep using the manual procedure above. Containers must replace the pinned image instead of mutating a container filesystem.
 
 Release maintainers generate a 32-byte Ed25519 seed outside the repository, store it as the `POCKET_AI_GATEWAY_RELEASE_SIGNING_KEY` GitHub Actions secret, and distribute only the derived public key:
@@ -201,7 +209,7 @@ Store the seed in a maintainer-controlled password manager and set the GitHub Ac
 
 ```sh
 go run ./scripts/release-manifest --verify --version vX.Y.Z \
-  --directory dist/release --public-key 'base64-public-key-from-the-release-maintainer'
+  --directory dist/release --public-key 'w2329hn3CSzqZ3GQHwPmTwBcDD+41lFEJi71n//ST+k='
 (cd dist/release && sha256sum --check SHA256SUMS)
 ```
 
@@ -209,7 +217,7 @@ On the server, stop the service and configure that base64 public key. The first 
 
 ```sh
 sudo systemctl stop pocket-ai-gateway
-export POCKET_AI_GATEWAY_UPDATE_PUBLIC_KEY='base64-public-key-from-the-release-maintainer'
+export POCKET_AI_GATEWAY_UPDATE_PUBLIC_KEY='w2329hn3CSzqZ3GQHwPmTwBcDD+41lFEJi71n//ST+k='
 
 /opt/pocket-ai-gateway/pocket-ai-gateway update \
   --data-dir /var/lib/pocket-ai-gateway
