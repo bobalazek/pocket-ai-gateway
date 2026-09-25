@@ -18,55 +18,49 @@ Select an image to open the full-resolution capture.
 
 ### Traffic and cost
 
-| Overview | Analytics |
+| Overview | Status |
 | --- | --- |
-| [![Full overview with synthetic request and spend totals](../images/demo-page-overview.png)](../images/demo-page-overview.png)<br>Requests, error rate, tokens, known spend, and recent requests. | [![Full analytics page with traffic, key, user, model, provider, response-mode, and operation charts](../images/demo-page-analytics.png)](../images/demo-page-analytics.png)<br>Daily trends and ranked charts, including p95 duration and time to first byte by model and by streaming or synchronous mode. |
+| [![Full overview with synthetic request and spend totals](../images/demo-page-overview.png)](../images/demo-page-overview.png)<br>Requests, error rate, tokens, known spend, and recent requests. | [![Full status page with readiness checks and a local alert](../images/demo-page-status.png)](../images/demo-page-status.png)<br>Readiness, runtime diagnostics, and a recent-error alert. |
 
-| Usage and limits | Request history |
+| Request detail | Failed request detail |
 | --- | --- |
-| [![Full usage page with synthetic charts, limits, and prices](../images/demo-page-usage.png)](../images/demo-page-usage.png)<br>Daily accounting, limits, and versioned prices explain the example cost. | [![Full request history with synthetic gateway traffic](../images/demo-page-requests.png)](../images/demo-page-requests.png)<br>Each request shows its duration, response mode, and time to first byte. |
+| [![Full request detail with attempts, timing, and token accounting](../images/demo-page-request-detail.png)](../images/demo-page-request-detail.png)<br>Attempts, token use, timing, and the example cost. | [![Full failed request detail with its failed attempt](../images/demo-page-failed-request.png)](../images/demo-page-failed-request.png)<br>The failed attempt and its cost provenance, without the prompt. |
 
-| Request detail | Failed requests |
+| Failed requests | Account |
 | --- | --- |
-| [![Full request detail with attempts, timing, and token accounting](../images/demo-page-request-detail.png)](../images/demo-page-request-detail.png)<br>Attempts, token use, timing, and the example cost. | [![Full request history filtered to failed requests](../images/demo-page-request-errors.png)](../images/demo-page-request-errors.png)<br>The same history filtered to final failures. |
+| [![Full request history filtered to failed requests](../images/demo-page-request-errors.png)](../images/demo-page-request-errors.png)<br>Request history filtered to final failures. | [![Full account page with profile and sessions](../images/demo-page-account.png)](../images/demo-page-account.png)<br>The signed-in owner's profile and sessions. |
 
-| Failed request detail |
-| --- |
-| [![Full failed request detail with its failed attempt](../images/demo-page-failed-request.png)](../images/demo-page-failed-request.png)<br>A failed request keeps its attempt and cost provenance without capturing the prompt. |
+Long pages open at full size:
+
+- [Analytics](../images/demo-page-analytics.png) (9,787 px): daily trends and ranked charts by key, user, model, provider, operation, and response mode, including p95 duration and time to first byte.
+- [Usage and limits](../images/demo-page-usage.png) (7,174 px): daily accounting, limit policies, prices, and reconciliation.
+- [Request history](../images/demo-page-requests.png) (5,954 px): each request with duration, response mode, and time to first byte.
 
 ### Gateway setup
 
-| Providers | Models |
+| Providers | API keys |
 | --- | --- |
-| [![Full providers page with three mock connections](../images/demo-page-providers.png)](../images/demo-page-providers.png)<br>Each local connection shows its base URL and upstream models. | [![Full models page with published routes](../images/demo-page-models.png)](../images/demo-page-models.png)<br>Public model names route to mock upstream targets. |
+| [![Full providers page with three mock connections](../images/demo-page-providers.png)](../images/demo-page-providers.png)<br>Each local connection shows its base URL and upstream models. | [![Full API keys page with scoped example keys](../images/demo-page-keys.png)](../images/demo-page-keys.png)<br>Keys show their grants without exposing secret values. |
 
-The preset pages below are unsubmitted forms filled from the backend preset catalog. Selecting a preset does not create a connection or call the provider.
+The preset pages are unsubmitted forms filled from the backend preset catalog. Selecting a preset does not create a connection or call the provider.
 
 | OpenAI preset | Replicate preset |
 | --- | --- |
-| [![Full providers page with the OpenAI preset selected](../images/demo-page-providers-preset-openai.png)](../images/demo-page-providers-preset-openai.png)<br>The reviewed base URL and supported operations. | [![Full providers page with the Replicate preset selected](../images/demo-page-providers-preset-replicate.png)](../images/demo-page-providers-preset-replicate.png)<br>The prediction-lifecycle preset for Replicate models. |
+| [![Full providers page with the OpenAI preset selected](../images/demo-page-providers-preset-openai.png)](../images/demo-page-providers-preset-openai.png) | [![Full providers page with the Replicate preset selected](../images/demo-page-providers-preset-replicate.png)](../images/demo-page-providers-preset-replicate.png) |
 
-| API keys | Media jobs |
+| Playground | Media jobs |
 | --- | --- |
-| [![Full API keys page with scoped example keys](../images/demo-page-keys.png)](../images/demo-page-keys.png)<br>Keys show their grants without exposing secret values. | [![Full media jobs page with no submitted jobs](../images/demo-page-media-jobs.png)](../images/demo-page-media-jobs.png)<br>No media jobs are seeded; submitted jobs would appear here. |
+| [![Full playground page for trying a public model](../images/demo-page-playground.png)](../images/demo-page-playground.png) | [![Full media jobs page with no submitted jobs](../images/demo-page-media-jobs.png)](../images/demo-page-media-jobs.png)<br>No media jobs are seeded. |
 
-| Playground |
-| --- |
-| [![Full playground page for trying a public model](../images/demo-page-playground.png)](../images/demo-page-playground.png)<br>A request form for a published model. |
+The [Models and routing](../images/demo-page-models.png) page (2,778 px) shows public models, routing strategies, and targets.
 
 ### Operations and access
 
-| Users | Audit log |
+| Users | Settings and recovery |
 | --- | --- |
-| [![Full users page with disposable accounts](../images/demo-page-users.png)](../images/demo-page-users.png)<br>Three disposable accounts. | [![Full audit log](../images/demo-page-audit.png)](../images/demo-page-audit.png)<br>Audit records trace configuration changes. |
+| [![Full users page with disposable accounts](../images/demo-page-users.png)](../images/demo-page-users.png)<br>Three disposable accounts. | [![Full settings and recovery page](../images/demo-page-settings.png)](../images/demo-page-settings.png)<br>Backups are off because no archive encryption key is configured. |
 
-| Settings and recovery | Status |
-| --- | --- |
-| [![Full settings and recovery page](../images/demo-page-settings.png)](../images/demo-page-settings.png)<br>Backups are off because no archive encryption key is configured. | [![Full status page with readiness checks and a local alert](../images/demo-page-status.png)](../images/demo-page-status.png)<br>Readiness, runtime diagnostics, and a recent-error alert. |
-
-| Account |
-| --- |
-| [![Full account page with profile and sessions](../images/demo-page-account.png)](../images/demo-page-account.png)<br>The signed-in owner's profile and sessions. |
+The [Audit log](../images/demo-page-audit.png) page (3,896 px) traces configuration changes.
 
 ### Mobile
 
@@ -74,9 +68,9 @@ The same pages at 390 pixels wide.
 
 | Overview | Status |
 | --- | --- |
-| [![Full mobile overview](../images/demo-mobile-overview.png)](../images/demo-mobile-overview.png)<br>Metrics stack into a single column. | [![Full mobile status page](../images/demo-mobile-status.png)](../images/demo-mobile-status.png)<br>Checks and alerts on a small screen. |
+| [![Full mobile overview](../images/demo-mobile-overview.png)](../images/demo-mobile-overview.png) | [![Full mobile status page](../images/demo-mobile-status.png)](../images/demo-mobile-status.png) |
 
-The [mobile analytics page](../images/demo-mobile-analytics.png), [usage page](../images/demo-mobile-usage.png), and [request list](../images/demo-mobile-requests.png) are long, so open them at full size.
+Long mobile pages open at full size: [analytics](../images/demo-mobile-analytics.png) (17,698 px), [usage](../images/demo-mobile-usage.png) (10,560 px), and [request history](../images/demo-mobile-requests.png) (21,880 px).
 
 ## Isolation and cleanup
 

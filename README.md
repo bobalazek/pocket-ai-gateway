@@ -64,19 +64,19 @@ Application requests use a scoped gateway API key. Dashboard sign-in uses a sepa
 
 These screens use synthetic traffic in a disposable local instance. No real provider credential or paid AI request is involved; a deployed gateway shows its own data. Run `./scripts/demo.sh` to explore it, or browse the [full screenshot gallery](docs/guides/demo.md#screenshots).
 
-| Analytics | Failed requests |
+| Request detail | Failed request |
 | --- | --- |
-| [![Full analytics page with traffic, spend, latency, and response-mode charts](docs/images/demo-page-analytics.png)](docs/images/demo-page-analytics.png) | [![Full request history filtered to failed requests](docs/images/demo-page-request-errors.png)](docs/images/demo-page-request-errors.png) |
+| [![Full request detail with attempts, timing, and token accounting](docs/images/demo-page-request-detail.png)](docs/images/demo-page-request-detail.png) | [![Full failed request detail with its failed attempt](docs/images/demo-page-failed-request.png)](docs/images/demo-page-failed-request.png) |
 
-| Providers | Models and routing |
+| Providers | API keys |
 | --- | --- |
-| [![Full providers page with connection base URLs and upstream models](docs/images/demo-page-providers.png)](docs/images/demo-page-providers.png) | [![Full models page with public models, routing strategies, and targets](docs/images/demo-page-models.png)](docs/images/demo-page-models.png) |
+| [![Full providers page with connection base URLs and upstream models](docs/images/demo-page-providers.png)](docs/images/demo-page-providers.png) | [![Full API keys page with scoped example keys](docs/images/demo-page-keys.png)](docs/images/demo-page-keys.png) |
 
-| Usage | Status and alerts |
+| Status and alerts | Failed requests |
 | --- | --- |
-| [![Full usage page with totals, token chart, limits, and prices](docs/images/demo-page-usage.png)](docs/images/demo-page-usage.png) | [![Full status page with runtime checks and a local high-error alert](docs/images/demo-page-status.png)](docs/images/demo-page-status.png) |
+| [![Full status page with runtime checks and a local high-error alert](docs/images/demo-page-status.png)](docs/images/demo-page-status.png) | [![Full request history filtered to failed requests](docs/images/demo-page-request-errors.png)](docs/images/demo-page-request-errors.png) |
 
-The [OpenAI](docs/images/demo-page-providers-preset-openai.png) and [Replicate](docs/images/demo-page-providers-preset-replicate.png) preset pages show the base URL and supported operations each preset fills in; selecting a preset does not connect or call its provider.
+Longer pages open at full size: [Analytics](docs/images/demo-page-analytics.png) (traffic, spend, p95 duration, and time to first byte by key, model, provider, operation, and response mode), [Usage and limits](docs/images/demo-page-usage.png), [Request history](docs/images/demo-page-requests.png), [Models and routing](docs/images/demo-page-models.png), and [Audit log](docs/images/demo-page-audit.png). The [OpenAI](docs/images/demo-page-providers-preset-openai.png) and [Replicate](docs/images/demo-page-providers-preset-replicate.png) preset pages show the base URL and supported operations each preset fills in; selecting a preset does not connect or call its provider.
 
 ## Download a release
 
