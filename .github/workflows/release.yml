@@ -8,7 +8,7 @@ permissions: {}
 
 jobs:
   artifacts:
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-26.04
     # The full gate includes race tests; the gateway package alone takes over 10 minutes.
     timeout-minutes: 90
     permissions:
@@ -31,7 +31,7 @@ jobs:
         with: { version: 10.30.3, run_install: false }
       - uses: actions/setup-node@v6
         with:
-          node-version: 22
+          node-version: 26
           cache: pnpm
           cache-dependency-path: web/pnpm-lock.yaml
       - run: ./scripts/verify.sh
@@ -66,7 +66,7 @@ jobs:
 
   image:
     needs: artifacts
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-26.04
     timeout-minutes: 45
     permissions:
       contents: read
@@ -101,7 +101,7 @@ jobs:
 
   publish:
     needs: [artifacts, image]
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-26.04
     timeout-minutes: 10
     permissions:
       contents: write
