@@ -12,7 +12,7 @@ The disposable instance contains three example users, three local mock provider 
 
 ## Screenshots
 
-These are full-page captures and focused close-ups of the embedded dashboard, with 1440-pixel desktop and 390-pixel mobile viewports. Every account, provider, key, request, and price shown comes from the disposable example instance. Prices are examples, not provider quotes.
+Every image is a complete page of the embedded dashboard: 1440 pixels wide on desktop and 390 on mobile. Each capture resizes the browser to the page's full height, so the sidebar and its account menu render as a user sees them. Every account, provider, key, request, and price comes from the disposable example instance. Prices are examples, not provider quotes.
 
 Select an image to open the full-resolution capture.
 
@@ -20,91 +20,63 @@ Select an image to open the full-resolution capture.
 
 | Overview | Analytics |
 | --- | --- |
-| [![Full desktop overview with synthetic request and spend totals](../images/demo-page-overview.png)](../images/demo-page-overview.png)<br>The home screen summarizes requests and known example spend. | [![Full desktop analytics page with per-key, model, and provider charts](../images/demo-page-analytics.png)](../images/demo-page-analytics.png)<br>Shared filters and ranked charts compare traffic, known spend, tokens, outcomes, and gateway duration. |
-
-### Analytics close-ups
-
-| Daily traffic and spend | API keys |
-| --- | --- |
-| [![Daily requests, tokens, cost, and cache charts](../images/demo-analytics-traffic.png)](../images/demo-analytics-traffic.png) | [![Requests, known spend, tokens, latency, and cache use by API key](../images/demo-analytics-api-keys.png)](../images/demo-analytics-api-keys.png) |
-
-| Users | Models |
-| --- | --- |
-| [![Requests and known spend by user](../images/demo-analytics-users.png)](../images/demo-analytics-users.png) | [![Requests, known spend, and gateway latency by model](../images/demo-analytics-models.png)](../images/demo-analytics-models.png) |
-
-| Providers | Protocols, operations, and outcomes |
-| --- | --- |
-| [![Provider request, cost, latency, and failed-attempt charts](../images/demo-analytics-providers.png)](../images/demo-analytics-providers.png) | [![Protocol, operation, and outcome charts](../images/demo-analytics-operations.png)](../images/demo-analytics-operations.png) |
-
-| Failed requests by day | Failed request history |
-| --- | --- |
-| [![Daily failed requests with a recent spike](../images/demo-analytics-failures.png)](../images/demo-analytics-failures.png) | [![Request history filtered to failures](../images/demo-preview-request-errors.png)](../images/demo-page-request-errors.png) |
+| [![Full overview with synthetic request and spend totals](../images/demo-page-overview.png)](../images/demo-page-overview.png)<br>Requests, error rate, tokens, known spend, and recent requests. | [![Full analytics page with traffic, key, user, model, provider, response-mode, and operation charts](../images/demo-page-analytics.png)](../images/demo-page-analytics.png)<br>Daily trends and ranked charts, including p95 duration and time to first byte by model and by streaming or synchronous mode. |
 
 | Usage and limits | Request history |
 | --- | --- |
-| [![Full desktop usage page with synthetic charts and cost data](../images/demo-page-usage.png)](../images/demo-page-usage.png)<br>Daily accounting, limits, and versioned prices explain the fixture's cost. | [![Full desktop request history with synthetic gateway traffic](../images/demo-page-requests.png)](../images/demo-page-requests.png)<br>The list shows traffic generated through the gateway and local mock provider. |
+| [![Full usage page with synthetic charts, limits, and prices](../images/demo-page-usage.png)](../images/demo-page-usage.png)<br>Daily accounting, limits, and versioned prices explain the example cost. | [![Full request history with synthetic gateway traffic](../images/demo-page-requests.png)](../images/demo-page-requests.png)<br>Each request shows its duration, response mode, and time to first byte. |
 
-| Request detail |
-| --- |
-| [![Full desktop request detail with attempts and token accounting](../images/demo-page-request-detail.png)](../images/demo-page-request-detail.png)<br>A request detail traces attempts, token use, and its example cost. |
+| Request detail | Failed requests |
+| --- | --- |
+| [![Full request detail with attempts, timing, and token accounting](../images/demo-page-request-detail.png)](../images/demo-page-request-detail.png)<br>Attempts, token use, timing, and the example cost. | [![Full request history filtered to failed requests](../images/demo-page-request-errors.png)](../images/demo-page-request-errors.png)<br>The same history filtered to final failures. |
 
 | Failed request detail |
 | --- |
-| [![Failed request detail with gateway accounting and a failed attempt](../images/demo-page-failed-request.png)](../images/demo-page-failed-request.png)<br>A failed request keeps its attempt and cost provenance without capturing the prompt. |
+| [![Full failed request detail with its failed attempt](../images/demo-page-failed-request.png)](../images/demo-page-failed-request.png)<br>A failed request keeps its attempt and cost provenance without capturing the prompt. |
 
 ### Gateway setup
 
 | Providers | Models |
 | --- | --- |
-| [![Full desktop providers page with three mock connections](../images/demo-page-providers.png)](../images/demo-page-providers.png)<br>Each local connection shows its base URL and upstream models. | [![Full desktop models page showing published routes](../images/demo-page-models.png)](../images/demo-page-models.png)<br>Public model names route to mock upstream targets. |
+| [![Full providers page with three mock connections](../images/demo-page-providers.png)](../images/demo-page-providers.png)<br>Each local connection shows its base URL and upstream models. | [![Full models page with published routes](../images/demo-page-models.png)](../images/demo-page-models.png)<br>Public model names route to mock upstream targets. |
 
-| Connection and base URL | Model route |
+The preset pages below are unsubmitted forms filled from the backend preset catalog. Selecting a preset does not create a connection or call the provider.
+
+| OpenAI preset | Replicate preset |
 | --- | --- |
-| [![One provider connection with its base URL and upstream model](../images/demo-providers-connection.png)](../images/demo-providers-connection.png) | [![A public model route with its upstream targets](../images/demo-models-route.png)](../images/demo-models-route.png) |
-
-### Provider presets
-
-These are unsubmitted forms populated by the backend preset catalog. Selecting a preset does not create a connection or call the provider.
-
-| OpenAI base URL | Replicate base URL |
-| --- | --- |
-| [![OpenAI preset form showing reviewed base URL and supported operations](../images/demo-providers-preset-openai.png)](../images/demo-providers-preset-openai.png) | [![Replicate preset form showing reviewed base URL and prediction operation](../images/demo-providers-preset-replicate.png)](../images/demo-providers-preset-replicate.png) |
+| [![Full providers page with the OpenAI preset selected](../images/demo-page-providers-preset-openai.png)](../images/demo-page-providers-preset-openai.png)<br>The reviewed base URL and supported operations. | [![Full providers page with the Replicate preset selected](../images/demo-page-providers-preset-replicate.png)](../images/demo-page-providers-preset-replicate.png)<br>The prediction-lifecycle preset for Replicate models. |
 
 | API keys | Media jobs |
 | --- | --- |
-| [![Full desktop API keys page with a scoped example key](../images/demo-page-keys.png)](../images/demo-page-keys.png)<br>The owner's example key shows its grants without exposing the secret value. | [![Full desktop media jobs page with no submitted jobs](../images/demo-page-media-jobs.png)](../images/demo-page-media-jobs.png)<br>No media jobs are seeded; submitted jobs would appear here. |
+| [![Full API keys page with scoped example keys](../images/demo-page-keys.png)](../images/demo-page-keys.png)<br>Keys show their grants without exposing secret values. | [![Full media jobs page with no submitted jobs](../images/demo-page-media-jobs.png)](../images/demo-page-media-jobs.png)<br>No media jobs are seeded; submitted jobs would appear here. |
 
 | Playground |
 | --- |
-| [![Full desktop playground page for trying a public model](../images/demo-page-playground.png)](../images/demo-page-playground.png)<br>The playground provides a request form for a published model. |
+| [![Full playground page for trying a public model](../images/demo-page-playground.png)](../images/demo-page-playground.png)<br>A request form for a published model. |
 
 ### Operations and access
 
 | Users | Audit log |
 | --- | --- |
-| [![Full desktop users page with disposable accounts](../images/demo-page-users.png)](../images/demo-page-users.png)<br>The users view contains three disposable accounts. | [![Full desktop audit log](../images/demo-page-audit.png)](../images/demo-page-audit.png)<br>Audit records trace configuration changes. |
+| [![Full users page with disposable accounts](../images/demo-page-users.png)](../images/demo-page-users.png)<br>Three disposable accounts. | [![Full audit log](../images/demo-page-audit.png)](../images/demo-page-audit.png)<br>Audit records trace configuration changes. |
 
 | Settings and recovery | Status |
 | --- | --- |
-| [![Full desktop settings and recovery page](../images/demo-page-settings.png)](../images/demo-page-settings.png)<br>Backup is disabled in this instance because no archive encryption key is configured; recovery controls remain visible. | [![Full desktop status page with instance health](../images/demo-page-status.png)](../images/demo-page-status.png)<br>Status combines readiness, runtime diagnostics, and a recent-error alert. |
-
-| Local alert | Account menu |
-| --- | --- |
-| [![Local high-error alert on the status page](../images/demo-status-alerts.png)](../images/demo-status-alerts.png) | [![Account menu anchored to the bottom of a short desktop viewport](../images/demo-desktop-account-menu.png)](../images/demo-desktop-account-menu.png) |
+| [![Full settings and recovery page](../images/demo-page-settings.png)](../images/demo-page-settings.png)<br>Backups are off because no archive encryption key is configured. | [![Full status page with readiness checks and a local alert](../images/demo-page-status.png)](../images/demo-page-status.png)<br>Readiness, runtime diagnostics, and a recent-error alert. |
 
 | Account |
 | --- |
-| [![Full desktop account page with profile and sessions](../images/demo-page-account.png)](../images/demo-page-account.png)<br>The account page lets the signed-in owner manage their profile and sessions. |
+| [![Full account page with profile and sessions](../images/demo-page-account.png)](../images/demo-page-account.png)<br>The signed-in owner's profile and sessions. |
 
 ### Mobile
 
-The same demo at 390 pixels wide, with complete pages rather than cropped viewports.
+The same pages at 390 pixels wide.
 
 | Overview | Status |
 | --- | --- |
-| [![Full mobile overview page](../images/demo-mobile-overview.png)](../images/demo-mobile-overview.png) | [![Full mobile status page](../images/demo-mobile-status.png)](../images/demo-mobile-status.png) |
+| [![Full mobile overview](../images/demo-mobile-overview.png)](../images/demo-mobile-overview.png)<br>Metrics stack into a single column. | [![Full mobile status page](../images/demo-mobile-status.png)](../images/demo-mobile-status.png)<br>Checks and alerts on a small screen. |
 
-The [full mobile analytics page](../images/demo-mobile-analytics.png), [usage page](../images/demo-mobile-usage.png), and [request list](../images/demo-mobile-requests.png) are long, so open them at full size.
+The [mobile analytics page](../images/demo-mobile-analytics.png), [usage page](../images/demo-mobile-usage.png), and [request list](../images/demo-mobile-requests.png) are long, so open them at full size.
 
 ## Isolation and cleanup
 
@@ -120,6 +92,6 @@ go test ./scripts/demo -count=1
 
 The test checks loopback-only seeded endpoints, sign-in, successful and failed requests across three client protocols, the recent alert window, token/cost totals, seven daily buckets, projected history, temporary-directory cleanup, and that an existing operator directory stays untouched.
 
-All 39 captures were regenerated and verified September 24, 2026, including 22 full pages, preset examples, analytics and status close-ups, and a 700-pixel-tall desktop account-menu check. Before capturing, the browser verifies the expected synthetic counts and loopback-only mock connections. It also checks populated pages, errors, the local alert, a key-filtered request link after Refresh, headings, PNG dimensions, and no horizontal overflow at 1440- and 390-pixel widths. The instance has no external provider credentials or media jobs; its backup warning reflects the absence of a backup key.
+All 24 full-page captures were regenerated from scratch on September 25, 2026: 19 desktop and 5 mobile. The capture also checks that the desktop account menu stays anchored in a 700-pixel-tall viewport. Before capturing, the browser verifies the expected synthetic counts and loopback-only mock connections. It also checks populated pages, errors, the local alert, a key-filtered request link after Refresh, headings, PNG dimensions, and no horizontal overflow at 1440- and 390-pixel widths. The instance has no external provider credentials or media jobs; its backup warning reflects the absence of a backup key.
 
 To reproduce the gallery, start `./scripts/demo.sh`, then run `PAG_DEMO_PASSWORD=<printed temporary password> node scripts/capture-demo-screenshots.mjs`. The [capture manifest](../images/demo-screenshots.json) records each image's capture dimensions and viewport where applicable.

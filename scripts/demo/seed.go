@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net"
 	"net/http"
 	"net/http/httptest"
@@ -181,7 +182,8 @@ func (d *demo) seedRequests(ctx context.Context, secrets []string) error {
 			switch (index + day) % 3 {
 			case 0:
 				path = "/api/openai/v1/chat/completions"
-				body = fmt.Sprintf(`{"model":%q,"messages":[{"role":"user","content":%q}],"max_tokens":4096}`, model, prompt)
+				// Every other OpenAI request streams, so the example shows both response modes.
+				body = fmt.Sprintf(`{"model":%q,"messages":[{"role":"user","content":%q}],"max_tokens":4096,"stream":%t}`, model, prompt, index%2 == 0)
 				authHeader, authValue = "Authorization", "Bearer "+secret
 			case 1:
 				path = "/api/anthropic/v1/messages"
@@ -223,12 +225,15 @@ func (d *demo) backdate(ctx context.Context, requestID string, offset int64) err
 		return err
 	}
 	defer tx.Rollback()
-	for _, query := range []string{
-		"UPDATE requests SET started_at=started_at-?,finished_at=finished_at-? WHERE id=?",
-		"UPDATE attempts SET started_at=started_at-?,finished_at=finished_at-? WHERE request_id=?",
-		"UPDATE event_outbox SET created_at=created_at-?,payload_json=json_set(payload_json,'$.started_at',json_extract(payload_json,'$.started_at')-?) WHERE request_id=?",
+	for _, statement := range []struct {
+		query string
+		args  []any
+	}{
+		{"UPDATE requests SET started_at=started_at-?,finished_at=finished_at-? WHERE id=?", []any{offset, offset, requestID}},
+		{"UPDATE attempts SET started_at=started_at-?,finished_at=finished_at-?,first_byte_at=first_byte_at-? WHERE request_id=?", []any{offset, offset, offset, requestID}},
+		{"UPDATE event_outbox SET created_at=created_at-?,payload_json=json_set(payload_json,'$.started_at',json_extract(payload_json,'$.started_at')-?) WHERE request_id=?", []any{offset, offset, requestID}},
 	} {
-		if _, err := tx.ExecContext(ctx, query, offset, offset, requestID); err != nil {
+		if _, err := tx.ExecContext(ctx, statement.query, statement.args...); err != nil {
 			return err
 		}
 	}
@@ -243,6 +248,7 @@ func mockProvider(response http.ResponseWriter, request *http.Request) {
 	var input struct {
 		Model    string          `json:"model"`
 		Messages json.RawMessage `json:"messages"`
+		Stream   bool            `json:"stream"`
 	}
 	if err := json.NewDecoder(http.MaxBytesReader(response, request.Body, 1<<20)).Decode(&input); err != nil {
 		http.Error(response, "Invalid demo request", http.StatusBadRequest)
@@ -258,10 +264,32 @@ func mockProvider(response http.ResponseWriter, request *http.Request) {
 	}
 	inputTokens := map[string]int{"fast-chat": 1200, "balanced-chat": 3600, "reasoning-chat": 6400}[input.Model]
 	outputTokens := inputTokens / 3
+	usage := map[string]any{"prompt_tokens": inputTokens, "completion_tokens": outputTokens, "total_tokens": inputTokens + outputTokens, "prompt_tokens_details": map[string]int{"cached_tokens": inputTokens / 4}}
+	if input.Stream {
+		flusher, _ := response.(http.Flusher)
+		response.Header().Set("Content-Type", "text/event-stream")
+		for index, chunk := range []map[string]any{
+			{"choices": []any{map[string]any{"index": 0, "delta": map[string]string{"role": "assistant", "content": "This is a synthetic"}}}},
+			{"choices": []any{map[string]any{"index": 0, "delta": map[string]string{"content": " streamed demo response."}, "finish_reason": "stop"}}},
+			{"choices": []any{}, "usage": usage},
+		} {
+			if index > 0 {
+				time.Sleep(40 * time.Millisecond)
+			}
+			chunk["id"], chunk["object"], chunk["model"] = "chatcmpl_demo", "chat.completion.chunk", input.Model
+			encoded, _ := json.Marshal(chunk)
+			_, _ = fmt.Fprintf(response, "data: %s\n\n", encoded)
+			if flusher != nil {
+				flusher.Flush()
+			}
+		}
+		_, _ = io.WriteString(response, "data: [DONE]\n\n")
+		return
+	}
 	response.Header().Set("Content-Type", "application/json")
 	_ = json.NewEncoder(response).Encode(map[string]any{
 		"id": "chatcmpl_demo", "object": "chat.completion", "model": input.Model,
 		"choices": []any{map[string]any{"index": 0, "message": map[string]string{"role": "assistant", "content": "This is a synthetic demo response from the local mock provider."}, "finish_reason": "stop"}},
-		"usage":   map[string]any{"prompt_tokens": inputTokens, "completion_tokens": outputTokens, "total_tokens": inputTokens + outputTokens, "prompt_tokens_details": map[string]int{"cached_tokens": inputTokens / 4}},
+		"usage":   usage,
 	})
 }

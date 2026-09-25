@@ -9,7 +9,7 @@ import { resolve, join } from "node:path";
 
 const pages = [
   { name: "overview", path: "/_/", heading: "Overview", ready: "document.querySelectorAll('.activity-list li').length > 0 && document.querySelector('.overview-metrics strong')?.textContent !== '…'" },
-  { name: "analytics", path: "/_/analytics/", heading: "Analytics", ready: "document.querySelectorAll('.analytics-section').length === 8 && document.querySelectorAll('#keys .analytics-rank-chart svg').length >= 2 && document.querySelectorAll('#users .analytics-rank-chart svg').length >= 2 && document.querySelectorAll('#models .analytics-rank-chart svg').length >= 2 && document.querySelectorAll('#providers .analytics-rank-chart svg').length >= 2 && document.querySelectorAll('#operations .analytics-rank-chart svg').length >= 3" },
+  { name: "analytics", path: "/_/analytics/", heading: "Analytics", ready: "document.querySelectorAll('.analytics-section').length === 9 && document.querySelectorAll('#response-modes .analytics-rank-chart svg').length >= 1 && document.querySelectorAll('#keys .analytics-rank-chart svg').length >= 2 && document.querySelectorAll('#users .analytics-rank-chart svg').length >= 2 && document.querySelectorAll('#models .analytics-rank-chart svg').length >= 2 && document.querySelectorAll('#providers .analytics-rank-chart svg').length >= 2 && document.querySelectorAll('#operations .analytics-rank-chart svg').length >= 3" },
   { name: "usage", path: "/_/usage/", heading: "Usage and limits", ready: "document.querySelectorAll('.usage-chart-grid svg').length >= 2" },
   { name: "requests", path: "/_/requests/", heading: "Requests", ready: "document.querySelectorAll('.request-table tbody tr').length > 0" },
   { name: "request-errors", path: "/_/requests/?state=failed", heading: "Requests", ready: "document.querySelectorAll('.request-table tbody tr').length > 0 && [...document.querySelectorAll('.request-state')].every((item) => item.dataset.state === 'failed')" },
@@ -25,7 +25,6 @@ const pages = [
   { name: "media-jobs", path: "/_/media-jobs/", heading: "Media jobs", ready: "document.querySelector('main .resource-list')?.textContent.includes('No media jobs') || document.querySelectorAll('main .resource-list > .panel').length > 0" },
 ];
 const mobileNames = new Set(["overview", "analytics", "usage", "requests", "status"]);
-const previewNames = new Set(["analytics", "usage", "request-errors", "status"]);
 
 function options(args) {
   if (args.includes("--help")) {
@@ -106,7 +105,11 @@ async function capture({ baseURL, outputDir }) {
       if (result.exceptionDetails) throw new Error(result.exceptionDetails.text);
       return result.result.value;
     };
-    const setViewport = async (width, height, mobile) => send("Emulation.setDeviceMetricsOverride", { width, height, deviceScaleFactor: 1, mobile });
+    let viewport = { width: 0, height: 0, mobile: false };
+    const setViewport = async (width, height, mobile) => {
+      viewport = { width, height, mobile };
+      return send("Emulation.setDeviceMetricsOverride", { width, height, deviceScaleFactor: 1, mobile });
+    };
     const navigate = async (path, heading, ready) => {
       const result = await send("Page.navigate", { url: baseURL + path });
       if (result.errorText) throw new Error(`${path}: ${result.errorText}`);
@@ -129,12 +132,20 @@ async function capture({ baseURL, outputDir }) {
       if (overflow) throw new Error(`${path}: page has horizontal overflow at ${width}px`);
     };
     const screenshot = async (filename, width, page) => {
-      const height = await evaluate("Math.ceil(Math.max(document.documentElement.scrollHeight, document.body.scrollHeight))");
+      const documentHeight = "Math.ceil(Math.max(document.documentElement.scrollHeight, document.body.scrollHeight))";
+      let height = await evaluate(documentHeight);
       if (height > 30000) throw new Error(`${filename}: page is ${height}px tall; capture it in smaller sections`);
+      // Grow the viewport to the page so viewport-height layout (the sticky sidebar and its
+      // bottom-anchored account menu) matches what a user sees, instead of stopping at the fold.
+      const restore = viewport;
+      await setViewport(width, height, restore.mobile);
+      await sleep(250);
+      height = await evaluate(documentHeight);
       const result = await send("Page.captureScreenshot", {
         format: "png", captureBeyondViewport: true, fromSurface: true,
         clip: { x: 0, y: 0, width, height, scale: 1 },
       });
+      await setViewport(restore.width, restore.height, restore.mobile);
       const png = Buffer.from(result.data, "base64");
       if (png.subarray(0, 8).toString("hex") !== "89504e470d0a1a0a" || png.readUInt32BE(16) !== width || png.readUInt32BE(20) !== height) {
         throw new Error(`${filename}: Chrome returned an incomplete PNG`);
@@ -143,26 +154,6 @@ async function capture({ baseURL, outputDir }) {
       manifest.push({ file: filename, page, viewport_width: width, full_page_height: height, bytes: png.length });
       console.log(`${filename} (${width} × ${height})`);
     };
-    const screenshotViewport = async (filename, width, height, page) => {
-      const result = await send("Page.captureScreenshot", { format: "png", fromSurface: true, clip: { x: 0, y: 0, width, height, scale: 1 } });
-      const png = Buffer.from(result.data, "base64");
-      if (png.subarray(0, 8).toString("hex") !== "89504e470d0a1a0a" || png.readUInt32BE(16) !== width || png.readUInt32BE(20) !== height) throw new Error(`${filename}: Chrome returned an incomplete PNG`);
-      await writeFile(join(outputDir, filename), png);
-      manifest.push({ file: filename, page, viewport_width: width, viewport_height: height, bytes: png.length });
-      console.log(`${filename} (${width} × ${height})`);
-    };
-    const screenshotSection = async (name, selector, page = "analytics") => {
-      const bounds = await evaluate(`(() => { const rect = document.querySelector(${JSON.stringify(selector)})?.getBoundingClientRect(); return rect && { x: Math.floor(rect.left + scrollX), y: Math.floor(rect.top + scrollY), width: Math.ceil(rect.width), height: Math.ceil(rect.height) }; })()`);
-      if (!bounds || bounds.width < 200 || bounds.height < 100 || bounds.height > 5000) throw new Error(`Invalid analytics section: ${selector}`);
-      const result = await send("Page.captureScreenshot", { format: "png", captureBeyondViewport: true, fromSurface: true, clip: { ...bounds, scale: 1 } });
-      const png = Buffer.from(result.data, "base64");
-      if (png.subarray(0, 8).toString("hex") !== "89504e470d0a1a0a" || png.readUInt32BE(16) !== bounds.width || png.readUInt32BE(20) !== bounds.height) throw new Error(`Incomplete analytics section: ${name}`);
-      const filename = `demo-${page}-${name}.png`;
-      await writeFile(join(outputDir, filename), png);
-      manifest.push({ file: filename, page, section: name, capture_width: bounds.width, capture_height: bounds.height, bytes: png.length });
-      console.log(`${filename} (${bounds.width} × ${bounds.height})`);
-    };
-
     await send("Page.enable");
     await send("Runtime.enable");
     await setViewport(1440, 900, false);
@@ -186,10 +177,7 @@ async function capture({ baseURL, outputDir }) {
         await sleep(200);
       }
       await screenshot(`demo-page-${page.name}.png`, 1440, page.name);
-      if (previewNames.has(page.name)) await screenshotViewport(`demo-preview-${page.name}.png`, 1440, 900, page.name);
       if (page.name === "analytics") {
-        for (const [name, selector] of [["traffic", "#traffic"], ["api-keys", "#keys"], ["users", "#users"], ["models", "#models"], ["providers", "#providers"], ["operations", "#operations"]]) await screenshotSection(name, selector);
-        await screenshotSection("failures", "#traffic .analytics-chart-card:nth-child(2)");
         const drillDown = await evaluate(`(async () => {
           const details = document.querySelector('#keys .analytics-table-disclosure');
           details.open = true;
@@ -235,16 +223,13 @@ async function capture({ baseURL, outputDir }) {
         await navigate(detailPath.pathname + detailPath.search, "Requests", "document.querySelector('#request-detail-heading') && document.querySelector('[aria-label=\"Request detail\"] .facts')");
         await screenshot("demo-page-failed-request.png", 1440, "failed-request");
       }
-      if (page.name === "providers") await screenshotSection("connection", "main .resource-list > .panel:first-child", "providers");
       if (page.name === "providers") {
         for (const preset of ["openai", "replicate"]) {
           await evaluate(`(() => { const field = document.querySelector('#preset'); field.value = ${JSON.stringify(preset)}; field.dispatchEvent(new Event('change', { bubbles: true })); })()`);
           await waitFor(() => evaluate(`document.querySelector('#base_url')?.value === ${JSON.stringify(preset === "openai" ? "https://api.openai.com/v1" : "https://api.replicate.com/v1")}`), 2000, `${preset} preset base URL`);
-          await screenshotSection(`preset-${preset}`, "main > .panel", "providers");
+          await screenshot(`demo-page-providers-preset-${preset}.png`, 1440, `providers-preset-${preset}`);
         }
       }
-      if (page.name === "models") await screenshotSection("route", "main .resource-list > .panel:first-child", "models");
-      if (page.name === "status") await screenshotSection("alerts", ".status-alerts", "status");
     }
 
     await setViewport(1440, 700, false);
@@ -252,7 +237,6 @@ async function capture({ baseURL, outputDir }) {
     await evaluate("document.querySelector('.account-summary').click()");
     const accountPosition = await waitFor(() => evaluate("(() => { const menu = document.querySelector('.account-popover'); if (!menu) return null; const trigger = document.querySelector('.account-summary').getBoundingClientRect(); const bounds = menu.getBoundingClientRect(); return { triggerBottom: trigger.bottom, menuTop: bounds.top, menuBottom: bounds.bottom }; })()"), 2000, "desktop account menu");
     if (accountPosition.triggerBottom > 701 || accountPosition.triggerBottom < 650 || accountPosition.menuTop < 0 || accountPosition.menuBottom > 700) throw new Error("Desktop account menu is not anchored within a short viewport");
-    await screenshotViewport("demo-desktop-account-menu.png", 1440, 700, "account-menu");
 
     await setViewport(390, 844, true);
     for (const page of pages.filter((item) => mobileNames.has(item.name))) {

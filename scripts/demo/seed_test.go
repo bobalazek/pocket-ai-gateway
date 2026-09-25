@@ -55,6 +55,15 @@ func TestDemoSeedIsDisposableAndPopulatesUsage(t *testing.T) {
 	if succeeded != 112 || failed != 12 || recent != 31 || recentFailed != 6 || dialects != 3 || failedDialects != 3 || models != 3 || keyCount != 3 || connectionCount != 3 {
 		t.Fatalf("requests: succeeded=%d failed=%d recent=%d recent_failed=%d dialects=%d failed_dialects=%d models=%d keys=%d connections=%d", succeeded, failed, recent, recentFailed, dialects, failedDialects, models, keyCount, connectionCount)
 	}
+	var streaming, synchronous, timed, outsideRequest int
+	if err := demo.store.SystemDB().QueryRowContext(ctx, `SELECT COUNT(*) FILTER (WHERE r.streaming=1),COUNT(*) FILTER (WHERE r.streaming=0),COUNT(a.first_byte_at),
+		COUNT(*) FILTER (WHERE a.first_byte_at IS NOT NULL AND (a.first_byte_at < r.started_at OR a.first_byte_at > r.finished_at))
+		FROM requests r JOIN attempts a ON a.request_id=r.id`).Scan(&streaming, &synchronous, &timed, &outsideRequest); err != nil {
+		t.Fatal(err)
+	}
+	if streaming == 0 || synchronous == 0 || timed == 0 || outsideRequest != 0 {
+		t.Fatalf("timing: streaming=%d synchronous=%d with_first_byte=%d first_byte_outside_request=%d", streaming, synchronous, timed, outsideRequest)
+	}
 	var projected int
 	if err := demo.store.DataDB().QueryRowContext(ctx, "SELECT SUM(requests) FROM usage_daily").Scan(&projected); err != nil || projected != 124 {
 		t.Fatalf("projected requests: %d, %v", projected, err)
