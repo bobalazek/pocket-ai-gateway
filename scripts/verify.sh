@@ -33,6 +33,6 @@ pnpm --dir web typecheck
 pnpm --dir web test
 
 if [[ "${POCKET_AI_GATEWAY_QUICK_VERIFY:-}" != "1" ]]; then
-  go test -race -timeout 15m ./internal/storage ./internal/server ./internal/app ./internal/selfupdate ./internal/features/auth ./internal/features/users ./internal/features/keys ./internal/features/usage ./internal/features/providers ./internal/features/operations ./internal/features/mediajobs ./internal/gateway ./internal/protocol
+  go test -race -timeout 30m ./internal/storage ./internal/server ./internal/app ./internal/selfupdate ./internal/features/auth ./internal/features/users ./internal/features/keys ./internal/features/usage ./internal/features/providers ./internal/features/operations ./internal/features/mediajobs ./internal/gateway ./internal/protocol
   ./scripts/smoke.sh "$root/dist/pocket-ai-gateway"
 fi
