@@ -145,7 +145,7 @@ func (handler *Handler) realtime(response http.ResponseWriter, request *http.Req
 			Operation: "realtime", TargetOperation: "realtime", Scope: "realtime:connect", Dialect: "openai", TargetDialect: target.Adapter,
 			SelectionReason: plan.SelectionReason, RejectedCandidatesJSON: string(rejected), RequiredPriceVersionID: quotedPriceVersionID,
 			PriceQuoteAt: quoteAt, QuotedPriceVersionID: &quotedPriceVersionID, RequireFreePrice: plan.FreeOnly,
-			BatchItems: 1, EnforceInputBound: true, EnforceOutputBound: true,
+			BatchItems: 1, EnforceInputBound: true, EnforceOutputBound: true, Streaming: true,
 		})
 		if admitErr != nil {
 			if requestID != "" {
@@ -224,7 +224,7 @@ func (handler *Handler) serveRealtime(response http.ResponseWriter, request *htt
 					usageStatus, inputTokens, outputTokens = "provider_reported", &capture.input, &capture.output
 				}
 			}
-			_ = handler.settle(admission.AttemptID, usage.SettlementInput{IdempotencyKey: "dispatch:" + admission.AttemptID, State: state, UsageStatus: usageStatus, InputTokens: inputTokens, OutputTokens: outputTokens, FinalRequest: true})
+			_ = handler.settle(admission.AttemptID, usage.SettlementInput{IdempotencyKey: "dispatch:" + admission.AttemptID, State: state, UsageStatus: usageStatus, InputTokens: inputTokens, OutputTokens: outputTokens, FinalRequest: true, FirstByteAt: unixMilliOrNil(capture.firstByte)})
 			firstByte := time.Duration(0)
 			if !capture.firstByte.IsZero() {
 				firstByte = capture.firstByte.Sub(started)

@@ -91,8 +91,13 @@ func TestSystemOneDecisionsForwardNativelyWithAccounting(t *testing.T) {
 	if seenPath != "/v1/systemone" || seenAuth != "Bearer provider-secret" || string(seenBody["model"]) != `"jev-latest"` {
 		t.Fatalf("upstream path=%s auth=%q model=%s", seenPath, seenAuth, seenBody["model"])
 	}
-	if state, status, input, output := attempt(response.Header.Get(pocketAIRequestIDHeader)); state != "succeeded" || status != "provider_reported" || input != 296 || output != 20 {
+	requestID := response.Header.Get(pocketAIRequestIDHeader)
+	if state, status, input, output := attempt(requestID); state != "succeeded" || status != "provider_reported" || input != 296 || output != 20 {
 		t.Fatalf("accounting = %s %s %d/%d", state, status, input, output)
+	}
+	var streaming, firstByte int64
+	if err := store.SystemDB().QueryRowContext(ctx, "SELECT r.streaming,COALESCE(a.first_byte_at,0) FROM requests r JOIN attempts a ON a.request_id=r.id WHERE r.id=?", requestID).Scan(&streaming, &firstByte); err != nil || streaming != 0 || firstByte == 0 {
+		t.Fatalf("decision timing streaming=%d first byte=%d, %v", streaming, firstByte, err)
 	}
 
 	response, body = call(http.MethodPost, "/api/systemone/v1/systemone", strings.Replace(strings.Replace(systemOneRequest, "%s", model.ID, 1), "Help!", "no usage", 1))
@@ -158,5 +163,26 @@ func TestSystemOneRequiresDecisionCapability(t *testing.T) {
 	response.Body.Close()
 	if response.StatusCode != http.StatusNotFound || !strings.Contains(string(body), `"detail"`) {
 		t.Fatalf("chat-only model = %d %s", response.StatusCode, body)
+	}
+}
+
+func TestSystemOneUpstreamErrorShapes(t *testing.T) {
+	for raw, want := range map[string][2]string{
+		`{"detail":{"error_type":"authentication_error","message":"bad key"}}`:          {"authentication_error", "bad key"},
+		`{"detail":"too many options"}`:                                                 {"validation_error", "too many options"},
+		`{"detail":[{"loc":["body","state"],"msg":"field required","type":"missing"}]}`: {"validation_error", "field required"},
+		`{"error_type":"rate_limit_error","message":"slow down"}`:                       {"rate_limit_error", "slow down"},
+		`{"error":{"code":422,"message":"score needs two levels"}}`:                     {"validation_error", "score needs two levels"},
+	} {
+		kind, message, ok := systemOneUpstreamError([]byte(raw), http.StatusUnprocessableEntity)
+		if want[0] == "rate_limit_error" {
+			kind, message, ok = systemOneUpstreamError([]byte(raw), http.StatusTooManyRequests)
+		}
+		if !ok || kind != want[0] || message != want[1] {
+			t.Fatalf("%s = %q %q %v", raw, kind, message, ok)
+		}
+	}
+	if _, _, ok := systemOneUpstreamError([]byte(`{"detail":null}`), http.StatusBadRequest); ok {
+		t.Fatal("empty detail accepted")
 	}
 }

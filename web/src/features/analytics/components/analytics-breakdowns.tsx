@@ -14,10 +14,10 @@ const filterKeys: Partial<Record<UsageBreakdownDimension, "user_id" | "key_id" |
 function RankingTable({ model, dimension, rows, hasMore }: { model: AnalyticsModel; dimension: UsageBreakdownDimension; rows: UsageBreakdownRow[]; hasMore: boolean }) {
   const filterKey = filterKeys[dimension];
   return <details className="analytics-table-disclosure">
-    <summary>Explore {dimension === "connection" ? "providers" : dimension === "key" ? "API keys" : dimension === "state" ? "outcomes" : `${dimension}s`} in a table</summary>
+    <summary>Explore {dimension === "connection" ? "providers" : dimension === "key" ? "API keys" : dimension === "state" ? "outcomes" : dimension === "mode" ? "response modes" : `${dimension}s`} in a table</summary>
     <div className="table-wrap" tabIndex={0} role="region" aria-label={`Usage breakdown by ${dimension}`}>
       <table className="analytics-table">
-        <thead><tr><th>{dimension === "connection" ? "Provider" : dimension === "key" ? "API key" : dimension === "user" ? "User" : dimension}</th><th>Requests</th><th>Failed requests</th><th>Error rate</th><th>Failed attempts</th><th>Tokens</th><th>Known spend</th><th>Gateway p95</th><th>Explore</th></tr></thead>
+        <thead><tr><th>{dimension === "connection" ? "Provider" : dimension === "key" ? "API key" : dimension === "user" ? "User" : dimension === "mode" ? "Response mode" : dimension}</th><th>Requests</th><th>Failed requests</th><th>Error rate</th><th>Failed attempts</th><th>Tokens</th><th>Known spend</th><th>Gateway p95</th><th>First byte p95</th><th>Explore</th></tr></thead>
         <tbody>{rows.map((row) => <tr key={row.id}>
           <td><strong>{row.label}</strong></td>
           <td>{row.requests.toLocaleString()}</td>
@@ -27,6 +27,7 @@ function RankingTable({ model, dimension, rows, hasMore }: { model: AnalyticsMod
           <td>{(row.input_tokens + row.output_tokens).toLocaleString()}</td>
           <td>${row.known_cost_usd}{row.unknown_attempts > 0 && <small className="analytics-unknown"> · {row.unknown_attempts} unpriced</small>}</td>
           <td>{row.p95_gateway_duration_ms !== null ? rankFormat(row.p95_gateway_duration_ms, "p95") : "—"}</td>
+          <td>{row.p95_first_byte_ms !== null ? rankFormat(row.p95_first_byte_ms, "first_byte") : "—"}</td>
           <td><div className="analytics-row-actions">
             {filterKey && row.id && <button type="button" onClick={() => model.drillDown(filterKey, row.id)}>Filter charts</button>}
             {row.id && <Link href={analyticsRequestHref(model.filters, model.usage, dimension, row.id)}>Requests</Link>}

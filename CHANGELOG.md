@@ -12,6 +12,8 @@ All notable changes will be documented here. The project follows [Keep a Changel
 - S3 backups preserve object prefixes and reserved characters in object keys.
 - System One typed decisions at `/api/systemone/v1` with TypeSafe (Jev) and self-hosted Laya presets, the `decisions:generate` scope, and shared limits and accounting.
 - OpenAPI schemas for model lists and embeddings, a System One OpenAPI document, and a client skill for agents.
+- System One presets for Vercel AI Gateway (Jev), Codiv, and self-hosted Kev, CLM, and OpenJev, with error normalization for each server's format.
+- Request timing: every request records streaming or synchronous mode and time to first byte; request history shows duration and first byte per request and attempt, and analytics break down p95 duration and time to first byte by model, operation, and response mode.
 
 ### Fixed
 

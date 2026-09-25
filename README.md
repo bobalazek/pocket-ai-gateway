@@ -2,6 +2,9 @@
 
 A self-hosted gateway for OpenAI, Anthropic, Gemini, and System One decision clients. One Go process serves the API and admin dashboard, stores configuration and usage in local SQLite, and routes requests through model names you control.
 
+> [!WARNING]
+> **Alpha software.** Pocket AI Gateway is open source, provided under the [MIT license](LICENSE) without warranty, and still in alpha. It has automated tests but has not been proven under sustained production load, audited by a third party, or certified against live provider accounts. It can have bugs that affect routing, limits, or usage and cost accounting, so spend limits and rate limits are not a guarantee against provider charges. Test it with your own providers and low provider-side spending caps before relying on it, keep backups, and do not expose it to untrusted users yet.
+
 [![Full desktop dashboard showing synthetic requests and spend](docs/images/demo-page-overview.png)](docs/images/demo-page-overview.png)
 
 *The embedded dashboard with disposable example data. [Browse the desktop and mobile gallery](docs/guides/demo.md#screenshots).*
@@ -39,12 +42,12 @@ Use the model ID you published in place of `assistant`. The [setup guide](docs/g
 - **Separate client APIs.** OpenAI, Anthropic, and Gemini SDKs connect through their own URL namespaces. Supported operations have tested request, response, and streaming behavior.
 - **One model name, multiple targets.** Publish stable model IDs and route them with fixed, fallback, weighted, cost, or observed-latency strategies.
 - **Keys and limits.** Manage users and scoped API keys, then apply request, token, concurrency, quota, and spend policies by instance, user, key, or provider connection.
-- **Usage you can trace.** Compare traffic, errors, and known spend by API key, model, and provider; inspect attempts, cache usage, price versions, cost restatements, and audit events. Local status alerts flag sustained failures and backup or storage problems.
+- **Usage you can trace.** Compare traffic, errors, known spend, total duration, and time to first byte by API key, model, provider, operation, and streaming or synchronous mode; inspect attempts, cache usage, price versions, cost restatements, and audit events. Local status alerts flag sustained failures and backup or storage problems.
 - **Local operations.** Provider secrets are encrypted. The server includes backup and restore tools, local or S3-compatible scheduled backups, and no public telemetry.
-- **Typed decisions.** TypeSafe Jev and self-hosted Laya answer yes/no, choice, and score questions with calibrated probabilities through `/api/systemone`, with the same keys, limits, and accounting. See [System One decisions](docs/features/systemone-compatible.md).
+- **Typed decisions.** System One models such as TypeSafe Jev, Laya, Kev, and OpenJev answer yes/no, choice, and score questions with calibrated probabilities through `/api/systemone`, with the same keys, limits, and accounting. See [System One decisions](docs/features/systemone-compatible.md).
 - **More than text.** The tested subset includes image and audio operations, live WebSocket transports, durable media jobs, and trusted JavaScript transforms for custom adapters.
 
-Built-in presets include OpenAI, Anthropic, Gemini, OpenRouter, Z.AI, MiniMax, Ollama, Together, Replicate, TypeSafe, and Laya. Each preset fills its reviewed provider base URL; one connection can hold many upstream models. A preset does not imply that every model supports every operation. See [provider URLs and evidence](docs/project/provider-certification.md), the [Replicate model guide](docs/guides/adapters.md), and the [compatibility matrix](docs/project/compatibility.md).
+Built-in presets include OpenAI, Anthropic, Gemini, OpenRouter, Z.AI, MiniMax, Ollama, Together, and Replicate, plus System One decision models from TypeSafe (Jev), Vercel AI Gateway, Codiv, Laya, Kev, CLM, and OpenJev. Each preset fills its reviewed provider base URL; one connection can hold many upstream models. A preset does not imply that every model supports every operation. See [provider URLs and evidence](docs/project/provider-certification.md), the [Replicate model guide](docs/guides/adapters.md), and the [compatibility matrix](docs/project/compatibility.md).
 
 ## SDK base URLs
 
@@ -99,4 +102,4 @@ The [deployment guide](docs/guides/deployment.md) covers Docker, systemd, revers
 
 ## Project status
 
-Pocket AI Gateway is [MIT-licensed](LICENSE) and under active development. The implemented APIs cover documented, tested subsets of vendor contracts; live provider certification and release signing are pending. See the [release checklist](docs/project/release-checklist.md) for current status.
+Pocket AI Gateway is [MIT-licensed](LICENSE) alpha software under active development; see the warning at the top. The implemented APIs cover documented, tested subsets of vendor contracts, and live provider certification is pending. See the [release checklist](docs/project/release-checklist.md) for current status.

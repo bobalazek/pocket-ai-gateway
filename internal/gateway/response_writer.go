@@ -65,6 +65,16 @@ func (writer *attemptWriter) FirstByte(started time.Time) time.Duration {
 	}
 	return writer.firstWrite.Sub(started)
 }
+
+// unixMilliOrNil records an optional event time, such as the first response byte.
+func unixMilliOrNil(value time.Time) *int64 {
+	if value.IsZero() {
+		return nil
+	}
+	milliseconds := value.UnixMilli()
+	return &milliseconds
+}
+
 func (writer *attemptWriter) commitHeader() {
 	if writer.committed {
 		return

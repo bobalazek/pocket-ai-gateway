@@ -76,6 +76,7 @@ type UsageQuery struct {
 	Dialect      string
 	Operation    string
 	State        string
+	Mode         string
 	Cursor       string
 	RequestID    string
 }

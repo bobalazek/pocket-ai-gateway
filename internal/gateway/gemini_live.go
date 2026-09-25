@@ -118,7 +118,7 @@ func (handler *Handler) serveGeminiLiveClient(request *http.Request, client *web
 			Operation: "BidiGenerateContent", TargetOperation: "BidiGenerateContent", Scope: "realtime:connect", Dialect: "gemini", TargetDialect: target.Adapter,
 			SelectionReason: plan.SelectionReason, RejectedCandidatesJSON: string(rejected), RequiredPriceVersionID: quotedPriceVersionID,
 			PriceQuoteAt: quoteAt, QuotedPriceVersionID: &quotedPriceVersionID, RequireFreePrice: plan.FreeOnly,
-			BatchItems: 1, EnforceInputBound: true, EnforceOutputBound: true,
+			BatchItems: 1, EnforceInputBound: true, EnforceOutputBound: true, Streaming: true,
 		})
 		if admitErr != nil {
 			if requestID != "" {
@@ -197,7 +197,7 @@ func (handler *Handler) relayGeminiLiveSession(request *http.Request, client, up
 			usageStatus, inputTokens, outputTokens = "provider_reported", &capture.input, &capture.output
 		}
 	}
-	_ = handler.settle(admission.AttemptID, usage.SettlementInput{IdempotencyKey: "dispatch:" + admission.AttemptID, State: state, UsageStatus: usageStatus, InputTokens: inputTokens, OutputTokens: outputTokens, FinalRequest: true})
+	_ = handler.settle(admission.AttemptID, usage.SettlementInput{IdempotencyKey: "dispatch:" + admission.AttemptID, State: state, UsageStatus: usageStatus, InputTokens: inputTokens, OutputTokens: outputTokens, FinalRequest: true, FirstByteAt: unixMilliOrNil(capture.firstByte)})
 	firstByte := time.Duration(0)
 	if !capture.firstByte.IsZero() {
 		firstByte = capture.firstByte.Sub(started)

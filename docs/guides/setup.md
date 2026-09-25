@@ -1,6 +1,6 @@
 # Set up a gateway
 
-This guide takes a new instance from first start to a working API key. Every step is available in the dashboard at `/_/` and through the management API under `/api/v1` ([OpenAPI](../reference/openapi.yaml)). To install and run the server, see [deployment](deployment.md).
+This guide takes a new instance from first start to a working API key. Pocket AI Gateway is alpha software: test it with low provider-side spending caps before relying on its limits. Every step is available in the dashboard at `/_/` and through the management API under `/api/v1` ([OpenAPI](../reference/openapi.yaml)). To install and run the server, see [deployment](deployment.md).
 
 ## 1. Claim the owner account
 

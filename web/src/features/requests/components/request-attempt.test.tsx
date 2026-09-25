@@ -35,6 +35,9 @@ const attempt: RequestAttempt = {
   recorded_price: null,
   restated_price: null,
   started_at: "2026-09-15T12:00:00Z",
+  finished_at: "2026-09-15T12:00:01.25Z",
+  duration_ms: 1250,
+  first_byte_ms: 340,
 };
 
 describe("RequestAttemptDetails", () => {
@@ -44,6 +47,14 @@ describe("RequestAttemptDetails", () => {
     expect(html).toContain("$0.000031");
     expect(html).toContain("As recorded: $0.000026");
     expect(html).toContain("Restated: $0.00003");
+  });
+
+  it("shows attempt duration and time to first byte", () => {
+    const html = renderToStaticMarkup(<RequestAttemptDetails attempt={attempt} clientDialect="openai" />);
+    const pending = renderToStaticMarkup(<RequestAttemptDetails attempt={{ ...attempt, finished_at: null, duration_ms: null, first_byte_ms: null }} clientDialect="openai" />);
+
+    expect(html).toContain("Duration 1.25 s · first byte 340 ms");
+    expect(pending).toContain("Duration — · first byte —");
   });
 
   it("distinguishes unknown usage from known zero", () => {

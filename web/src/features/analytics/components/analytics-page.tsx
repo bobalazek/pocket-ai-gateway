@@ -81,6 +81,7 @@ export default function AnalyticsPage() {
         { title: "Requests by model", note: "Top public models by request count", metric: "requests", sort: "requests" },
         { title: "Known spend by model", note: "Top public models by priced spend · USD", metric: "spend", sort: "known_cost" },
         { title: "Gateway p95 by model", note: "End-to-end request duration; finished requests only", metric: "p95", sort: "p95_latency" },
+        { title: "Time to first byte by model", note: "p95 from request start to the first response byte", metric: "first_byte", sort: "p95_first_byte" },
         { title: "Failures by model", note: "Among the busiest models by request count", metric: "failures", sort: "requests" },
       ]} /></div>
       <div id="providers"><AnalyticsBreakdownSection model={model} dimension="connection" title="Providers" description="A request can touch more than one connection during fallback; provider rows may overlap." charts={[
@@ -89,9 +90,17 @@ export default function AnalyticsPage() {
         { title: "Gateway p95 by provider", note: "Whole-request duration, including routing and fallback", metric: "p95", sort: "p95_latency" },
         { title: "Failed attempts by provider", note: "Upstream failures among the busiest connections, including successful fallback requests", metric: "failed_attempts", sort: "requests" },
       ]} /></div>
+      <div id="response-modes"><AnalyticsBreakdownSection model={model} dimension="mode" title="Streaming and synchronous" description="Streaming covers server-sent events and Realtime or Live sessions; synchronous requests return one response." charts={[
+        { title: "Requests by response mode", note: "Distinct gateway requests", metric: "requests", sort: "requests" },
+        { title: "Gateway p95 by response mode", note: "End-to-end duration; a stream lasts until its last event", metric: "p95", sort: "p95_latency" },
+        { title: "Time to first byte by response mode", note: "p95 from request start to the first response byte", metric: "first_byte", sort: "p95_first_byte" },
+      ]} /></div>
       <div id="operations" className="analytics-operation-grid">
         <AnalyticsBreakdownSection model={model} dimension="dialect" title="Client protocols" description="Which client API families generated traffic." charts={[{ title: "Requests by protocol", note: "OpenAI, Anthropic, Gemini, and other recorded dialects", metric: "requests", sort: "requests" }]} />
-        <AnalyticsBreakdownSection model={model} dimension="operation" title="Operations" description="The gateway operations clients invoked." charts={[{ title: "Requests by operation", note: "Text, media, and other operation types", metric: "requests", sort: "requests" }]} />
+        <AnalyticsBreakdownSection model={model} dimension="operation" title="Operations" description="The gateway operations clients invoked." charts={[
+          { title: "Requests by operation", note: "Chat, embeddings, decisions, media, and other operations", metric: "requests", sort: "requests" },
+          { title: "Gateway p95 by operation", note: "End-to-end request duration; finished requests only", metric: "p95", sort: "p95_latency" },
+        ]} />
         <AnalyticsBreakdownSection model={model} dimension="state" title="Outcomes" description="Request states, including unsuccessful and interrupted work." charts={[{ title: "Requests by outcome", note: "Observed gateway request states", metric: "requests", sort: "requests" }]} />
       </div>
     </>}

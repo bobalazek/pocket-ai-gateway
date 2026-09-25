@@ -94,6 +94,7 @@ type Attempt struct {
 	WebSearchCallCount         sql.NullInt64  `json:"web_search_call_count"`
 	PriceQuotedAt              sql.NullInt64  `json:"price_quoted_at"`
 	WebFetchPresent            int64          `json:"web_fetch_present"`
+	FirstByteAt                sql.NullInt64  `json:"first_byte_at"`
 }
 
 type AuditEvent struct {
@@ -564,6 +565,7 @@ type Request struct {
 	StartedAt   int64         `json:"started_at"`
 	FinishedAt  sql.NullInt64 `json:"finished_at"`
 	RetainedAt  sql.NullInt64 `json:"retained_at"`
+	Streaming   int64         `json:"streaming"`
 }
 
 type Reservation struct {

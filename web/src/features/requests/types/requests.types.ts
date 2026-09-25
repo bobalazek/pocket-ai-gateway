@@ -7,6 +7,7 @@ export type RequestFilters = {
   dialect?: string;
   operation?: string;
   state?: string;
+  mode?: string;
   from?: string;
   to?: string;
   cursor?: string;
@@ -54,6 +55,9 @@ export type RequestAttempt = {
   recorded_price: RequestPriceProvenance | null;
   restated_price: RequestPriceProvenance | null;
   started_at: string;
+  finished_at: string | null;
+  duration_ms: number | null;
+  first_byte_ms: number | null;
 };
 
 export type GatewayRequest = {
@@ -66,5 +70,8 @@ export type GatewayRequest = {
   state: string;
   started_at: string;
   finished_at: string | null;
+  streaming: boolean;
+  duration_ms: number | null;
+  first_byte_ms: number | null;
   attempts: RequestAttempt[];
 };

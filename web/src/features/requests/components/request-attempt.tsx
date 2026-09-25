@@ -1,4 +1,5 @@
 import type { RequestAttempt, RequestPriceProvenance } from "@/features/requests/types/requests.types";
+import { formatDuration } from "@/features/requests/utils/requests.utils";
 
 function PriceProvenance({ label, price }: { label: string; price: RequestPriceProvenance }) {
   return (
@@ -29,6 +30,7 @@ export function RequestAttemptDetails({ attempt, clientDialect }: { attempt: Req
         <strong>Attempt {attempt.ordinal}</strong>
         <small>{attempt.connection_id} · {attempt.upstream_model_id} · {attempt.translation_applied ? `${clientDialect} → ${attempt.target_dialect}` : attempt.target_dialect} · {attempt.target_operation}</small>
         <small>{attempt.state} · {attempt.usage_status} · {tokenUsage} · {currentCost === null ? "Cost unavailable" : `$${currentCost}`} · {attempt.request_tool_count} tools offered · {attempt.response_tool_call_count === 0 ? "no tool calls" : `${attempt.response_tool_call_count} tool calls ${attempt.tool_call_status}`}</small>
+        <small>Duration {formatDuration(attempt.duration_ms)} · first byte {formatDuration(attempt.first_byte_ms)}</small>
         {attempt.estimated_cost_usd != null && <small>Admission estimate: ${attempt.estimated_cost_usd}</small>}
         {recordedCost != null && <small>As recorded: ${recordedCost}</small>}
         {attempt.restated_cost_usd != null && <small>Restated: ${attempt.restated_cost_usd}</small>}

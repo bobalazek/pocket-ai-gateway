@@ -26,6 +26,7 @@ type SettlementInput struct {
 	ResponseToolCallCount    int64
 	ToolCallStatus           string
 	FinalRequest             bool
+	FirstByteAt              *int64
 }
 
 type ReconciliationInput struct {
@@ -245,8 +246,8 @@ func (service *Service) Settle(ctx context.Context, attemptID string, input Sett
 			return err
 		}
 	}
-	_, err = tx.ExecContext(ctx, `UPDATE attempts SET state = ?, usage_status = ?, input_tokens = ?, output_tokens = ?, cache_creation_input_tokens = ?, cache_read_input_tokens = ?, cache_creation_5m_input_tokens = ?, cache_creation_1h_input_tokens = ?, as_recorded_cost_nanos = ?, restated_cost_nanos = ?, web_search_call_count = ?, response_tool_call_count = ?, tool_call_status = ?, finished_at = ? WHERE id = ?`,
-		input.State, input.UsageStatus, input.InputTokens, input.OutputTokens, input.CacheCreationInputTokens, input.CacheReadInputTokens, input.CacheCreation5mTokens, input.CacheCreation1hTokens, input.CostNanos, input.CostNanos, input.WebSearchCallCount, input.ResponseToolCallCount, input.ToolCallStatus, now, attemptID)
+	_, err = tx.ExecContext(ctx, `UPDATE attempts SET state = ?, usage_status = ?, input_tokens = ?, output_tokens = ?, cache_creation_input_tokens = ?, cache_read_input_tokens = ?, cache_creation_5m_input_tokens = ?, cache_creation_1h_input_tokens = ?, as_recorded_cost_nanos = ?, restated_cost_nanos = ?, web_search_call_count = ?, response_tool_call_count = ?, tool_call_status = ?, first_byte_at = COALESCE(?, first_byte_at), finished_at = ? WHERE id = ?`,
+		input.State, input.UsageStatus, input.InputTokens, input.OutputTokens, input.CacheCreationInputTokens, input.CacheReadInputTokens, input.CacheCreation5mTokens, input.CacheCreation1hTokens, input.CostNanos, input.CostNanos, input.WebSearchCallCount, input.ResponseToolCallCount, input.ToolCallStatus, input.FirstByteAt, now, attemptID)
 	if err != nil {
 		return err
 	}
