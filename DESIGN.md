@@ -17,7 +17,7 @@ At 900 pixels and below, collapse the sidebar into a compact header with a label
 
 ## Components
 
-Add reusable UI primitives under `web/src/components/ui` through the configured shadcn registry. Prefer semantic server components and add client JavaScript only for real interaction. Use cards for grouped state, tables for comparable records, dialogs for bounded edits, and full pages for multi-step setup.
+Add reusable UI primitives under `web/src/components/ui` through the configured shadcn registry. A single on/off setting uses the `Switch` component, a native checkbox with `role="switch"`; checkboxes remain for choosing several items from a list, and radios for choosing one. Selects use the shared `.select` style with its drawn chevron, and read-only inputs render muted. Prefer semantic server components and add client JavaScript only for real interaction. Use cards for grouped state, tables for comparable records, dialogs for bounded edits, and full pages for multi-step setup.
 
 All browser API calls go through `web/src/lib/api-client.ts` or a feature client built on it. Components do not call `fetch` directly. The client keeps same-origin credentials, CSRF, abort, error, and no-retry behavior consistent.
 

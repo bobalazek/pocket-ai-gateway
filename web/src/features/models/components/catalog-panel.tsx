@@ -3,6 +3,7 @@ import type { FormEvent } from "react";
 
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
+import { Switch } from "@/components/ui/switch";
 import { ModelField } from "@/features/models/components/model-fields";
 import type { useModels } from "@/features/models/hooks/use-models";
 import type { CatalogCandidate } from "@/features/models/types/models.types";
@@ -27,7 +28,7 @@ export function CatalogPanel({ model }: { model: ModelsModel }) {
       <p className="help-text">Refresh imports bounded metadata candidates only. Review a candidate below, then <Link href="/providers/">add its model to the matching provider</Link> and publish the stable public ID above. Local model and price entries remain authoritative.</p>
       <form onSubmit={submit}>
         <ModelField id="source_url" label="GitHub catalog JSON URL" type="url" defaultValue={state.source_url} />
-        <div className="inline-fields"><ModelField id="refresh_interval_hours" label="Refresh interval (hours)" type="number" defaultValue={String(state.refresh_interval_hours)} required /><label className="checkbox-row"><input name="refresh_enabled" type="checkbox" defaultChecked={state.refresh_enabled} /> Enable scheduled refresh</label></div>
+        <div className="inline-fields"><ModelField id="refresh_interval_hours" label="Refresh interval (hours)" type="number" defaultValue={String(state.refresh_interval_hours)} required /><Switch name="refresh_enabled" defaultChecked={state.refresh_enabled} label="Scheduled refresh" /></div>
         <div className="button-row"><Button disabled={model.busy}>Save catalog settings</Button><Button type="button" variant="outline" disabled={model.busy || !state.source_url} onClick={model.refreshCatalog}>Refresh now</Button></div>
       </form>
       <small>{model.catalog.length} loaded candidates · version {state.source_version || "not loaded"}{state.last_error ? ` · ${state.last_error}` : ""}</small>

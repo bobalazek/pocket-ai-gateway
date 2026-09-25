@@ -3,12 +3,14 @@ import type { FormEvent } from "react";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Label } from "@/components/ui/label";
+import { Switch } from "@/components/ui/switch";
 import { Field } from "@/features/providers/components/provider-form";
 import { ProviderAdapterScriptEditor } from "@/features/providers/components/provider-adapter-script";
 import type { ProviderAdapterScript, ProviderConnection, UpstreamModel } from "@/features/providers/types/providers.types";
 
 type Props = {
   item: ProviderConnection;
+  presetLabel: string;
   models: UpstreamModel[] | null | undefined;
   busy: boolean;
   onToggle: (item: ProviderConnection) => void;
@@ -20,13 +22,23 @@ type Props = {
   onRemoveScript: (item: ProviderConnection) => void;
 };
 
-export function ProviderCard({ item, models, busy, onToggle, onCredential, onAddModel, script, onLoadScript, onSaveScript, onRemoveScript }: Props) {
+const credentialLabels: Record<ProviderConnection["credential_state"], string> = { stored: "Credential stored", external: "External credential", missing: "No credential" };
+
+export function ProviderCard({ item, presetLabel, models, busy, onToggle, onCredential, onAddModel, script, onLoadScript, onSaveScript, onRemoveScript }: Props) {
   return (
     <Card className="panel">
       <div className="resource-row-main">
-        <div className="grid min-w-0 gap-1"><strong>{item.name}</strong><small>{item.preset} · {item.adapter_label} · credential {item.credential_state} · {item.enabled ? "enabled" : "disabled"}</small><span className="text-xs text-[var(--muted)]">Base URL</span><code>{item.base_url}</code></div>
-        <Button variant="outline" disabled={busy} onClick={() => onToggle(item)}>{item.enabled ? "Disable" : "Enable"}</Button>
+        <div className="min-w-0">
+          <h3 className="font-semibold">{item.name}</h3>
+          <div className="connection-meta">
+            <span>{presetLabel}</span>
+            <span>{item.adapter_label}</span>
+            {(item.credential_required || item.credential_state !== "missing") && <span data-state={item.credential_state}>{credentialLabels[item.credential_state]}</span>}
+          </div>
+        </div>
+        <Switch checked={item.enabled} disabled={busy} onChange={() => onToggle(item)} label={item.enabled ? "Enabled" : "Disabled"} aria-label={`${item.name} enabled`} />
       </div>
+      <dl className="connection-endpoint"><dt>Base URL</dt><dd><code>{item.base_url}</code></dd></dl>
       <div className="mt-5 border-t border-[var(--border)] pt-4">
         <h3 className="font-semibold">Upstream models{models ? ` · ${models.length}` : ""}</h3>
         {models === null ? <p className="help-text">Model list unavailable. Refresh the page to retry.</p> : models === undefined ? <p className="help-text">Loading models…</p> : models.length === 0 ? <p className="help-text">No upstream models yet. Add one below, then publish it on Models.</p> : (
