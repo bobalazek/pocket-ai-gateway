@@ -20,14 +20,14 @@
 ## Before making the source repository public
 
 - [x] At `5fd2a1c`, scan all 185 reachable commits, 2,394 blobs, 51 historical Actions runs (106 log files), and tracked demo images. No credentials were found and Actions retains no artifacts. Rescan changes after that commit before publication.
-- [ ] Confirm that the personal author email present in commit metadata may be public. Changing GitHub visibility exposes commit history and historical Actions logs.
-- [ ] Change visibility, then enable GitHub private vulnerability reporting immediately; `SECURITY.md` names that confidential route.
+- [x] The owner accepted public exposure of the commit-author email on 2026-09-25.
+- [x] The repository became public on 2026-09-25 with private vulnerability reporting enabled, as `SECURITY.md` describes.
 
 ## Before publishing a tag
 
 - [ ] Select the final committed candidate and rerun the local verification, Compose recovery, and Linux update gates on its release artifacts. The current working-tree verification does not attest a future tag.
 - [ ] Record the candidate's source revision, environment, and performance results in [benchmark](benchmark.md); address any unmet performance target before claiming it. Publish exact tagged-artifact hashes in the release's `SHA256SUMS` and signed manifest, then link that immutable evidence from [compatibility](compatibility.md) after publication.
-- [ ] Enable the confidential vulnerability-reporting route named in `SECURITY.md`.
+- [x] The confidential vulnerability-reporting route named in `SECURITY.md` is enabled.
 - [ ] Configure the external Ed25519 signing secret and distribute its public key; verify the final `release-manifest.json` and detached signature. Local test keys are not release trust keys.
 - [ ] Confirm repository publication/attestation permissions, then publish `SHA256SUMS`, the signed update manifest, SPDX SBOM, GitHub artifact attestation, release notes, and container provenance.
 - [ ] After the first GHCR image push, make its package public and verify an unauthenticated image pull before advertising the container. Publishing the source repository does not make a new container package public.
