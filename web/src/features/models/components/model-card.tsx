@@ -4,6 +4,7 @@ import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Switch } from "@/components/ui/switch";
 import type { useModels } from "@/features/models/hooks/use-models";
 import type { CatalogModel, PublicModel } from "@/features/models/types/models.types";
 
@@ -52,7 +53,7 @@ export function ModelCard({ item, dashboard }: { item: CatalogModel | PublicMode
           <div className="field"><Label htmlFor={`preview-operation-${model.id}`}>Operation</Label><Input id={`preview-operation-${model.id}`} name="operation" placeholder="Operation path" required /></div>
           <div className="field"><Label htmlFor={`preview-input-${model.id}`}>Input tokens</Label><Input id={`preview-input-${model.id}`} name="estimated_input_tokens" type="number" min="0" defaultValue="1000" required /></div>
           <div className="field"><Label htmlFor={`preview-output-${model.id}`}>Output tokens</Label><Input id={`preview-output-${model.id}`} name="estimated_output_tokens" type="number" min="0" defaultValue="500" required /></div>
-          <label className="checkbox-row"><input name="streaming" type="checkbox" /> Streaming</label>
+          <Switch name="streaming" label="Streaming" />
           <Button variant="outline" disabled={dashboard.busy}>Preview route</Button>
         </form>
       )}
@@ -62,13 +63,13 @@ export function ModelCard({ item, dashboard }: { item: CatalogModel | PublicMode
           <form onSubmit={updateRoute}>
             <div className="inline-fields">
               <div className="field"><Label htmlFor={`strategy-${model.id}`}>Strategy</Label><select id={`strategy-${model.id}`} name="strategy" className="select" value={strategy} onChange={(event) => dashboard.selectStrategy(model.id, event.target.value as typeof strategy)}>{model.routing_policy.strategies.map((option) => <option key={option.id} value={option.id}>{option.label}</option>)}</select></div>
-              {model.routing_policy.free_only_allowed && <label className="checkbox-row"><input name="free_only" type="checkbox" defaultChecked={model.free_only} /> {model.routing_policy.free_only_label}</label>}
+              {model.routing_policy.free_only_allowed && <Switch name="free_only" defaultChecked={model.free_only} label={model.routing_policy.free_only_label} />}
             </div>
             <div className="resource-list">
               {(dashboard.availableTargets[item.id] ?? []).map((target, index) => {
                 const current = configuredByID[target.id];
                 return <div className="route-target" key={`${target.id}:${strategy}`}>
-                  <label className="checkbox-row"><input name="target" value={target.id} type={maximumTargets === 1 ? "radio" : "checkbox"} defaultChecked={maximumTargets === 1 ? target.id === model.target_model_id : Boolean(current)} /> {target.upstream_id}</label>
+                  <label className="choice-row"><input name="target" value={target.id} type={maximumTargets === 1 ? "radio" : "checkbox"} defaultChecked={maximumTargets === 1 ? target.id === model.target_model_id : Boolean(current)} /> {target.upstream_id}</label>
                   <div className="field"><Label htmlFor={`priority-${model.id}-${target.id}`}>{model.routing_policy.priority_field.label}</Label><Input id={`priority-${model.id}-${target.id}`} aria-label={`${target.upstream_id} ${model.routing_policy.priority_field.label}`} name={`priority:${target.id}`} type="number" min={model.routing_policy.priority_field.min} max={model.routing_policy.priority_field.max} defaultValue={current?.priority ?? Math.min(model.routing_policy.priority_field.max, model.routing_policy.priority_field.default + index)} /></div>
                   <div className="field"><Label htmlFor={`weight-${model.id}-${target.id}`}>{model.routing_policy.weight_field.label}</Label><Input id={`weight-${model.id}-${target.id}`} aria-label={`${target.upstream_id} ${model.routing_policy.weight_field.label}`} name={`weight:${target.id}`} type="number" min={model.routing_policy.weight_field.min} max={model.routing_policy.weight_field.max} defaultValue={current?.weight ?? model.routing_policy.weight_field.default} /></div>
                 </div>;

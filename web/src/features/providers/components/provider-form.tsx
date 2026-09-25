@@ -4,6 +4,7 @@ import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Switch } from "@/components/ui/switch";
 import type { ProviderAdapter, ProviderConnection, ProviderPreset } from "@/features/providers/types/providers.types";
 
 type Props = {
@@ -33,11 +34,11 @@ export function ProviderForm({ presets, adapters, selected, selectedPreset, adap
             </select>
           </div>
         </div>
-        {selected && <p className="help-text">Supported: {selected.operations.join(", ")}{selected.authentication ? ` · ${selected.authentication}` : ""} · <a href={selected.documentation_url} target="_blank" rel="noreferrer">Documentation</a> · reviewed {selected.reviewed_at}</p>}
+        {selected && <p className="help-text">Supports {selected.capability_details.map((capability) => capability.label).join(", ")}{selected.authentication ? `. ${selected.authentication}` : ""}. <a href={selected.documentation_url} target="_blank" rel="noreferrer">Provider documentation</a> · reviewed {selected.reviewed_at}</p>}
         <div className="inline-fields">
           <div className="field">
-            <Label htmlFor="adapter">{selected ? "Provider interface" : "Adapter"}</Label>
-            {selected ? <><input type="hidden" name="adapter" value={adapter} /><Input id="adapter" value={selected.label} readOnly /></> : <select id="adapter" name="adapter" className="select" value={adapter} onChange={(event) => onAdapter(event.target.value as ProviderConnection["adapter"])}>
+            <Label htmlFor="adapter">Adapter</Label>
+            {selected ? <><input type="hidden" name="adapter" value={adapter} /><Input id="adapter" value={selected.adapter_label} readOnly /></> : <select id="adapter" name="adapter" className="select" value={adapter} onChange={(event) => onAdapter(event.target.value as ProviderConnection["adapter"])}>
               {adapters.map((option) => <option key={option.id} value={option.id}>{option.label}</option>)}
             </select>}
           </div>
@@ -45,7 +46,9 @@ export function ProviderForm({ presets, adapters, selected, selectedPreset, adap
         </div>
         <div className="inline-fields">
           <Field id="timeout_ms" label="Timeout (ms)" type="number" defaultValue="60000" required />
-          {selected ? <label className="checkbox-row"><input type="checkbox" checked={selected.private_network} disabled readOnly /> {selected.private_network ? "Local/private network enabled by preset" : "Public HTTPS endpoint"}</label> : <label className="checkbox-row"><input type="checkbox" name="allow_private_network" /> Allow local/private HTTP for this connection</label>}
+          {selected
+            ? <Switch checked={selected.private_network} disabled readOnly label="Allow local or private network" description={`Set by the ${selected.label} preset`} />
+            : <Switch name="allow_private_network" label="Allow local or private network" description="Needed for servers on this machine or your LAN, such as Ollama" />}
         </div>
         <Button disabled={busy || !adapter}>Add connection</Button>
       </form>

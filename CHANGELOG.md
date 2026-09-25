@@ -6,6 +6,7 @@ All notable changes will be documented here. The project follows [Keep a Changel
 
 ### Changed
 
+- On/off settings in the dashboard use switches, selects draw a consistent chevron, read-only fields look read-only, and provider connections show readable labels, a compact base URL, and an enabled switch.
 - The dashboard builds with Node.js 26, and CI and release jobs run on Ubuntu 26.04 with Node 24-based actions. The container image installs pnpm with npm because Node.js 26 no longer bundles Corepack.
 
 ## [0.1.0-alpha.1] - 2026-09-25

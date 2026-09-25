@@ -75,7 +75,7 @@ func newDemo(ctx context.Context, origin string) (_ *demo, err error) {
 	var connectionIDs []string
 	for index, name := range []string{"fast", "balanced", "reasoning"} {
 		connection, createErr := providerService.CreateConnection(ctx, d.owner, providers.ConnectionInput{
-			Name: "Local " + name + " lane", Adapter: "openai_compatible", BaseURL: d.upstream.URL + "/v1", Enabled: true, AllowPrivateNetwork: true, TimeoutMS: 5000,
+			Name: "Local " + name + " lane", Adapter: "openai_compatible", BaseURL: d.upstream.URL + "/" + name + "/v1", Enabled: true, AllowPrivateNetwork: true, TimeoutMS: 5000,
 		})
 		if createErr != nil {
 			return nil, createErr
@@ -241,7 +241,7 @@ func (d *demo) backdate(ctx context.Context, requestID string, offset int64) err
 }
 
 func mockProvider(response http.ResponseWriter, request *http.Request) {
-	if request.Method != http.MethodPost || request.URL.Path != "/v1/chat/completions" {
+	if request.Method != http.MethodPost || !strings.HasSuffix(request.URL.Path, "/v1/chat/completions") {
 		http.NotFound(response, request)
 		return
 	}

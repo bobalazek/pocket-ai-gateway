@@ -35,6 +35,13 @@ func TestDemoSeedIsDisposableAndPopulatesUsage(t *testing.T) {
 	if err != nil || len(connections) != 3 {
 		t.Fatalf("connections: %d, %v", len(connections), err)
 	}
+	baseURLs := map[string]bool{}
+	for _, connection := range connections {
+		baseURLs[connection.BaseURL] = true
+	}
+	if len(baseURLs) != len(connections) {
+		t.Fatalf("demo connections share base URLs: %v", baseURLs)
+	}
 	for _, connection := range connections {
 		endpoint, err := url.Parse(connection.BaseURL)
 		if err != nil || !net.ParseIP(endpoint.Hostname()).IsLoopback() || endpoint.Scheme != "http" {

@@ -25,7 +25,7 @@ export default function ProvidersPage() {
         <section className="section-block">
           <h2>{model.items.length} connections</h2>
           <div className="resource-list">
-            {model.items.map((item) => <ProviderCard key={item.id} item={item} models={model.models[item.id]} busy={model.busy} onToggle={model.toggle} onCredential={model.credential} onAddModel={model.addModel} script={model.scripts[item.id]} onLoadScript={model.loadScript} onSaveScript={model.saveScript} onRemoveScript={model.removeScript} />)}
+            {model.items.map((item) => <ProviderCard key={item.id} item={item} presetLabel={model.presets.find((preset) => preset.id === item.preset)?.label ?? "Custom"} models={model.models[item.id]} busy={model.busy} onToggle={model.toggle} onCredential={model.credential} onAddModel={model.addModel} script={model.scripts[item.id]} onLoadScript={model.loadScript} onSaveScript={model.saveScript} onRemoveScript={model.removeScript} />)}
           </div>
         </section>
         {model.items.length > 0 && <div className="next-step"><div><strong>Next: publish a model</strong><small>Map a stable public model name to one of these upstream models.</small></div><Link className={buttonVariants()} href="/models/">Continue to models</Link></div>}
