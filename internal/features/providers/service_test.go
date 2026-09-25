@@ -2,6 +2,7 @@ package providers
 
 import (
 	"context"
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
@@ -307,5 +308,36 @@ func TestConnectionPresetChangeClearsCredential(t *testing.T) {
 	updated, err := service.UpdateConnection(ctx, owner, connection.ID, connection.Revision, ConnectionInput{Name: "Azure", Preset: "azure-openai", BaseURL: baseURL, Enabled: true})
 	if err != nil || updated.CredentialState != "missing" {
 		t.Fatalf("updated connection = %#v, %v", updated, err)
+	}
+}
+
+func TestOnlyOwnerSetsExternalCredentialReference(t *testing.T) {
+	ctx := context.Background()
+	store, err := storage.Open(ctx, filepath.Join(t.TempDir(), "data"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+	owner := auth.User{ID: "usr_owner", Role: "owner", Status: "active"}
+	admin := auth.User{ID: "usr_admin", Role: "admin", Status: "active"}
+	now := time.Now().UnixMilli()
+	for _, user := range []auth.User{owner, admin} {
+		if _, err := store.SystemDB().ExecContext(ctx, "INSERT INTO users (id,email,display_name,password_hash,role,status,inference_unrestricted,created_at,updated_at) VALUES (?,?,?,'hash',?,'active',1,?,?)", user.ID, user.ID+"@example.test", user.ID, user.Role, now, now); err != nil {
+			t.Fatal(err)
+		}
+	}
+	service := New(store.SystemDB(), make([]byte, 32))
+	connection, err := service.CreateConnection(ctx, owner, ConnectionInput{Name: "Upstream", Adapter: "openai", BaseURL: "https://api.example.test/v1", Enabled: true, TimeoutMS: 5000})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := service.PutCredential(ctx, admin, connection.ID, "", "bearer-env:POCKET_AI_GATEWAY_BACKUP_KEY"); !errors.Is(err, ErrDenied) {
+		t.Fatalf("admin external reference error = %v", err)
+	}
+	if err := service.PutCredential(ctx, admin, connection.ID, "admin-secret", ""); err != nil {
+		t.Fatalf("admin stored credential: %v", err)
+	}
+	if err := service.PutCredential(ctx, owner, connection.ID, "", "env:PROVIDER_TEST_TOKEN"); err != nil {
+		t.Fatalf("owner external reference: %v", err)
 	}
 }

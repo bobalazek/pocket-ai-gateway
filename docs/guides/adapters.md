@@ -17,7 +17,7 @@ For Replicate, create one connection for an account credential and its `https://
 
 Provider brands that use the same wire contract stay as entries in `internal/features/providers/presets.go`. OpenRouter, Z.AI, MiniMax, Mistral, Groq, DeepSeek, xAI, Together, Fireworks, Cohere, and Perplexity therefore share the `openai_compatible` adapter. Add a provider package only when a tested protocol difference cannot be represented by preset metadata or a small dispatch rule.
 
-Stable API keys may be encrypted locally or read through `env:NAME` and `file:/absolute/path`. Use `bearer-env:NAME` or `bearer-file:/absolute/path` for short-lived OAuth tokens. External references are resolved for each route selection; keep token minting and file rotation in the cloud identity agent rather than the protocol adapter.
+Stable API keys may be encrypted locally or, by the owner only, read through `env:NAME` and `file:/absolute/path`. Use `bearer-env:NAME` or `bearer-file:/absolute/path` for short-lived OAuth tokens. External references are resolved for each route selection; keep token minting and file rotation in the cloud identity agent rather than the protocol adapter.
 
 ## Custom JavaScript transforms
 

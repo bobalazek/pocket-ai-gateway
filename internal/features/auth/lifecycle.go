@@ -66,15 +66,13 @@ type ProfileInput struct {
 func (service *Service) Login(ctx context.Context, input LoginInput) (User, string, error) {
 	email := strings.ToLower(strings.TrimSpace(input.Email))
 	source := loginSource(input.Source)
-	for _, subject := range []string{"global", "source:" + source, "email:" + email} {
+	// No instance-wide subject: it would let anonymous requests lock every user out.
+	for _, subject := range []string{"source:" + source, "email:" + email} {
 		if err := service.checkLoginThrottle(ctx, subject); err != nil {
 			return User{}, "", err
 		}
 	}
 	if !validLoginEmail(email) || !validPasswordSize(input.Password) {
-		if err := service.recordLoginFailures(ctx, email, source); err != nil {
-			return User{}, "", err
-		}
 		return User{}, "", ErrInvalidCredentials
 	}
 	select {
@@ -122,7 +120,7 @@ func (service *Service) recordLoginFailures(ctx context.Context, email, source s
 	for _, throttle := range []struct {
 		subject string
 		limit   int
-	}{{"global", 100}, {"source:" + source, 20}, {"email:" + email, maxLoginFailures}} {
+	}{{"source:" + source, 20}, {"email:" + email, maxLoginFailures}} {
 		if err := service.recordLoginFailure(ctx, throttle.subject, throttle.limit); err != nil {
 			return err
 		}

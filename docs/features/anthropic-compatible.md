@@ -43,7 +43,7 @@ Errors preserve the Anthropic envelope:
 
 ## Stream and tool contract
 
-The stream follows message_start, ordered content_block_start/delta/stop events, message_delta, and message_stop. The gateway replaces only `message_start.message.model` with the requested public model; the remaining native events retain their provider fields. A tool_use block contains id/name/input; tool_result content links back to the original tool ID. Partial argument JSON is forwarded through input_json_delta, not flattened into text.
+The stream follows message_start, ordered content_block_start/delta/stop events, message_delta, and message_stop. The gateway replaces only `message_start.message.model` with the requested public model; the remaining native events retain their provider fields. A tool_use block contains id/name/input; tool_result content links back to the original tool ID. Partial argument JSON is forwarded through input_json_delta, not flattened into text. A native stream that ends without `message_stop`, or reports an `error` event, is recorded as a failed attempt with unknown usage rather than a success.
 
 Translate ordinary JSON requests to/from OpenAI and Gemini while preserving multiple tool calls/results, stop reasons, usage, refusals, and cancellation. Streaming currently requires an Anthropic-compatible target: Anthropic requires input usage in its first event, while OpenAI and Gemini report it only at completion. Opaque thinking/signatures need an explicit valid mapping/affinity rule; unsupported ones are not silently removed. Count tokens using a capable target-specific path, with honest estimate semantics.
 

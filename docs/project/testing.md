@@ -1,8 +1,8 @@
 # Testing strategy
 
-Every phase ships with tests for its observable behavior and failure boundaries. The full `scripts/verify.sh` entrypoint runs locally and for releases. The GitHub Verify workflow is manual-only and uses quick mode for format, lint, build, unit, integration, TypeScript, and SDK checks; race and copied-binary smoke checks remain in the full local gate.
+Every phase ships with tests for its observable behavior and failure boundaries. The full `scripts/verify.sh` entrypoint runs locally and for releases. The GitHub Verify workflow runs on pushes to `master`, pull requests, and manual dispatch. It uses quick mode for format, lint, build, unit, integration, TypeScript, and SDK checks; race and copied-binary smoke checks remain in the full local gate.
 
-The race suite allows 15 minutes per test binary. The gateway package exceeds Go's default 10-minute timeout on the local development machine; the longer timeout keeps the complete suite enabled without dropping coverage. See the [recorded baseline timings](../plan/phase-08-provider-api-expansion.md#incremental-parity-evidence--2026-09-18).
+The race suite allows 30 minutes per test binary. The gateway package took 640 seconds on the local development machine on 2026-09-25, above Go's default 10-minute timeout, and hosted CI runners are slower; the longer timeout keeps the complete suite enabled without dropping coverage. See the [recorded baseline timings](../plan/phase-08-provider-api-expansion.md#incremental-parity-evidence--2026-09-18).
 
 | Layer | Purpose | Required examples |
 | --- | --- | --- |

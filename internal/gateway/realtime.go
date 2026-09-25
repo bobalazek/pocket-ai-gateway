@@ -180,6 +180,7 @@ func (handler *Handler) realtime(response http.ResponseWriter, request *http.Req
 			}
 			continue
 		}
+		releaseDispatch()
 		response.Header().Set(pocketAIRequestIDHeader, requestID)
 		handler.serveRealtime(response, request, upstream, target, admission, requestID, started, releaseDispatch)
 		return
@@ -325,7 +326,7 @@ func dialWebSocketTransport(ctx context.Context, endpoint *url.URL, allowPrivate
 	}
 	var failures []error
 	for _, ip := range ips {
-		if !allowPrivate && (!ip.IsGlobalUnicast() || ip.IsPrivate()) {
+		if !allowPrivate && !providers.PublicAddress(ip) {
 			continue
 		}
 		raw, dialErr := (&net.Dialer{}).DialContext(ctx, "tcp", net.JoinHostPort(ip.String(), port))

@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"net"
+	"net/netip"
 	"net/url"
 	"path"
 	"sort"
@@ -27,7 +28,7 @@ var adapters = map[string][]string{
 	"openai":            {"chat", "completions", "web_search", "embeddings", "moderations", "count_tokens", "images", "image_edit", "image_variation", "audio_speech", "audio_transcription", "audio_translation", "realtime"},
 	"anthropic":         {"chat", "web_search", "web_search_dynamic", "web_search_response_inclusion", "web_fetch", "web_fetch_dynamic", "web_fetch_cache_bypass", "web_fetch_response_inclusion", "count_tokens", "prompt_cache"},
 	"gemini":            {"chat", "count_tokens", "embeddings", "interactions", "realtime", "media_jobs"},
-	"openai_compatible": {"chat", "completions", "embeddings", "moderations", "count_tokens", "images", "image_edit", "image_variation", "audio_speech", "audio_transcription", "audio_translation", "media_jobs"},
+	"openai_compatible": {"chat", "completions", "embeddings", "moderations", "count_tokens", "images", "image_edit", "image_variation", "audio_speech", "audio_transcription", "audio_translation", "media_jobs", "decisions"},
 }
 
 var adapterLabels = map[string]string{
@@ -44,6 +45,7 @@ var capabilityLabels = map[string]string{
 	"chat":                          "Chat",
 	"completions":                   "Legacy completions",
 	"count_tokens":                  "Token counting",
+	"decisions":                     "Typed decisions (System One)",
 	"embeddings":                    "Embeddings",
 	"image_edit":                    "Image editing",
 	"image_variation":               "Image variation",
@@ -68,6 +70,7 @@ var scopeCapabilities = map[string]string{
 	"audio:translate":       "audio_translation",
 	"chat:generate":         "chat",
 	"completions:generate":  "completions",
+	"decisions:generate":    "decisions",
 	"embeddings:generate":   "embeddings",
 	"images:edit":           "image_edit",
 	"images:generate":       "images",
@@ -378,6 +381,10 @@ func (service *Service) PutCredential(ctx context.Context, actor auth.User, id, 
 	if err = requireManager(ctx, tx, &actor); err != nil {
 		return err
 	}
+	// External references read host environment variables and files, which can hold owner-only secrets.
+	if externalRef != "" && actor.Role != "owner" {
+		return ErrDenied
+	}
 	if _, err = tx.ExecContext(ctx, `INSERT INTO provider_credentials (connection_id,ciphertext,nonce,external_ref,updated_at) VALUES (?,?,?,?,?) ON CONFLICT(connection_id) DO UPDATE SET ciphertext=excluded.ciphertext,nonce=excluded.nonce,external_ref=excluded.external_ref,updated_at=excluded.updated_at`, id, ciphertext, nonce, nullableString(externalRef), time.Now().UnixMilli()); err != nil {
 		return err
 	}
@@ -630,13 +637,34 @@ func (service *Service) TargetIsCurrent(ctx context.Context, target Target) bool
 	return err == nil && exists
 }
 
+// BeginDispatch holds configuration writes until the caller has sent its upstream request.
+// Callers must release as soon as the request is written, not when the response ends:
+// a waiting writer blocks every new dispatch. The returned release is idempotent.
 func (service *Service) BeginDispatch(ctx context.Context, target Target) (func(), bool) {
 	service.dispatch.RLock()
 	if !service.TargetIsCurrent(ctx, target) {
 		service.dispatch.RUnlock()
 		return func() {}, false
 	}
-	return service.dispatch.RUnlock, true
+	return sync.OnceFunc(service.dispatch.RUnlock), true
+}
+
+// Shared (CGNAT, including Tailscale) and benchmarking ranges are global unicast but not the public internet.
+var nonPublicPrefixes = []netip.Prefix{netip.MustParsePrefix("100.64.0.0/10"), netip.MustParsePrefix("198.18.0.0/15")}
+
+// PublicAddress reports whether a provider destination may be dialed without allow_private_network.
+func PublicAddress(ip net.IP) bool {
+	address, ok := netip.AddrFromSlice(ip)
+	if !ok || !ip.IsGlobalUnicast() || ip.IsPrivate() {
+		return false
+	}
+	address = address.Unmap()
+	for _, prefix := range nonPublicPrefixes {
+		if prefix.Contains(address) {
+			return false
+		}
+	}
+	return true
 }
 
 func validateConnection(input ConnectionInput) (ConnectionInput, error) {

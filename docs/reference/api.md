@@ -2,7 +2,7 @@
 
 Management and compatibility contract. OpenAI, Anthropic, and native Gemini clients use separate namespaces with request, response, tool, usage, and streaming translation to the selected capable upstream.
 
-The management API is machine-readable in [openapi.yaml](openapi.yaml). Each inference namespace has its own OpenAPI document: [OpenAI](openapi-openai.yaml), [Anthropic](openapi-anthropic.yaml), and [Gemini](openapi-gemini.yaml).
+The management API is machine-readable in [openapi.yaml](openapi.yaml). Each inference namespace has its own OpenAPI document: [OpenAI](openapi-openai.yaml), [Anthropic](openapi-anthropic.yaml), [Gemini](openapi-gemini.yaml), and [System One](openapi-systemone.yaml).
 
 ## Route hierarchy
 
@@ -11,14 +11,15 @@ The management API is machine-readable in [openapi.yaml](openapi.yaml). Each inf
 | OpenAI compatibility | /api/openai/v1 | OpenAI Chat, Responses, embeddings, models, errors, and stream formats |
 | Anthropic compatibility | /api/anthropic/v1 | Anthropic Messages, token counting, models, errors, and stream formats |
 | Gemini compatibility | /api/gemini/v1beta | Native Gemini Interactions, generation, streaming, counting, embedding, and model formats |
+| System One decisions | /api/systemone/v1 | Typed `noul`/`choice`/`score` decisions from Jev or Laya; native pass-through only |
 | Gateway resources | /api/v1 | Gateway-owned providers, connections, public models, keys, usage, requests |
 | Auth feature | /api/v1/auth | Setup, activation, login, logout, and session/recovery operations |
 | Administration | /api/v1/admin | Privileged users, policies/settings, audits, imports, backups, diagnostics |
 | Dashboard | /_ | Embedded Next.js pages and assets |
 
-Protocol roots are /api/openai, /api/anthropic, and /api/gemini. Each retains its native versioned path below that root. The path is authoritative; headers never select a different dialect. Unprefixed /v1/messages, /v1/chat/completions, and ambiguous global inference aliases are not enabled by default.
+Protocol roots are /api/openai, /api/anthropic, /api/gemini, and /api/systemone. Each retains its native versioned path below that root. The path is authoritative; headers never select a different dialect. Unprefixed /v1/messages, /v1/chat/completions, and ambiguous global inference aliases are not enabled by default.
 
-The prefix names the **client API specification**, not a forced upstream provider. /api/anthropic/v1/messages may target Gemini or OpenAI through translation, and its response remains Anthropic-shaped. Gateway metadata at /api/v1/models has its own schema and is distinct from all three compatible model-list endpoints.
+The prefix names the **client API specification**, not a forced upstream provider. /api/anthropic/v1/messages may target Gemini or OpenAI through translation, and its response remains Anthropic-shaped. Gateway metadata at /api/v1/models has its own schema and is distinct from the four compatible model-list endpoints.
 
 Compatible responses keep their native usage fields. After admission, every forwarded response also carries `X-Pocket-AI-Request-ID`; use that value as the exact `request_id` filter on `GET /api/v1/requests` to inspect normalized input, output, cache, estimated, recorded, and restated cost data. Cost stays outside provider response bodies so OpenAI, Anthropic, and Gemini SDK compatibility is preserved. Unknown usage or pricing is returned as `null`, never zero.
 
@@ -26,6 +27,7 @@ Compatible responses keep their native usage fields. After admission, every forw
 
 | Endpoint | Wire contract / initial behavior |
 | --- | --- |
+| POST /api/systemone/v1/systemone; GET /api/systemone/v1/models | Typed decisions with `decisions:generate`; native System One targets only (TypeSafe Jev or self-hosted Laya); 1–64 questions counted as batch items; provider usage or an input estimate; see [System One decisions](../features/systemone-compatible.md) |
 | POST /api/openai/v1/chat/completions | OpenAI request, choices/tool calls/usage, errors, incremental chat chunks; `store:true` creates a key-owned 30-day local resource and requires non-streaming output |
 | GET /api/openai/v1/chat/completions; GET/POST/DELETE /api/openai/v1/chat/completions/{id} | List, retrieve, update metadata, or delete gateway-stored Chat Completions for the creating key |
 | GET /api/openai/v1/chat/completions/{id}/messages | Cursor pagination over the stored original Chat input messages |
@@ -199,16 +201,16 @@ Response compaction is forwarded only to the native OpenAI preset. The gateway r
 
 Conversation resources are stored locally under the creating API key. Create, retrieve, metadata update, deletion, item addition, item retrieval, item deletion, and cursor pagination match the official resource shapes for messages, function calls, and string function outputs. Provider-owned item/file/container references, other item types, and `include` projections are rejected. Global, owner, key, and per-conversation caps bound retained data; deleted content is purged after 30 days. Synchronous JSON, durable background, and `store:false` streaming `POST /responses` requests may identify a conversation by string ID or `{id}`: local history is prepended for any target family, local IDs never leave the gateway, and successful new input plus completed output commit in one transaction. Background jobs persist the conversation snapshot through queue restarts; stale history becomes a failed Response without a partial turn. Attached streams are bounded to 16 MiB and replay a successful terminal event after the turn is stored, trading incremental delivery for persistence integrity. A provider `response.failed` or `error` terminal is replayed without changing the Conversation. [OpenAI Conversations reference](https://developers.openai.com/api/reference/python/resources/conversations/methods/create)
 
-Full API fidelity is the goal, not a blanket claim at alpha. Maintain a complete official endpoint/field inventory for all three specs: mark each implemented/tested, native-only, translated, pending, or inherently unavailable for a target. Assign files, batches, cached resources, provider-hosted tools, multimodal/realtime, and remaining stateful surfaces to explicit phase 8 work. Do not call rejected or unimplemented operations fully supported.
+Full vendor API parity is not claimed. The [API parity inventory](../project/api-parity-inventory.md) marks each official surface as implemented, native-only, translated, pending, or unavailable; rejected or unimplemented operations are not supported.
 
 ## Management API
 
-Base path /api/v1/. Server-side session cookies authorize browser operations; separate scoped management tokens may authorize CLI/automation. Roles and ownership apply to both. Inference credentials never authorize this API.
+Base path /api/v1/. Server-side session cookies authorize browser operations; roles and ownership apply to every route. Inference credentials never authorize this API, except the documented media-job routes that accept `media:generate` keys. Scoped management tokens for CLI/automation are not implemented.
 
 | Resource/action | Methods and representative paths | Permission / important behavior |
 | --- | --- | --- |
 | Setup | GET /auth/setup/status, POST /auth/setup/claim | Status exposes only the claim requirement; the first same-origin claim atomically creates the sole owner |
-| Current session | GET /auth/session | Implemented in Phase 1; safe current-owner fields from the HttpOnly server-side session |
+| Current session | GET /auth/session | Safe current-user fields from the HttpOnly server-side session |
 | Activation | POST /auth/activate | One-time code; limited session until password chosen |
 | Sessions | POST /auth/login, POST /auth/logout, GET/DELETE /auth/sessions | Own sessions, CSRF on cookie mutations |
 | Password/profile | GET/PATCH /me, POST /auth/password | Reauthenticate for sensitive changes; revoke sessions as appropriate |
@@ -217,30 +219,28 @@ Base path /api/v1/. Server-side session cookies authorize browser operations; se
 | Owner transfer | POST /admin/owner/transfer | Owner + recent authentication; transactional invariant |
 | Grants | Included in user reads; PUT /admin/users/{id}/grants | Owner/admin within role limits; reductions permanently narrow existing keys |
 | Keys | GET/POST /keys, GET/PATCH /keys/{id}, POST /keys/{id}/rotate, DELETE /keys/{id} | Own narrower keys for members; secret returned once |
-| Connections | GET/POST /connections, GET/PATCH/DELETE /connections/{id} | Owner/admin; archive/disable where referenced |
-| Provider types | GET /providers | Gateway provider/adapter catalog; safe capability metadata |
+| Connections | GET/POST /connections, GET/PATCH /connections/{id} | Owner/admin; disable rather than delete. `timeout_ms` (1–600 seconds, default 60) bounds a whole JSON response, or a stream's response headers and each idle gap between chunks; one request is capped at 10 minutes |
+| Provider types | GET /providers, GET /provider-presets | Gateway provider/adapter catalog; safe capability metadata |
 | Credential replacement | PUT /connections/{id}/credential | Write-only secret/reference; no reveal endpoint |
-| External credential references | PUT /connections/{id}/credential | `env:NAME` and `file:/absolute/path` are reread for each route selection; `bearer-env:` and `bearer-file:` force OAuth bearer authentication for Azure/Vertex token rotation; values are bounded, single-line, and never returned |
+| External credential references | PUT /connections/{id}/credential | Owner only, because references read host environment variables and files; `env:NAME` and `file:/absolute/path` are reread for each route selection; `bearer-env:` and `bearer-file:` force OAuth bearer authentication for Azure/Vertex token rotation; values are bounded, single-line, and never returned |
 | Custom adapter transforms | GET/PUT/DELETE /connections/{id}/adapter-script | Owner/admin; custom OpenAI-compatible connections only; trusted JavaScript function expressions transform JSON requests/responses in a fresh embedded VM without host I/O; time/stack/source/input/output limits apply but the VM shares the process heap; revision required for writes; streaming and multipart request transforms are rejected |
-| Provider tests/discovery | POST /connections/{id}/test, POST /connections/{id}/discover | Explicit test mode; billable mode requires scoped inference key |
-| Upstream catalog | GET/POST/PATCH catalog resources under /connections/{id}/models | Candidate model data; catalog refresh never publishes automatically |
+| Upstream catalog | GET/POST /connections/{id}/models | Candidate model data; catalog refresh never publishes automatically |
 | Prices | GET/POST /admin/prices | Immutable effective-dated prices support nullable cache-read and per-call web-search rates plus non-overlapping half-open weekly UTC windows; attempts retain the quoted version and quote time |
 | Public models/routes | GET/POST /models, GET /admin/models, GET/PUT /admin/models/{id}/route | `GET` lists accept a bounded `q` query and search in SQLite; the admin list also returns route and eligible-target maps so the dashboard does not issue per-model requests; owner/admin mutations; member reads limited public projection; fixed and embedding routes use one target; free-only needs manager-recorded zero pricing verified within 24 hours |
 | Route preview | POST /admin/models/{id}/route-preview | Owner/admin; representative operation, stream mode, and token estimates; no dispatch |
 | Policies | GET /keys/{id}/effective-limits, GET/POST /admin/policies, PATCH /admin/policies/{id} | Owner/admin writes; member reads own effective limits |
 | Requests/attempts | GET /requests | Server ownership filter and exact `request_id` lookup; optional `from`, `to`, `user_id`, `key_id`, `model_id`, `connection_id`, `dialect`, `operation`, and `state` filters; source/target route, normalized usage/cache counts, estimated/recorded/restated costs with input, cache-read, output, and web-search price provenance, tool counts, and completion state; no prompt or argument capture |
 | Asynchronous media jobs | POST/GET /media/jobs, GET /media/jobs/{id}, POST /media/jobs/{id}/cancel | Inference keys require `media:generate`, model and connection grants, key ownership, and a fixed route for provider affinity; owner/admin sessions receive redacted management views. Jobs use shared request, concurrency, body-size, and spend admission. Poll retries use bounded backoff; an unconfirmed dispatch after restart becomes `interrupted_unknown`. Unknown-price jobs are rejected when a spend policy applies; provider-reported cost is settled when available. |
-| Captured content | GET /requests/{id}/content | Separate opt-in permission and audit |
 | Usage/unknowns | GET /usage, GET /usage/breakdown, GET /usage/unresolved, POST /admin/usage/adjustments | Scoped reads with separate token/cache/web-search-call counters and known/unknown cost; ranked key/user/model/provider/protocol/operation/outcome breakdowns; audited privileged adjustments |
 | Repricing | POST /admin/usage/reprice-preview, POST /admin/usage/reprice | Bounded synchronous preview and idempotent historical adjustments |
 | Unknown reconciliation | POST /admin/usage/reconciliations | Audited token/cost facts that release uncertain reservations |
 | Catalog refresh | GET/PUT /admin/catalog, POST /admin/catalog/refresh | Cursor-paginated candidates, configured GitHub source, bounded data only, scheduled refresh off by default; candidates never publish automatically |
 | Audit/settings | GET /admin/audit, GET/PATCH /admin/settings | Privileged views; owner-only secret/backup/security policy fields |
 | Import/export | POST /admin/config/preview, POST /admin/config/import, GET /admin/config/export | Owner; versioned, redacted, transactional |
-| Backup jobs | GET/POST /admin/backups, GET /admin/backups/{id} | Local/S3 destination; owner and recent authentication for artifact access |
-| Status/diagnostics | GET /admin/status, GET /admin/diagnostics, GET /version | Owner/admin component readiness (system and data stores, usage projection), backlog, and safe runtime metadata; minimal public health separately |
+| Backup jobs | GET/POST /admin/backups | Local/S3 destination; owner only, and running a backup requires authentication within 15 minutes |
+| Status/diagnostics | GET /admin/status, GET /admin/diagnostics, GET /admin/usage/outbox, POST /admin/retention | Owner/admin component readiness (system and data stores, usage projection), backlog, and safe runtime metadata; minimal public health separately |
 
-OpenAPI must fully define fields, required/optional distinctions, ownership, read/write-only secrets, limits, pagination, and errors for each implemented slice. This route inventory is not a completed OpenAPI spec.
+This table lists every implemented management route. [openapi.yaml](openapi.yaml) defines fields, ownership, secrets, limits, pagination, and errors.
 
 List responses use data, next_cursor, and has_more; bounded limit defaults to 50 and caps at 200. Cursors include a stable sort key and are validated/scoped. Money is a decimal string; timestamps are UTC RFC 3339.
 

@@ -33,6 +33,8 @@ type Handler struct {
 	publicOrigin   string
 	nextBackground int
 	masterKey      []byte
+	pendingMu      sync.Mutex
+	pending        map[string]usage.SettlementInput
 }
 
 func New(database *sql.DB, keyService *keys.Service, providerService *providers.Service, usageService *usage.Service, publicOrigin ...string) *Handler {
@@ -129,6 +131,10 @@ func (handler *Handler) Register(mux *http.ServeMux) {
 	mux.HandleFunc("POST /api/openai/v1/audio/translations", handler.audioTranslation)
 	mux.HandleFunc("GET /api/openai/v1/realtime", handler.realtime)
 	mux.HandleFunc("GET /api/openai/v1/live", handler.live)
+	mux.HandleFunc("GET /api/systemone/v1/models", handler.systemOneModels)
+	mux.HandleFunc("POST /api/systemone/v1/systemone", func(w http.ResponseWriter, r *http.Request) {
+		handler.forward(w, r, "systemone", "decisions:generate", "systemone", "", nil)
+	})
 	mux.HandleFunc("GET /api/anthropic/v1/models", handler.anthropicModels)
 	mux.HandleFunc("GET /api/anthropic/v1/models/{model}", handler.anthropicModel)
 	mux.HandleFunc("POST /api/anthropic/v1/files", handler.createAnthropicFile)

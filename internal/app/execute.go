@@ -13,6 +13,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/bobalazek/pocket-ai-gateway/internal/credentials"
@@ -247,8 +248,19 @@ func serve(ctx context.Context, version string, cfg Config, logOutput io.Writer)
 		<-responsesDone
 		<-mediaDone
 	}()
+	// Requests share a cancellable base context and are counted so shutdown can settle them, including
+	// hijacked WebSocket sessions that http.Server.Shutdown does not track, before the stores close.
+	requestContext, cancelRequests := context.WithCancel(context.Background())
+	defer cancelRequests()
+	var inFlight sync.WaitGroup
+	runtime := server.NewRuntime(stores.SystemDB(), publicOrigin, usageService, providerService, operationService, gatewayHandler, mediaService)
 	httpServer := &http.Server{
-		Handler:           server.NewRuntime(stores.SystemDB(), publicOrigin, usageService, providerService, operationService, gatewayHandler, mediaService),
+		Handler: http.HandlerFunc(func(response http.ResponseWriter, request *http.Request) {
+			inFlight.Add(1)
+			defer inFlight.Done()
+			runtime.ServeHTTP(response, request)
+		}),
+		BaseContext:       func(net.Listener) context.Context { return requestContext },
 		ReadHeaderTimeout: 5 * time.Second,
 		ReadTimeout:       5 * time.Minute,
 		IdleTimeout:       60 * time.Second,
@@ -271,10 +283,26 @@ func serve(ctx context.Context, version string, cfg Config, logOutput io.Writer)
 	shutdownCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 	if err := httpServer.Shutdown(shutdownCtx); err != nil {
-		return fmt.Errorf("graceful shutdown: %w", err)
+		logger.Warn("graceful shutdown timed out; cancelling in-flight requests", "error", err)
+	}
+	cancelRequests()
+	if !waitWithin(&inFlight, 5*time.Second) {
+		// Startup recovery marks attempts that are still open as interrupted_unknown.
+		logger.Warn("in-flight requests were still running when the gateway stopped")
 	}
 	logger.Info("gateway stopped")
 	return nil
+}
+
+func waitWithin(group *sync.WaitGroup, timeout time.Duration) bool {
+	done := make(chan struct{})
+	go func() { group.Wait(); close(done) }()
+	select {
+	case <-done:
+		return true
+	case <-time.After(timeout):
+		return false
+	}
 }
 
 func runOperations(ctx context.Context, service *operations.Service, logger *slog.Logger, done chan<- struct{}) {

@@ -6,11 +6,14 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"maps"
 	"mime"
 	"net"
 	"net/http"
+	"net/http/httptrace"
 	"net/url"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/bobalazek/pocket-ai-gateway/internal/features/providers"
@@ -39,7 +42,51 @@ func (handler *Handler) settle(attemptID string, input usage.SettlementInput) er
 			time.Sleep(time.Duration(1<<attempt) * 100 * time.Millisecond)
 		}
 	}
+	handler.deferSettlement(attemptID, input)
 	return last
+}
+
+// maxDeferredSettlements bounds memory; attempts beyond it keep their state until startup recovery.
+const maxDeferredSettlements = 1024
+
+// deferSettlement keeps a transiently failed settlement, for example while a backup holds the system
+// database, so the background worker can still release its reservations and concurrency lease.
+func (handler *Handler) deferSettlement(attemptID string, input usage.SettlementInput) {
+	handler.pendingMu.Lock()
+	defer handler.pendingMu.Unlock()
+	if handler.pending == nil {
+		handler.pending = make(map[string]usage.SettlementInput)
+	}
+	if len(handler.pending) < maxDeferredSettlements {
+		handler.pending[attemptID] = input
+	}
+}
+
+func (handler *Handler) retryDeferredSettlements(ctx context.Context) {
+	handler.pendingMu.Lock()
+	pending := maps.Clone(handler.pending)
+	handler.pendingMu.Unlock()
+	for attemptID, input := range pending {
+		settleCtx, cancel := context.WithTimeout(ctx, 2*time.Second)
+		err := handler.usage.Settle(settleCtx, attemptID, input)
+		cancel()
+		if err == nil || permanentSettlementError(err) {
+			handler.pendingMu.Lock()
+			delete(handler.pending, attemptID)
+			handler.pendingMu.Unlock()
+		}
+	}
+}
+
+func copyRetryAfter(response http.ResponseWriter, result *http.Response) {
+	if value := result.Header.Get("Retry-After"); result.StatusCode == http.StatusTooManyRequests && value != "" && len(value) <= 64 {
+		response.Header().Set("Retry-After", value)
+	}
+}
+
+// releaseAfterWrite frees the configuration dispatch lock once the upstream request is sent.
+func releaseAfterWrite(ctx context.Context, release func()) context.Context {
+	return httptrace.WithClientTrace(ctx, &httptrace.ClientTrace{WroteRequest: func(httptrace.WroteRequestInfo) { release() }})
 }
 
 func permanentSettlementError(err error) bool {
@@ -47,13 +94,7 @@ func permanentSettlementError(err error) bool {
 }
 
 func (handler *Handler) dispatch(response http.ResponseWriter, request *http.Request, target providers.Target, relative string, body []byte, stream bool, dialect, publicModel string, captureStreamTail bool, imageStreamPartialImages int, releaseDispatch func()) (int, []byte, error) {
-	released := false
-	release := func() {
-		if !released {
-			released = true
-			releaseDispatch()
-		}
-	}
+	release := sync.OnceFunc(releaseDispatch)
 	defer release()
 	operation := relative
 	requestContentType := "application/json"
@@ -78,7 +119,7 @@ func (handler *Handler) dispatch(response http.ResponseWriter, request *http.Req
 		handler.writeError(response, dialect, http.StatusBadGateway, "upstream_error", "Provider URL is invalid")
 		return 0, nil, err
 	}
-	upstream, err := http.NewRequestWithContext(request.Context(), adapterRequest.Method, endpoint, bytes.NewReader(body))
+	upstream, err := http.NewRequestWithContext(releaseAfterWrite(request.Context(), release), adapterRequest.Method, endpoint, bytes.NewReader(body))
 	if err != nil {
 		return 0, nil, err
 	}
@@ -89,8 +130,7 @@ func (handler *Handler) dispatch(response http.ResponseWriter, request *http.Req
 	}
 	setProviderCredential(upstream, target.Adapter, target.Preset, target.Credential, target.BearerCredential)
 	copyProtocolHeaders(upstream.Header, request.Header, target.Adapter)
-	client := safeClient(time.Duration(target.TimeoutMS)*time.Millisecond, target.AllowPrivateNetwork)
-	result, err := client.Do(upstream)
+	result, err := doUpstream(upstream, target, stream)
 	release()
 	if err != nil {
 		handler.writeError(response, dialect, http.StatusBadGateway, "upstream_error", "Provider request failed")
@@ -99,7 +139,11 @@ func (handler *Handler) dispatch(response http.ResponseWriter, request *http.Req
 	defer result.Body.Close()
 	if result.StatusCode < 200 || result.StatusCode >= 300 {
 		raw, readErr := io.ReadAll(io.LimitReader(result.Body, (1<<20)+1))
-		if readErr != nil || len(raw) > 1<<20 || !writeNativeUpstreamError(response, dialect, result.StatusCode, raw) {
+		if readErr != nil || len(raw) > 1<<20 {
+			raw = nil
+		}
+		copyRetryAfter(response, result)
+		if !handler.writeUpstreamClientError(response, dialect, result.StatusCode, raw) {
 			handler.writeError(response, dialect, http.StatusBadGateway, "upstream_error", "Provider rejected the request")
 		}
 		return result.StatusCode, nil, nil
@@ -175,7 +219,15 @@ func (handler *Handler) dispatch(response http.ResponseWriter, request *http.Req
 		if relative == "audio/speech" {
 			reader = io.LimitReader(result.Body, maxSpeechStreamBytes)
 		}
+		var observer *chatStreamObserver
+		if relative == "chat/completions" {
+			observer = &chatStreamObserver{}
+			captureWriter = io.MultiWriter(captureWriter, observer)
+		}
 		_, err = io.Copy(flushWriter{writer: response, flusher: flusher}, io.TeeReader(reader, captureWriter))
+		if err == nil && observer != nil {
+			err = observer.result()
+		}
 		if err == nil && relative == "audio/speech" {
 			var extra [1]byte
 			if count, readErr := result.Body.Read(extra[:]); count > 0 {
@@ -200,13 +252,7 @@ func (handler *Handler) dispatch(response http.ResponseWriter, request *http.Req
 }
 
 func (handler *Handler) dispatchTranslated(response http.ResponseWriter, request *http.Request, target providers.Target, relative string, body []byte, dialect, publicModel string, stream bool, releaseDispatch func()) (int, []byte, error) {
-	released := false
-	release := func() {
-		if !released {
-			released = true
-			releaseDispatch()
-		}
-	}
+	release := sync.OnceFunc(releaseDispatch)
 	defer release()
 	operation := relative
 	if stream && (target.AdapterRequestScript != "" || target.AdapterResponseScript != "") {
@@ -226,7 +272,7 @@ func (handler *Handler) dispatchTranslated(response http.ResponseWriter, request
 		handler.writeError(response, dialect, http.StatusBadGateway, "upstream_error", "Provider URL is invalid")
 		return 0, nil, err
 	}
-	upstream, err := http.NewRequestWithContext(request.Context(), adapterRequest.Method, endpoint, bytes.NewReader(body))
+	upstream, err := http.NewRequestWithContext(releaseAfterWrite(request.Context(), release), adapterRequest.Method, endpoint, bytes.NewReader(body))
 	if err != nil {
 		return 0, nil, err
 	}
@@ -239,7 +285,7 @@ func (handler *Handler) dispatchTranslated(response http.ResponseWriter, request
 	if target.Adapter == "anthropic" {
 		upstream.Header.Set("anthropic-version", "2023-06-01")
 	}
-	result, err := safeClient(time.Duration(target.TimeoutMS)*time.Millisecond, target.AllowPrivateNetwork).Do(upstream)
+	result, err := doUpstream(upstream, target, stream)
 	release()
 	if err != nil {
 		handler.writeError(response, dialect, http.StatusBadGateway, "upstream_error", "Provider request failed")
@@ -247,8 +293,11 @@ func (handler *Handler) dispatchTranslated(response http.ResponseWriter, request
 	}
 	defer result.Body.Close()
 	if result.StatusCode < 200 || result.StatusCode >= 300 {
-		io.Copy(io.Discard, io.LimitReader(result.Body, 1<<20))
-		handler.writeError(response, dialect, http.StatusBadGateway, "upstream_error", "Provider rejected the request")
+		raw, _ := io.ReadAll(io.LimitReader(result.Body, 1<<20))
+		copyRetryAfter(response, result)
+		if upstreamCredentialError(raw) || !handler.writeUpstreamClientError(response, dialect, result.StatusCode, nil) {
+			handler.writeError(response, dialect, http.StatusBadGateway, "upstream_error", "Provider rejected the request")
+		}
 		return result.StatusCode, nil, nil
 	}
 	if stream {
@@ -324,6 +373,48 @@ func copyProtocolHeaders(destination, source http.Header, adapter string) {
 		}
 	}
 }
+
+// doUpstream applies the connection timeout to a whole JSON response, or to the response headers
+// and each idle gap of a stream so long generations are not truncated.
+func doUpstream(upstream *http.Request, target providers.Target, stream bool) (*http.Response, error) {
+	timeout := time.Duration(target.TimeoutMS) * time.Millisecond
+	client := safeClient(timeout, target.AllowPrivateNetwork)
+	if !stream {
+		return client.Do(upstream)
+	}
+	client.Timeout = 0
+	client.Transport.(*http.Transport).ResponseHeaderTimeout = timeout
+	ctx, cancel := context.WithCancel(upstream.Context())
+	result, err := client.Do(upstream.WithContext(ctx))
+	if err != nil {
+		cancel()
+		return nil, err
+	}
+	result.Body = &idleTimeoutBody{ReadCloser: result.Body, timeout: timeout, timer: time.AfterFunc(timeout, cancel), cancel: cancel}
+	return result, nil
+}
+
+type idleTimeoutBody struct {
+	io.ReadCloser
+	timeout time.Duration
+	timer   *time.Timer
+	cancel  context.CancelFunc
+}
+
+func (body *idleTimeoutBody) Read(value []byte) (int, error) {
+	count, err := body.ReadCloser.Read(value)
+	if count > 0 {
+		body.timer.Reset(body.timeout)
+	}
+	return count, err
+}
+
+func (body *idleTimeoutBody) Close() error {
+	body.timer.Stop()
+	body.cancel()
+	return body.ReadCloser.Close()
+}
+
 func safeClient(timeout time.Duration, allowPrivate bool) *http.Client {
 	dialer := &net.Dialer{Timeout: min(timeout, 10*time.Second)}
 	transport := http.DefaultTransport.(*http.Transport).Clone()
@@ -340,7 +431,7 @@ func safeClient(timeout time.Duration, allowPrivate bool) *http.Client {
 			return nil, err
 		}
 		for _, ip := range ips {
-			if allowPrivate || ip.IsGlobalUnicast() && !ip.IsPrivate() {
+			if allowPrivate || providers.PublicAddress(ip) {
 				return dialer.DialContext(ctx, network, net.JoinHostPort(ip.String(), port))
 			}
 		}

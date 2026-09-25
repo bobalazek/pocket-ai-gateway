@@ -1706,3 +1706,64 @@ func publishModel(t *testing.T, ctx context.Context, service *providers.Service,
 	}
 	return connection, model
 }
+
+func TestUpstreamClientErrorsKeepStatusInEachProtocol(t *testing.T) {
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		if strings.Contains(r.URL.Path, "gemini") {
+			body, _ := io.ReadAll(r.Body)
+			if strings.Contains(string(body), "bad-key") {
+				w.WriteHeader(http.StatusBadRequest)
+				io.WriteString(w, `{"error":{"code":400,"message":"API key not valid. Please pass a valid API key.","status":"INVALID_ARGUMENT","details":[{"reason":"API_KEY_INVALID"}]}}`)
+				return
+			}
+			w.Header().Set("Retry-After", "7")
+			w.WriteHeader(http.StatusTooManyRequests)
+			io.WriteString(w, `{"error":{"code":429,"message":"Quota exceeded","status":"RESOURCE_EXHAUSTED"}}`)
+			return
+		}
+		w.WriteHeader(http.StatusBadRequest)
+		io.WriteString(w, `{"type":"error","error":{"type":"invalid_request_error","message":"max_tokens: too large"}}`)
+	}))
+	defer upstream.Close()
+	ctx, store, owner, keyService, providerService, usageService := gatewayFixture(t)
+	defer store.Close()
+	anthropic, _ := publishModel(t, ctx, providerService, owner, "anthropic", upstream.URL+"/v1", "claude-upstream", []string{"chat"})
+	gemini, _ := publishModel(t, ctx, providerService, owner, "gemini", upstream.URL+"/v1beta", "gemini-upstream", []string{"chat"})
+	_, secret, err := keyService.Create(ctx, owner.ID, keys.Input{Label: "Errors", Scopes: []string{"chat:generate"}, ModelPatterns: []string{"*-model"}, ConnectionIDs: []string{anthropic.ID, gemini.ID}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	mux := http.NewServeMux()
+	New(store.SystemDB(), keyService, providerService, usageService).Register(mux)
+	server := httptest.NewServer(mux)
+	defer server.Close()
+	for _, test := range []struct {
+		name, path, body, want string
+		status                 int
+	}{
+		{"native anthropic", "/api/anthropic/v1/messages", `{"model":"anthropic-model","max_tokens":8,"messages":[{"role":"user","content":"Hi"}]}`, `"message":"max_tokens: too large","type":"invalid_request_error"`, http.StatusBadRequest},
+		{"native gemini", "/api/gemini/v1beta/models/gemini-model:generateContent", `{"contents":[{"parts":[{"text":"Hi"}]}]}`, `"status":"RESOURCE_EXHAUSTED"`, http.StatusTooManyRequests},
+		{"translated openai", "/api/openai/v1/chat/completions", `{"model":"anthropic-model","max_tokens":8,"messages":[{"role":"user","content":"Hi"}]}`, `"message":"Provider rejected the request"`, http.StatusBadRequest},
+		{"provider key rejected", "/api/gemini/v1beta/models/gemini-model:generateContent", `{"contents":[{"parts":[{"text":"bad-key"}]}]}`, `"status":"UNAVAILABLE"`, http.StatusBadGateway},
+		{"translated provider key rejected", "/api/openai/v1/chat/completions", `{"model":"gemini-model","max_tokens":8,"messages":[{"role":"user","content":"bad-key"}]}`, `"code":"upstream_error"`, http.StatusBadGateway},
+	} {
+		request, _ := http.NewRequest(http.MethodPost, server.URL+test.path, strings.NewReader(test.body))
+		request.Header.Set("Authorization", "Bearer "+secret)
+		request.Header.Set("x-api-key", secret)
+		request.Header.Set("x-goog-api-key", secret)
+		request.Header.Set("anthropic-version", "2023-06-01")
+		response, err := http.DefaultClient.Do(request)
+		if err != nil {
+			t.Fatal(err)
+		}
+		body, _ := io.ReadAll(response.Body)
+		response.Body.Close()
+		if response.StatusCode != test.status || !strings.Contains(string(body), test.want) {
+			t.Fatalf("%s = %d %s", test.name, response.StatusCode, body)
+		}
+		if test.status == http.StatusTooManyRequests && response.Header.Get("Retry-After") != "7" {
+			t.Fatalf("%s Retry-After = %q", test.name, response.Header.Get("Retry-After"))
+		}
+	}
+}

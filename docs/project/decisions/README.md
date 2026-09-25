@@ -1,6 +1,6 @@
 # Decisions
 
-One dated file per material product/architecture choice, following the personal SaaS template. Records are append-only once accepted. A reversal gets a new linked record; update this index to show the current ruling.
+One dated file per material product/architecture choice. Records are append-only once accepted. A reversal gets a new linked record; update this index to show the current ruling.
 
 Each record states status/source, context, decision, and consequences. A recommended implementation detail is not presented as an explicit user decision.
 
@@ -69,6 +69,7 @@ Each record states status/source, context, decision, and consequences. A recomme
 | ADR-061 | [Gateway-owned Gemini Files](2026-09-24-gateway-owned-gemini-files.md) | Delegated bounded SDK compatibility; native Gemini File references only |
 | ADR-062 | [Scoped gateway analytics](2026-09-24-scoped-analytics.md) | Delegated chart and attribution contract |
 | ADR-063 | [Local reliability signals](2026-09-24-local-reliability-signals.md) | Delegated error-rate and admin-alert contract |
+| ADR-064 | [System One decision models](2026-09-25-system-one-decision-models.md) | Owner-requested; fourth protocol root for Jev and Laya |
 
 Historical: [initial proposal](2026-09-14-initial-proposal.md), superseded by the records above where they differ. Its A/P/D/M identifiers are historical references only; current documents use ADR IDs.
 

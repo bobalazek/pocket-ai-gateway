@@ -1,6 +1,6 @@
 # Pocket AI Gateway
 
-A self-hosted gateway for OpenAI, Anthropic, and Gemini clients. One Go process serves the API and admin dashboard, stores configuration and usage in local SQLite, and routes requests through model names you control.
+A self-hosted gateway for OpenAI, Anthropic, Gemini, and System One decision clients. One Go process serves the API and admin dashboard, stores configuration and usage in local SQLite, and routes requests through model names you control.
 
 [![Full desktop dashboard showing synthetic requests and spend](docs/images/demo-page-overview.png)](docs/images/demo-page-overview.png)
 
@@ -39,9 +39,10 @@ Use the model ID you published in place of `assistant`. Compose binds to localho
 - **Keys and limits.** Manage users and scoped API keys, then apply request, token, concurrency, quota, and spend policies by instance, user, key, or provider connection.
 - **Usage you can trace.** Compare traffic, errors, and known spend by API key, model, and provider; inspect attempts, cache usage, price versions, cost restatements, and audit events. Local status alerts flag sustained failures and backup or storage problems.
 - **Local operations.** Provider secrets are encrypted. The server includes backup and restore tools, local or S3-compatible scheduled backups, and no public telemetry.
+- **Typed decisions.** TypeSafe Jev and self-hosted Laya answer yes/no, choice, and score questions with calibrated probabilities through `/api/systemone`, with the same keys, limits, and accounting. See [System One decisions](docs/features/systemone-compatible.md).
 - **More than text.** The tested subset includes image and audio operations, live WebSocket transports, durable media jobs, and trusted JavaScript transforms for custom adapters.
 
-Built-in presets include OpenAI, Anthropic, Gemini, OpenRouter, Z.AI, MiniMax, Ollama, Together, and Replicate. Each preset fills its reviewed provider base URL; one connection can hold many upstream models. A preset does not imply that every model supports every operation. See [provider URLs and evidence](docs/project/provider-certification.md), the [Replicate model guide](docs/guides/adapters.md), and the [compatibility matrix](docs/project/compatibility.md).
+Built-in presets include OpenAI, Anthropic, Gemini, OpenRouter, Z.AI, MiniMax, Ollama, Together, Replicate, TypeSafe, and Laya. Each preset fills its reviewed provider base URL; one connection can hold many upstream models. A preset does not imply that every model supports every operation. See [provider URLs and evidence](docs/project/provider-certification.md), the [Replicate model guide](docs/guides/adapters.md), and the [compatibility matrix](docs/project/compatibility.md).
 
 ## SDK base URLs
 
@@ -50,6 +51,7 @@ Built-in presets include OpenAI, Anthropic, Gemini, OpenRouter, Z.AI, MiniMax, O
 | OpenAI | `http://localhost:8080/api/openai/v1` |
 | Anthropic | `http://localhost:8080/api/anthropic` |
 | Google Gen AI | `http://localhost:8080/api/gemini` with API version `v1beta` |
+| TypeSafe (System One) | `http://localhost:8080/api/systemone` |
 
 Application requests use a scoped gateway API key. Dashboard sign-in uses a separate browser session.
 

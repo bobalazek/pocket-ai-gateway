@@ -131,6 +131,7 @@ func (handler *Handler) serveLiveClient(request *http.Request, client *websocket
 			sendLiveError(client, "upstream_error", "Provider session start failed")
 			return
 		}
+		releaseDispatch()
 		handler.relayLiveSession(request, client, upstream, target, admission, publicModel, started, releaseDispatch)
 		return
 	}

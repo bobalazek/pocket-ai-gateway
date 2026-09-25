@@ -120,7 +120,7 @@ func TestLoginThrottleBoundsRotatingSubjects(t *testing.T) {
 	defer store.Close()
 	service := New(store.SystemDB())
 	for attempt := 0; attempt < 30; attempt++ {
-		_, _, err := service.Login(ctx, LoginInput{Email: fmt.Sprintf("invalid-%d", attempt), Password: "bad", Source: fmt.Sprintf("203.0.113.1:%d", 4000+attempt)})
+		_, _, err := service.Login(ctx, LoginInput{Email: fmt.Sprintf("unknown-%d@example.test", attempt), Password: "bad-password", Source: fmt.Sprintf("203.0.113.1:%d", 4000+attempt)})
 		if attempt >= 20 && !errors.Is(err, ErrTooManyAttempts) {
 			t.Fatalf("attempt %d = %v", attempt, err)
 		}
@@ -128,6 +128,28 @@ func TestLoginThrottleBoundsRotatingSubjects(t *testing.T) {
 	var rows int
 	if err := store.SystemDB().QueryRowContext(ctx, "SELECT COUNT(*) FROM login_throttles").Scan(&rows); err != nil || rows > 22 {
 		t.Fatalf("login throttle rows = %d, %v", rows, err)
+	}
+}
+
+func TestMalformedLoginsDoNotLockOutOtherUsers(t *testing.T) {
+	ctx := context.Background()
+	store, err := storage.Open(ctx, filepath.Join(t.TempDir(), "data"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+	service := New(store.SystemDB())
+	owner, _, err := service.Claim(ctx, ClaimInput{Email: "owner@example.test", DisplayName: "Owner", Password: "correct-horse-battery"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for attempt := 0; attempt < 150; attempt++ {
+		if _, _, err := service.Login(ctx, LoginInput{Email: "x", Password: "", Source: "198.51.100.7:1234"}); !errors.Is(err, ErrInvalidCredentials) {
+			t.Fatalf("malformed attempt %d = %v", attempt, err)
+		}
+	}
+	if _, _, err := service.Login(ctx, LoginInput{Email: owner.Email, Password: "correct-horse-battery", Source: "192.0.2.10:5000"}); err != nil {
+		t.Fatalf("owner login after malformed attempts = %v", err)
 	}
 }
 

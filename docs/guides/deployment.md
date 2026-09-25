@@ -65,7 +65,7 @@ ExecStart=/usr/local/bin/pocket-ai-gateway serve --listen 127.0.0.1:8080 --data-
 EnvironmentFile=-/etc/pocket-ai-gateway.env
 Restart=on-failure
 RestartSec=5s
-TimeoutStopSec=15s
+TimeoutStopSec=20s
 NoNewPrivileges=true
 PrivateTmp=true
 ProtectSystem=strict
@@ -129,7 +129,7 @@ Publishing requires an explicit `--push`; building locally does not publish anyt
 | Browser origin | `--public-url` | `POCKET_AI_GATEWAY_PUBLIC_URL` | listener origin |
 | Backup encryption key | — | `POCKET_AI_GATEWAY_BACKUP_KEY` | unset; backups unavailable |
 
-Binding beyond loopback requires an HTTPS public URL. `--allow-insecure-http` exists only for an explicit `localhost` or loopback public URL, as used by the local Compose file.
+Binding beyond loopback requires an HTTPS public URL. `--allow-insecure-http` exists only for an explicit `localhost` or loopback public URL; the container image passes it by default so the loopback-published Compose setup works. Self-update settings are covered in [Optional standalone self-update](#optional-standalone-self-update).
 
 ## Back up and restore
 

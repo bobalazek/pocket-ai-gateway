@@ -6,7 +6,7 @@ Pocket AI Gateway is an open-source, local-first AI gateway packaged as one Go e
 
 - The runtime provides secure owner setup/recovery, users and sessions, scoped rotating API keys, limits/accounting, provider and public model configuration, inference, request history, audit, diagnostics, portable configuration, and encrypted backup/restore.
 - `GET /healthz` returns process liveness.
-- `GET /readyz` returns minimal database readiness.
+- `GET /readyz` returns minimal readiness of both databases and the usage projection.
 - `GET /_/` opens the embedded dashboard.
 - `GET /_/status/` shows the local runtime readiness screen.
 - Implemented auth endpoints cover setup, activation, login/logout, current/all owned sessions, session revocation, password change, and `PATCH /api/v1/me`.
@@ -15,18 +15,19 @@ Pocket AI Gateway is an open-source, local-first AI gateway packaged as one Go e
 - A new instance opens owner setup in the dashboard. The first successful claim creates the sole owner account.
 - Native OpenAI Chat/legacy Completions/Responses/Responses input-token counting/embeddings/moderations/image generation/edit/variation/streamed speech/multipart audio transcription and translation/models, authenticated native OpenAI Realtime and OpenAI Live WebSocket proxies, provider-neutral asynchronous media jobs for Replicate, Together video, Gemini Veo, and custom adapters, gateway-owned Files, Vector Stores with atomic create-with-files, file batches, parsed UTF-8/ASCII, BOM-marked UTF-16, HTML, DOCX, PPTX, and XLSX attachment content, backend lexical search, Responses file search, and bounded Batches, Anthropic Messages/count_tokens/models and gateway-owned Message Batches, and Gemini stateless text Interactions/generation/count/embedding/models plus Gemini Live are implemented. Image generation and GPT Image edits support bounded named SSE with terminal usage. Live transports preserve bidirectional audio/text events, route from the official first setup event, and keep provider credentials server-side; WebRTC/SIP and stored-session controls remain unsupported. Legacy Completions use `completions:generate`, strict official request validation, explicit native `completions` capability, JSON or SSE with 16 MiB body/event bounds, candidate-aware output reservation, public-model normalization, and no cross-protocol translation; OpenAI Batches also accept bounded non-streaming `/v1/completions` items. OpenAI Responses Batches accept 1–4 same-model non-streaming `/v1/responses` requests from a same-key Batch File, require `batches:manage` plus `responses:generate`, expose create/retrieve/list/cancel through the official SDK, produce separate success/error output Files, expire processing after 24 hours, and use ordinary local routing/accounting rather than OpenAI's provider Batch pricing, rate pool, or limits. Anthropic Message Batches accept 1–4 ordinary non-streaming Messages in 16 MiB, require `chat:generate` plus `messages:batches`, `expires_at` marks a 24-hour processing deadline, delete the whole resource with its JSONL results 29 days after creation, and use ordinary local routing/accounting rather than Anthropic's provider-owned batch pricing, rate pool, or limits. OpenAI Moderations preserve the native upstream taxonomy and require a moderation-capable target. Image, speech, transcription, and audio translation operations use dedicated scopes and capable targets with bounded bodies. OpenAI Responses includes gateway-owned storage, background execution, polling, cancellation, input items, deletion, native compaction through the OpenAI preset, direct input-token counting through capable OpenAI targets, key-owned Conversation CRUD, and atomic synchronous, background, or buffered-stream conversation attachment. It supports bounded native web search for non-streaming stateless, stored, and background Responses on an OpenAI-adapter target using the built-in `openai` preset, with separate capability/scope/call accounting and unknown provider search cost. It also supports bounded gateway-owned file search over 1–10 same-key local Vector Stores with a native OpenAI/OpenAI-compatible Responses target, separate `responses:file_search` scope, official `file_search_call` output, and aggregate usage across the private model tool loop. Anthropic Messages supports one JSON or SSE basic/dynamic `web_search_20250305`/`web_search_20260209`/`web_search_20260318` or `web_fetch_20250910`/`web_fetch_20260209`/`web_fetch_20260309`/`web_fetch_20260318` tool with required 1–4 `max_uses`, matching base model capabilities and key scopes; one search tool and one fetch tool may be combined, requiring both capability sets and scopes, and prompt caching may be combined with a tool-definition breakpoint; code-execution invocation requires matching dynamic model capabilities, `response_inclusion` and fetch `use_cache` require matching version capabilities; dynamic versions preserve caller metadata and code-execution usage, default to managed code execution, and may be forced direct. Native results, citations, encrypted continuation state, `pause_turn`, SSE event shapes, and reported search/fetch calls pass through without translation or post-dispatch fallback. Lowest-cost, free-only, and spend policies reject hosted search because its provider call cost is unknown. Attached Responses streams require `store:false`; successful terminal events replay after Conversation persistence, while `response.failed` and `error` replay without changing the Conversation. Shared generation, function tools, image input, structured output, usage, and supported streams translate across the three provider families when semantics can be preserved. Anthropic streaming requires an Anthropic-compatible target.
 - Public models support fixed, ordered fallback, weighted, lowest estimated cost, and observed latency routing. Administrators can preview selection and rejection reasons without sending inference.
-- Provider presets cover OpenAI, Anthropic, Gemini, OpenRouter, Z.AI, MiniMax, local Ollama, Mistral, Groq, DeepSeek, xAI, Together, Replicate, Fireworks, Cohere, Perplexity, Azure OpenAI, Amazon Bedrock, and Google Vertex AI. Custom OpenAI-compatible connections may use trusted owner/admin synchronous JavaScript request and response transforms in the embedded Go process. Time, stack, source, input, and output are limited, but the VM shares the server heap and is not an untrusted-code sandbox. GitHub catalog refresh is opt-in and imports metadata candidates only.
+- Provider presets cover OpenAI, Anthropic, Gemini, OpenRouter, Z.AI, MiniMax, local Ollama, Mistral, Groq, DeepSeek, xAI, Together, Replicate, Fireworks, Cohere, Perplexity, Azure OpenAI, Amazon Bedrock, Google Vertex AI, TypeSafe (Jev), and self-hosted Laya. System One decision models answer typed noul/choice/score questions natively; they are never translated to or from chat. Custom OpenAI-compatible connections may use trusted owner/admin synchronous JavaScript request and response transforms in the embedded Go process. Time, stack, source, input, and output are limited, but the VM shares the server heap and is not an untrusted-code sandbox. GitHub catalog refresh is opt-in and imports metadata candidates only.
 
-## Stable namespace plan
+## API namespaces
 
 - OpenAI-compatible API: `/api/openai/v1/`
 - Anthropic-compatible API: `/api/anthropic/v1/`
 - Gemini-compatible API: `/api/gemini/v1beta/`
+- System One typed decisions (TypeSafe Jev, self-hosted Laya): `/api/systemone/v1/` (`POST systemone`, `GET models`; scope `decisions:generate`)
 - Gateway management API: `/api/v1/`
 - Authentication API: `/api/v1/auth/`
 - Administrative API: `/api/v1/admin/`
 
-The URL path selects the client protocol. Headers never switch a request between OpenAI, Anthropic, or Gemini response formats.
+The URL path selects the client protocol. Headers never switch a request between OpenAI, Anthropic, Gemini, or System One response formats.
 
 ## Operator commands
 
@@ -43,12 +44,12 @@ The server listens on `127.0.0.1:8080` and stores data in `pocket_gateway_data` 
 
 ## Documentation
 
-- Product requirements: `docs/project/prd.md`
-- Architecture: `docs/architecture/README.md`
-- API boundaries: `docs/reference/api.md`
-- Operations and recovery: `docs/guides/operations.md`
-- Deployment: `docs/guides/deployment.md`
-- Delivery phases: `docs/plan/README.md`
-- Decisions: `docs/project/decisions/README.md`
+- Product requirements: <https://github.com/bobalazek/pocket-ai-gateway/blob/master/docs/project/prd.md>
+- Architecture: <https://github.com/bobalazek/pocket-ai-gateway/blob/master/docs/architecture/README.md>
+- API boundaries: <https://github.com/bobalazek/pocket-ai-gateway/blob/master/docs/reference/api.md>
+- Operations and recovery: <https://github.com/bobalazek/pocket-ai-gateway/blob/master/docs/guides/operations.md>
+- Deployment: <https://github.com/bobalazek/pocket-ai-gateway/blob/master/docs/guides/deployment.md>
+- Delivery phases: <https://github.com/bobalazek/pocket-ai-gateway/blob/master/docs/plan/README.md>
+- Decisions: <https://github.com/bobalazek/pocket-ai-gateway/blob/master/docs/project/decisions/README.md>
 
-Do not treat planned endpoints as implemented. Unknown prices are not zero, health output is not an authorization signal, and no public telemetry is enabled by default.
+Do not treat planned endpoints as implemented. Unknown prices are not zero, health output is not an authorization signal, and there is no public telemetry.

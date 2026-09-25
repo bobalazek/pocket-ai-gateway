@@ -4,16 +4,17 @@ on:
   push:
     tags: ["v*"]
 
-permissions:
-  contents: write
-  id-token: write
-  attestations: write
-  packages: write
+permissions: {}
 
 jobs:
   artifacts:
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    # The full gate includes race tests; the gateway package alone takes over 10 minutes.
+    timeout-minutes: 90
+    permissions:
+      contents: read
+      id-token: write
+      attestations: write
     steps:
       - name: Require release signing key
         env:
@@ -66,7 +67,12 @@ jobs:
   image:
     needs: artifacts
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 45
+    permissions:
+      contents: read
+      id-token: write
+      attestations: write
+      packages: write
     outputs:
       digest: ${{ steps.build.outputs.digest }}
     steps:
@@ -97,6 +103,9 @@ jobs:
     needs: [artifacts, image]
     runs-on: ubuntu-latest
     timeout-minutes: 10
+    permissions:
+      contents: write
+      packages: write
     steps:
       - uses: actions/checkout@v5
       - uses: actions/download-artifact@v6
@@ -111,9 +120,16 @@ jobs:
       - uses: docker/setup-buildx-action@v4
       - name: Stage draft release
         env: { GH_TOKEN: "${{ github.token }}" }
-        run: gh release create "$GITHUB_REF_NAME" dist/release/* --draft --verify-tag --generate-notes --title "$GITHUB_REF_NAME"
+        # Pre-release tags (v0.1.0-rc.1) must not become the self-update "latest" release.
+        run: |
+          prerelease=()
+          [[ "$GITHUB_REF_NAME" == *-* ]] && prerelease=(--prerelease --latest=false)
+          gh release create "$GITHUB_REF_NAME" dist/release/* --draft --verify-tag --generate-notes --title "$GITHUB_REF_NAME" "${prerelease[@]}"
       - name: Promote container image
-        run: docker buildx imagetools create --tag "ghcr.io/${{ github.repository }}:${GITHUB_REF_NAME}" --tag "ghcr.io/${{ github.repository }}:latest" "ghcr.io/${{ github.repository }}@${{ needs.image.outputs.digest }}"
+        run: |
+          tags=(--tag "ghcr.io/${{ github.repository }}:${GITHUB_REF_NAME}")
+          [[ "$GITHUB_REF_NAME" == *-* ]] || tags+=(--tag "ghcr.io/${{ github.repository }}:latest")
+          docker buildx imagetools create "${tags[@]}" "ghcr.io/${{ github.repository }}@${{ needs.image.outputs.digest }}"
       - name: Publish release
         env: { GH_TOKEN: "${{ github.token }}" }
         run: gh release edit "$GITHUB_REF_NAME" --draft=false

@@ -190,6 +190,7 @@ func (handler *Handler) RunBackground(ctx context.Context) {
 			return
 		case <-handler.wake:
 		case <-ticker.C:
+			handler.retryDeferredSettlements(ctx)
 		}
 	}
 }

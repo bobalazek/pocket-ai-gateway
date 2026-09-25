@@ -7,7 +7,7 @@ Pocket AI Gateway keeps runtime state in one private data directory. `system.db`
 - `GET /healthz` is unauthenticated process liveness.
 - `GET /readyz` checks both databases and projection capacity, then returns only ready or unavailable.
 - Signed-in owners/admins can inspect each database and usage-projection check on **Status** or through `GET /api/v1/admin/status`; the response includes the current backlog and never exposes raw database errors. Runtime diagnostics remain available in **Settings** and `GET /api/v1/admin/diagnostics`. The diagnostics API includes a sampled `goroutines` count for investigating concurrency and resource growth; it exposes no stacks, heap dumps, or public profiling endpoint.
-- `SIGINT` and `SIGTERM` stop admission through the HTTP server, allow active requests up to the 10-second shutdown deadline, cancel workers, and close both databases.
+- `SIGINT` and `SIGTERM` stop admission through the HTTP server and allow active requests up to the 10-second shutdown deadline. Requests still running are then cancelled and given up to five more seconds to record their outcome, then workers stop and both databases close. An attempt that is still open is recorded as `interrupted_unknown` at the next startup. Container and service stop timeouts should allow at least 20 seconds.
 
 Terminate through the process manager before forcing a kill. A single process owns each data directory through `instance.lock`; never share a local SQLite directory between replicas or place it on NFS.
 

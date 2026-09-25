@@ -15,6 +15,7 @@ func copyAnthropicStream(destination io.Writer, source io.Reader, publicModel st
 	reader := bufio.NewReader(source)
 	var frame bytes.Buffer
 	lineStart := 0
+	stopped := false
 	for {
 		fragment, err := reader.ReadSlice('\n')
 		if len(fragment) > maxInferenceBody-frame.Len() {
@@ -27,9 +28,15 @@ func copyAnthropicStream(destination io.Writer, source io.Reader, publicModel st
 			if !bytes.Equal(line, []byte("\n")) && !bytes.Equal(line, []byte("\r\n")) {
 				continue
 			}
-			if err := writeAnthropicStreamFrame(destination, frame.Bytes(), publicModel); err != nil {
+			event, err := writeAnthropicStreamFrame(destination, frame.Bytes(), publicModel)
+			if err != nil {
 				return err
 			}
+			// A provider error or a stream without message_stop is not a complete, fully-billed Message.
+			if event == "error" {
+				return fmt.Errorf("%w: provider stream reported an error", errUpstreamResponseInterrupted)
+			}
+			stopped = stopped || event == "message_stop"
 			frame.Reset()
 			lineStart = 0
 			continue
@@ -43,15 +50,19 @@ func copyAnthropicStream(destination io.Writer, source io.Reader, publicModel st
 		if frame.Len() > 0 {
 			return fmt.Errorf("%w: provider event is truncated", errAnthropicStreamInvalid)
 		}
+		if !stopped {
+			return fmt.Errorf("%w: provider stream ended before message_stop", errUpstreamResponseInterrupted)
+		}
 		return nil
 	}
 }
 
-func writeAnthropicStreamFrame(destination io.Writer, frame []byte, publicModel string) error {
+// writeAnthropicStreamFrame forwards one SSE frame and returns its event type.
+func writeAnthropicStreamFrame(destination io.Writer, frame []byte, publicModel string) (string, error) {
 	payload := conversationStreamFrameData(frame)
 	if len(payload) == 0 {
 		_, err := destination.Write(frame)
-		return err
+		return anthropicStreamEvent(frame), err
 	}
 	var value map[string]json.RawMessage
 	decodeErr := json.Unmarshal(payload, &value)
@@ -59,22 +70,25 @@ func writeAnthropicStreamFrame(destination io.Writer, frame []byte, publicModel 
 	if decodeErr == nil {
 		_ = json.Unmarshal(value["type"], &eventType)
 	}
+	if eventType == "" {
+		eventType = anthropicStreamEvent(frame)
+	}
 	if eventType != "message_start" && anthropicStreamEvent(frame) != "message_start" {
 		_, err := destination.Write(frame)
-		return err
+		return eventType, err
 	}
 	if decodeErr != nil {
-		return fmt.Errorf("%w: message_start contains invalid JSON", errAnthropicStreamInvalid)
+		return "", fmt.Errorf("%w: message_start contains invalid JSON", errAnthropicStreamInvalid)
 	}
 	var message map[string]json.RawMessage
 	if json.Unmarshal(value["message"], &message) != nil || message == nil {
-		return fmt.Errorf("%w: message_start omitted message", errAnthropicStreamInvalid)
+		return "", fmt.Errorf("%w: message_start omitted message", errAnthropicStreamInvalid)
 	}
 	message["model"], _ = json.Marshal(publicModel)
 	value["message"], _ = json.Marshal(message)
 	encoded, err := json.Marshal(value)
 	if err != nil {
-		return err
+		return "", err
 	}
 	var rewritten bytes.Buffer
 	walkConversationStreamLines(bytes.TrimRight(frame, "\r\n"), func(line []byte) {
@@ -88,7 +102,7 @@ func writeAnthropicStreamFrame(destination io.Writer, frame []byte, publicModel 
 	rewritten.Write(encoded)
 	rewritten.WriteString("\n\n")
 	_, err = destination.Write(rewritten.Bytes())
-	return err
+	return "message_start", err
 }
 
 func anthropicStreamEvent(frame []byte) string {

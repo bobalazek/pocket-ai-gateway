@@ -56,6 +56,26 @@ func TestAnthropicStreamDoesNotCompleteTruncatedEvent(t *testing.T) {
 	}
 }
 
+func TestAnthropicStreamRequiresCleanMessageStop(t *testing.T) {
+	start := "event: message_start\ndata: {\"type\":\"message_start\",\"message\":{\"usage\":{\"input_tokens\":1000,\"output_tokens\":1}}}\n\n"
+	delta := "event: content_block_delta\ndata: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"text_delta\",\"text\":\"hi\"}}\n\n"
+	for name, source := range map[string]string{
+		"error event":        start + delta + "event: error\ndata: {\"type\":\"error\",\"error\":{\"type\":\"overloaded_error\",\"message\":\"Overloaded\"}}\n\n",
+		"missing stop":       start + delta,
+		"untyped error data": start + "data: {\"type\":\"error\",\"error\":{\"type\":\"api_error\"}}\n\n",
+	} {
+		var output bytes.Buffer
+		if err := copyAnthropicStream(&output, strings.NewReader(source), "assistant"); !errors.Is(err, errUpstreamResponseInterrupted) {
+			t.Fatalf("%s: error = %v", name, err)
+		}
+	}
+	var output bytes.Buffer
+	complete := start + delta + "event: message_delta\ndata: {\"type\":\"message_delta\",\"usage\":{\"output_tokens\":2}}\n\nevent: message_stop\ndata: {\"type\":\"message_stop\"}\n\n"
+	if err := copyAnthropicStream(&output, strings.NewReader(complete), "assistant"); err != nil {
+		t.Fatalf("complete stream error = %v", err)
+	}
+}
+
 func TestInvalidAnthropicMessageStartDoesNotFallback(t *testing.T) {
 	var firstCalls, secondCalls atomic.Int64
 	first := httptest.NewServer(http.HandlerFunc(func(response http.ResponseWriter, request *http.Request) {

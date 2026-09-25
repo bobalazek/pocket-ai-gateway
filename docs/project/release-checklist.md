@@ -32,7 +32,7 @@
 - [ ] Confirm repository publication/attestation permissions, then publish `SHA256SUMS`, the signed update manifest, SPDX SBOM, GitHub artifact attestation, release notes, and container provenance.
 - [ ] After the first GHCR image push, make its package public and verify an unauthenticated image pull before advertising the container. Publishing the source repository does not make a new container package public.
 
-No workflow is triggered by this checklist. Verify remains manual-only; tag publication and release credentials are maintainer actions in [human tasks](human-tasks.md).
+No workflow is triggered by this checklist. Verify runs quick mode on pushes and pull requests; tag publication and release credentials are maintainer actions in [human tasks](human-tasks.md).
 
 ## Optional certification and future implementation
 
