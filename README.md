@@ -78,6 +78,21 @@ These screens use synthetic traffic in a disposable local instance. No real prov
 
 [OpenAI](docs/images/demo-providers-preset-openai.png) and [Replicate](docs/images/demo-providers-preset-replicate.png) preset previews show their base URLs and supported operations; selecting a preset does not connect or call its provider.
 
+## Download a release
+
+[GitHub Releases](https://github.com/bobalazek/pocket-ai-gateway/releases) provide Linux amd64 and arm64 binaries, `SHA256SUMS`, a signed release manifest, and an SPDX SBOM. For example:
+
+```sh
+version=0.1.0-alpha.1
+curl -fLO "https://github.com/bobalazek/pocket-ai-gateway/releases/download/v$version/pocket-ai-gateway-$version-linux-amd64.tar.gz"
+curl -fLO "https://github.com/bobalazek/pocket-ai-gateway/releases/download/v$version/SHA256SUMS"
+sha256sum --check --ignore-missing SHA256SUMS
+tar -xzf "pocket-ai-gateway-$version-linux-amd64.tar.gz"
+./pocket-ai-gateway-linux-amd64 serve
+```
+
+The release signing key is listed in [SECURITY.md](SECURITY.md). Container images will follow on GitHub Container Registry; until then, build the image as shown above.
+
 ## Run one executable
 
 To build from source, install Go 1.27.1, Node.js 22 or newer, and pnpm 10.30.3, then run:
