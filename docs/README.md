@@ -13,6 +13,7 @@ Updated September 24, 2026. Phase files separate recorded implementation evidenc
 | [Feature contracts](features/README.md) | Separate OpenAI, Anthropic, Gemini, and auth ownership with example schemas |
 | [Dashboard](design/dashboard.md) | Roles, screens, flows, structural wireframes, and responsive behavior |
 | [Design system](../DESIGN.md) | Implemented dashboard tokens, shell, components, and interaction rules |
+| [Setup](guides/setup.md) | First owner, roles, providers, models, prices, API key scopes, and limits |
 | [Operations](guides/operations.md) | Security, deployment, backup/restore, maintenance, and upgrades |
 | [Deployment](guides/deployment.md) | Standalone build, Docker, systemd, TLS proxy, data volume, and upgrade examples |
 | [Local demo](guides/demo.md) | Disposable synthetic data, local provider mocks, and dashboard screenshots |

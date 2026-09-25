@@ -84,9 +84,27 @@ sudo systemctl enable --now pocket-ai-gateway
 sudo journalctl -u pocket-ai-gateway
 ```
 
-## Docker Compose
+## Docker
 
-The included `compose.yaml` is a local deployment at `http://localhost:8080`:
+The gateway is one container. `compose.yaml` only saves typing: it builds the image and applies the volumes, loopback port, read-only root filesystem, and restart policy below. Use whichever you prefer.
+
+Without Compose:
+
+```sh
+docker build --build-arg VERSION=local -t pocket-ai-gateway:local .
+docker run -d --name pocket-ai-gateway --restart unless-stopped \
+  --read-only --tmpfs /tmp --init --stop-timeout 20 \
+  -p 127.0.0.1:8080:8080 \
+  -v pocket-gateway-data:/data \
+  -v pocket-gateway-backups:/data_backups -v pocket-gateway-backups:/backups \
+  -e POCKET_AI_GATEWAY_BACKUP_KEY \
+  pocket-ai-gateway:local
+docker logs pocket-ai-gateway
+```
+
+After a tagged release, replace the build with `ghcr.io/bobalazek/pocket-ai-gateway:<version>`. Upgrade by pulling the new tag and recreating the container with the same volumes.
+
+With Compose, the same local deployment at `http://localhost:8080`:
 
 ```sh
 docker compose up --build -d

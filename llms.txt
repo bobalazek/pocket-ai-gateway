@@ -49,6 +49,8 @@ The server listens on `127.0.0.1:8080` and stores data in `pocket_gateway_data` 
 - API boundaries: <https://github.com/bobalazek/pocket-ai-gateway/blob/master/docs/reference/api.md>
 - Operations and recovery: <https://github.com/bobalazek/pocket-ai-gateway/blob/master/docs/guides/operations.md>
 - Deployment: <https://github.com/bobalazek/pocket-ai-gateway/blob/master/docs/guides/deployment.md>
+- Setup, roles, and API key scopes: <https://github.com/bobalazek/pocket-ai-gateway/blob/master/docs/guides/setup.md>
+- Client skill for agents: <https://github.com/bobalazek/pocket-ai-gateway/blob/master/skills/pocket-ai-gateway/SKILL.md>
 - Delivery phases: <https://github.com/bobalazek/pocket-ai-gateway/blob/master/docs/plan/README.md>
 - Decisions: <https://github.com/bobalazek/pocket-ai-gateway/blob/master/docs/project/decisions/README.md>
 

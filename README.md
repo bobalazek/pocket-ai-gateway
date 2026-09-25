@@ -8,13 +8,15 @@ A self-hosted gateway for OpenAI, Anthropic, Gemini, and System One decision cli
 
 ## Try it locally
 
-With Docker Compose installed:
+The gateway is a single process and a single container. With Docker installed:
 
 ```sh
 git clone https://github.com/bobalazek/pocket-ai-gateway.git
 cd pocket-ai-gateway
 docker compose up --build -d
 ```
+
+Compose only builds that one container and attaches its volumes; the [deployment guide](docs/guides/deployment.md#docker) shows the equivalent `docker run`, and [Run one executable](#run-one-executable) needs no Docker at all.
 
 Open [http://localhost:8080/_/](http://localhost:8080/_/) and create the first owner account. In the dashboard:
 
@@ -30,7 +32,7 @@ curl http://localhost:8080/api/openai/v1/chat/completions \
   -d '{"model":"assistant","messages":[{"role":"user","content":"Hello"}]}'
 ```
 
-Use the model ID you published in place of `assistant`. Compose binds to localhost and keeps data in named volumes. For a remote server, follow the [deployment guide](docs/guides/deployment.md) to add HTTPS, set the public URL in a Compose override, and configure encrypted backups.
+Use the model ID you published in place of `assistant`. The [setup guide](docs/guides/setup.md) explains every step, including all key scopes and limits. Compose binds to localhost and keeps data in named volumes. For a remote server, follow the [deployment guide](docs/guides/deployment.md) to add HTTPS, set the public URL in a Compose override, and configure encrypted backups.
 
 ## What it does
 
@@ -88,6 +90,8 @@ The [deployment guide](docs/guides/deployment.md) covers Docker, systemd, revers
 
 ## Documentation
 
+- [Set up a gateway](docs/guides/setup.md): roles, providers, models, prices, API key scopes, and limits
+- [Client skill for AI agents](skills/pocket-ai-gateway/SKILL.md)
 - [API reference and supported operations](docs/reference/api.md)
 - [Deployment and recovery](docs/guides/deployment.md)
 - [Architecture](docs/architecture/README.md)
