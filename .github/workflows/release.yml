@@ -8,7 +8,7 @@ permissions: {}
 
 jobs:
   artifacts:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     # The full gate includes race tests; the gateway package alone takes over 10 minutes.
     timeout-minutes: 90
     permissions:
@@ -27,7 +27,7 @@ jobs:
         env:
           POCKET_AI_GATEWAY_RELEASE_SIGNING_KEY: ${{ secrets.POCKET_AI_GATEWAY_RELEASE_SIGNING_KEY }}
         run: go run ./scripts/release-manifest --print-public-key >/dev/null
-      - uses: pnpm/action-setup@v4
+      - uses: pnpm/action-setup@v6
         with: { version: 10.30.3, run_install: false }
       - uses: actions/setup-node@v6
         with:
@@ -57,7 +57,7 @@ jobs:
         run: cd dist/release && sha256sum ./* > SHA256SUMS && sha256sum --check SHA256SUMS
       - uses: actions/attest@v4
         with: { subject-path: "dist/release/*" }
-      - uses: actions/upload-artifact@v5
+      - uses: actions/upload-artifact@v7
         with:
           name: release-artifacts
           path: dist/release/*
@@ -66,7 +66,7 @@ jobs:
 
   image:
     needs: artifacts
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 45
     permissions:
       contents: read
@@ -101,14 +101,14 @@ jobs:
 
   publish:
     needs: [artifacts, image]
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 10
     permissions:
       contents: write
       packages: write
     steps:
       - uses: actions/checkout@v5
-      - uses: actions/download-artifact@v6
+      - uses: actions/download-artifact@v8
         with:
           name: release-artifacts
           path: dist/release
